@@ -36,6 +36,10 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.7.0 (February 2026)
+
+- **Auto-Follow New Sessions**: Automatically detects and switches to new Claude Code sessions in the current project (enabled by default, configurable in Settings)
+
 ### v0.6.0 (January 2026)
 
 - **User Preferences**: Persistent settings stored in backend database, survives browser refresh

@@ -12,12 +12,14 @@ export type ClockFormat = "12h" | "24h";
 interface PreferencesState {
   clockType: ClockType;
   clockFormat: ClockFormat;
+  autoFollowNewSessions: boolean;
   isLoaded: boolean;
 
   // Actions
   loadPreferences: () => Promise<void>;
   setClockType: (type: ClockType) => Promise<void>;
   setClockFormat: (format: ClockFormat) => Promise<void>;
+  setAutoFollowNewSessions: (enabled: boolean) => Promise<void>;
   cycleClockMode: () => Promise<void>;
 }
 
@@ -29,6 +31,7 @@ const API_BASE = "http://localhost:8000/api/v1/preferences";
 
 const DEFAULT_CLOCK_TYPE: ClockType = "analog";
 const DEFAULT_CLOCK_FORMAT: ClockFormat = "12h";
+const DEFAULT_AUTO_FOLLOW_NEW_SESSIONS = true;
 
 // ============================================================================
 // API HELPERS
@@ -65,6 +68,7 @@ async function setPreference(key: string, value: string): Promise<void> {
 export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   clockType: DEFAULT_CLOCK_TYPE,
   clockFormat: DEFAULT_CLOCK_FORMAT,
+  autoFollowNewSessions: DEFAULT_AUTO_FOLLOW_NEW_SESSIONS,
   isLoaded: false,
 
   loadPreferences: async () => {
@@ -73,6 +77,11 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     const clockType = (prefs.clock_type as ClockType) || DEFAULT_CLOCK_TYPE;
     const clockFormat =
       (prefs.clock_format as ClockFormat) || DEFAULT_CLOCK_FORMAT;
+    const autoFollowRaw = prefs.auto_follow_new_sessions;
+    const autoFollowNewSessions =
+      autoFollowRaw === undefined
+        ? DEFAULT_AUTO_FOLLOW_NEW_SESSIONS
+        : autoFollowRaw === "true";
 
     set({
       clockType:
@@ -83,6 +92,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         clockFormat === "12h" || clockFormat === "24h"
           ? clockFormat
           : DEFAULT_CLOCK_FORMAT,
+      autoFollowNewSessions,
       isLoaded: true,
     });
   },
@@ -95,6 +105,11 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   setClockFormat: async (clockFormat) => {
     set({ clockFormat });
     await setPreference("clock_format", clockFormat);
+  },
+
+  setAutoFollowNewSessions: async (enabled) => {
+    set({ autoFollowNewSessions: enabled });
+    await setPreference("auto_follow_new_sessions", String(enabled));
   },
 
   cycleClockMode: async () => {
@@ -131,4 +146,6 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 
 export const selectClockType = (state: PreferencesState) => state.clockType;
 export const selectClockFormat = (state: PreferencesState) => state.clockFormat;
+export const selectAutoFollowNewSessions = (state: PreferencesState) =>
+  state.autoFollowNewSessions;
 export const selectIsLoaded = (state: PreferencesState) => state.isLoaded;

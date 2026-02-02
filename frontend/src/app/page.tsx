@@ -41,7 +41,10 @@ import { agentMachineService } from "@/machines/agentMachineService";
 import { formatDistanceToNow } from "date-fns";
 import Modal from "@/components/overlay/Modal";
 import SettingsModal from "@/components/overlay/SettingsModal";
-import { usePreferencesStore } from "@/stores/preferencesStore";
+import {
+  usePreferencesStore,
+  selectAutoFollowNewSessions,
+} from "@/stores/preferencesStore";
 
 const OfficeGame = dynamic(
   () =>
@@ -108,6 +111,12 @@ export default function V2TestPage(): React.ReactNode {
     (state) => state.loadPersistedDebugSettings,
   );
   const loadPreferences = usePreferencesStore((s) => s.loadPreferences);
+  const autoFollowNewSessions = usePreferencesStore(
+    selectAutoFollowNewSessions,
+  );
+
+  // Track known session IDs for auto-follow detection
+  const knownSessionIds = useRef<Set<string>>(new Set());
 
   // Detect mobile breakpoint (< 768px)
   useEffect(() => {
@@ -216,6 +225,43 @@ export default function V2TestPage(): React.ReactNode {
       }
     }
   }, [sessions, sessionId, showStatus]);
+
+  // Auto-follow new sessions in the current project
+  useEffect(() => {
+    if (!autoFollowNewSessions || sessions.length === 0) return;
+
+    // Get current session's project root
+    const currentSession = sessions.find((s) => s.id === sessionId);
+    const currentProjectRoot = currentSession?.projectRoot;
+
+    // Find new sessions that weren't in our known set
+    const newSessions = sessions.filter(
+      (s) => !knownSessionIds.current.has(s.id),
+    );
+
+    // Update known sessions set
+    knownSessionIds.current = new Set(sessions.map((s) => s.id));
+
+    // If no new sessions or no current project context, skip
+    if (newSessions.length === 0 || !currentProjectRoot) return;
+
+    // Find a new active session in the same project
+    const newSessionInProject = newSessions.find(
+      (s) => s.projectRoot === currentProjectRoot && s.status === "active",
+    );
+
+    if (newSessionInProject && newSessionInProject.id !== sessionId) {
+      // Reset state machines and store for session switch
+      agentMachineService.reset();
+      useGameStore.getState().resetForSessionSwitch();
+
+      setSessionId(newSessionInProject.id);
+      showStatus(
+        `Auto-followed new session: ${newSessionInProject.projectName || newSessionInProject.id.slice(0, 8)}`,
+        "info",
+      );
+    }
+  }, [sessions, sessionId, autoFollowNewSessions, showStatus]);
 
   // Handle session selection
   const handleSessionSelect = async (id: string) => {
@@ -452,7 +498,7 @@ export default function V2TestPage(): React.ReactNode {
               {!isMobile && "Office Visualizer"}
               {!isMobile && (
                 <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
-                  v0.6.0
+                  v0.7.0
                 </span>
               )}
             </h1>

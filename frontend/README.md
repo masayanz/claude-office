@@ -242,12 +242,13 @@ const isCompacting = useGameStore(selectIsCompacting);
 
 User preferences are stored in the backend and synced via `preferencesStore.ts`:
 
-| Preference    | Values              | Description               |
-| ------------- | ------------------- | ------------------------- |
-| `clockType`   | `analog`, `digital` | Wall clock display mode   |
-| `clockFormat` | `12h`, `24h`        | Digital clock time format |
+| Preference              | Values              | Default  | Description                              |
+| ----------------------- | ------------------- | -------- | ---------------------------------------- |
+| `clockType`             | `analog`, `digital` | `analog` | Wall clock display mode                  |
+| `clockFormat`           | `12h`, `24h`        | `12h`    | Digital clock time format                |
+| `autoFollowNewSessions` | `true`, `false`     | `true`   | Auto-follow new sessions in same project |
 
-Click the wall clock to cycle through modes, or use the Settings modal.
+Click the wall clock to cycle through modes, or use the Settings modal to configure all preferences.
 
 ## Debug Tools
 

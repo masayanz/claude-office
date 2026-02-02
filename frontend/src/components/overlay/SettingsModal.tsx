@@ -19,8 +19,14 @@ export default function SettingsModal({
 }: SettingsModalProps): ReactNode {
   const clockType = usePreferencesStore((s) => s.clockType);
   const clockFormat = usePreferencesStore((s) => s.clockFormat);
+  const autoFollowNewSessions = usePreferencesStore(
+    (s) => s.autoFollowNewSessions,
+  );
   const setClockType = usePreferencesStore((s) => s.setClockType);
   const setClockFormat = usePreferencesStore((s) => s.setClockFormat);
+  const setAutoFollowNewSessions = usePreferencesStore(
+    (s) => s.setAutoFollowNewSessions,
+  );
 
   const handleClockTypeChange = (type: ClockType) => {
     setClockType(type);
@@ -28,6 +34,10 @@ export default function SettingsModal({
 
   const handleClockFormatChange = (format: ClockFormat) => {
     setClockFormat(format);
+  };
+
+  const handleAutoFollowToggle = () => {
+    setAutoFollowNewSessions(!autoFollowNewSessions);
   };
 
   return (
@@ -104,6 +114,45 @@ export default function SettingsModal({
             </div>
           </div>
         )}
+
+        {/* Session Settings */}
+        <div className="pt-4 border-t border-slate-800">
+          <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+            Session Behavior
+          </label>
+          <div
+            role="button"
+            tabIndex={0}
+            onClick={handleAutoFollowToggle}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                handleAutoFollowToggle();
+              }
+            }}
+            className="flex items-center justify-between p-3 rounded-lg bg-slate-800 border border-slate-700 cursor-pointer hover:border-slate-600 transition-colors"
+          >
+            <div>
+              <p className="text-slate-300 text-sm font-medium">
+                Auto-follow new sessions
+              </p>
+              <p className="text-slate-500 text-xs mt-0.5">
+                Automatically switch to new sessions in the current project
+              </p>
+            </div>
+            <div
+              className={`w-11 h-6 rounded-full relative transition-colors ${
+                autoFollowNewSessions ? "bg-purple-500" : "bg-slate-600"
+              }`}
+            >
+              <div
+                className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow-md transition-transform ${
+                  autoFollowNewSessions ? "translate-x-6" : "translate-x-1"
+                }`}
+              />
+            </div>
+          </div>
+        </div>
 
         {/* Tip */}
         <div className="pt-4 border-t border-slate-800">

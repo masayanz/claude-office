@@ -430,10 +430,14 @@ The wall clock supports multiple display modes:
 
 User preferences are stored in the backend SQLite database as key-value pairs:
 
-| Key | Values | Description |
-|-----|--------|-------------|
-| `clock_type` | `analog`, `digital` | Wall clock display mode |
-| `clock_format` | `12h`, `24h` | Digital clock time format |
+| Key | Values | Default | Description |
+|-----|--------|---------|-------------|
+| `clock_type` | `analog`, `digital` | `analog` | Wall clock display mode |
+| `clock_format` | `12h`, `24h` | `12h` | Digital clock time format |
+| `auto_follow_new_sessions` | `true`, `false` | `true` | Auto-follow new sessions in the current project |
+
+**Auto-Follow New Sessions:**
+When enabled (default), the frontend automatically detects new Claude Code sessions in the same project and switches to follow them. Detection is based on matching `projectRoot` paths. This is useful when working in the same repository and starting multiple Claude Code sessions.
 
 **API Endpoints:**
 - `GET /api/v1/preferences` - Get all preferences

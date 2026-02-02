@@ -197,6 +197,7 @@ CLAUDE_PATH_CONTAINER=/claude-data
 Preferences are stored as key-value pairs and persist across sessions. Current preferences:
 - `clock_type`: `"analog"` or `"digital"`
 - `clock_format`: `"12h"` or `"24h"` (for digital clock)
+- `auto_follow_new_sessions`: `"true"` or `"false"` (auto-follow new sessions in current project)
 
 ### WebSocket
 

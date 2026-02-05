@@ -223,7 +223,7 @@ class StateMachine:
                                 "input_tokens": input_tokens,
                                 "output_tokens": output_tokens,
                             }
-                except (json.JSONDecodeError, KeyError):
+                except json.JSONDecodeError, KeyError:
                     continue
 
         except Exception:

@@ -113,18 +113,37 @@ graph LR
 |------|---------|
 | `core/state_machine.py` | Transforms CLI events into game state; manages agent lifecycle, desk assignments, animations |
 | `core/event_processor.py` | Routes incoming events to state machine, persists to DB |
+| `core/handlers/agent_handler.py` | Agent-specific event handling logic |
+| `core/handlers/conversation_handler.py` | Conversation history management |
+| `core/handlers/session_handler.py` | Session lifecycle event handling |
+| `core/handlers/tool_handler.py` | Tool use event handling |
 | `core/summary_service.py` | AI-powered summarization for agent tasks and prompts |
 | `core/transcript_poller.py` | Polls Claude Code JSONL transcript files for token usage |
 | `core/jsonl_parser.py` | Parses Claude Code JSONL transcript format |
 | `core/quotes.py` | Quote generation for boss completion messages |
 | `core/office_layout.py` | Desk and position constants |
 | `core/path_utils.py` | Path utilities for transcript file handling |
+| `core/task_persistence.py` | Task list persistence from TodoWrite tool |
+| `core/task_file_poller.py` | Polls external task files for todo list updates |
+| `core/broadcast_service.py` | Service for broadcasting state updates to WebSocket clients |
+| `core/whiteboard_tracker.py` | Tracks whiteboard data (tool usage, agent lifespans, etc.) |
+| `core/constants.py` | Shared constants |
+| `core/logging.py` | Logging configuration |
 | `api/websocket.py` | Connection manager for broadcasting state updates |
+| `api/routes/events.py` | Event ingestion API endpoint |
+| `api/routes/sessions.py` | Session management API endpoints |
+| `api/routes/preferences.py` | User preferences API endpoints |
+| `services/git_service.py` | Git repository status service |
+| `db/database.py` | SQLite database connection and initialization |
+| `db/models.py` | SQLAlchemy database models |
 | `models/agents.py` | Agent, Boss, Office state models |
 | `models/events.py` | Event and EventData models |
 | `models/sessions.py` | GameState and session models |
-| `models/common.py` | Shared models (BubbleContent, SpeechContent) |
+| `models/common.py` | Shared models (BubbleContent, SpeechContent, TodoItem) |
 | `models/git.py` | Git status models |
+| `models/ui.py` | UI-specific model re-exports |
+| `main.py` | FastAPI application entry point |
+| `config.py` | Application configuration |
 
 ### Frontend (`frontend/src/`)
 
@@ -150,8 +169,25 @@ graph LR
 | `components/game/LoadingScreen.tsx` | Loading state display |
 | `components/game/ZoomControls.tsx` | Canvas zoom controls |
 | `components/game/EventLog.tsx` | Event history display panel |
+| `components/game/EventDetailModal.tsx` | Modal for viewing event details |
+| `components/game/ConversationHistory.tsx` | Conversation history display |
 | `components/game/GitStatusPanel.tsx` | Git repository status display |
 | `components/game/AgentStatus.tsx` | Agent status indicators |
+| `components/game/city/buildingRenderer.ts` | City building rendering with lit windows |
+| `components/game/city/skyRenderer.ts` | Sky gradient and celestial body rendering |
+| `components/game/city/timeUtils.ts` | Time period calculations for day/night cycle |
+| `components/game/whiteboard/*.tsx` | Whiteboard mode components (11 modes) |
+| `components/game/shared/drawBubble.ts` | Speech/thought bubble rendering utility |
+| `components/game/shared/drawArm.ts` | Clock arm rendering utility |
+| `components/game/shared/iconMap.ts` | Tool name to icon mapping |
+| `components/layout/HeaderControls.tsx` | Header with session controls |
+| `components/layout/RightSidebar.tsx` | Right sidebar container |
+| `components/layout/SessionSidebar.tsx` | Session list and switcher |
+| `components/layout/MobileDrawer.tsx` | Mobile-friendly drawer component |
+| `components/layout/MobileAgentActivity.tsx` | Mobile agent activity display |
+| `components/layout/StatusToast.tsx` | Toast notification component |
+| `components/overlay/Modal.tsx` | Base modal component |
+| `components/overlay/SettingsModal.tsx` | Settings configuration modal |
 | `stores/gameStore.ts` | Unified Zustand store for all game state (includes bubble queue) |
 | `stores/preferencesStore.ts` | User preferences store (clock type, format) |
 | `systems/compactionAnimation.ts` | Boss stomp animation when context compacts |
@@ -165,13 +201,29 @@ graph LR
 | `systems/hmrCleanup.ts` | Hot module replacement cleanup |
 | `hooks/useWebSocketEvents.ts` | WebSocket handler with state machine integration |
 | `hooks/useOfficeTextures.ts` | Texture loading and caching |
-| `types/index.ts` | TypeScript types matching backend Pydantic models |
+| `hooks/useSessions.ts` | Session listing and management hooks |
+| `hooks/useSessionSwitch.ts` | Session switching logic with auto-follow |
+| `machines/agentArrivalMachine.ts` | XState machine for agent arrival flow |
+| `machines/agentDepartureMachine.ts` | XState machine for agent departure flow |
+| `machines/agentMachine.ts` | XState machine for agent state management |
+| `machines/agentMachineCommon.ts` | Shared agent machine utilities |
+| `machines/agentMachineService.ts` | Agent machine service functions |
+| `machines/positionHelpers.ts` | Position calculation helpers for agents |
+| `machines/queueManager.ts` | Queue management for arrival/departure |
+| `types/index.ts` | TypeScript types barrel (re-exports from generated.ts) |
+| `types/generated.ts` | Auto-generated types from backend Pydantic models |
+| `constants/canvas.ts` | Canvas-related constants |
+| `constants/positions.ts` | Position constants for game elements |
+| `constants/quotes.ts` | Work acceptance and completion quotes |
 
 ### Hooks (`hooks/src/claude_office_hooks/`)
 
 | File | Purpose |
 |------|---------|
-| `main.py` | Event mapper; converts Claude Code hook data to backend Event format |
+| `main.py` | CLI entry point; parses arguments, reads stdin, calls event mapper, POSTs to backend |
+| `event_mapper.py` | Maps raw Claude Code hook payloads to structured Event format |
+| `config.py` | Configuration loading (environment variables, config file) |
+| `debug_logger.py` | Debug logging to file (when CLAUDE_OFFICE_DEBUG=1) |
 
 **Hook Design Principle:** Hooks must stay lightweight and fast. They should only:
 - Pass along data already present in the JSON payload from Claude Code

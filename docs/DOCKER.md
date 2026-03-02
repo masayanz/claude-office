@@ -95,10 +95,9 @@ graph TD
 | `CLAUDE_DATA_DIR` | No | `~/.claude` | Host directory to mount (used in volume mount only) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | No | - | OAuth token for AI-powered summaries |
 | `SUMMARY_ENABLED` | No | `true` | Enable/disable AI summaries |
-| `SUMMARY_MODEL` | No | `claude-haiku-4-5-20251001` | Model for AI summaries (set in `.env`) |
-| `SUMMARY_MAX_TOKENS` | No | `1000` | Max tokens for summary responses (set in `.env`) |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:///app/data/visualizer.db` | Database connection string |
-| `GIT_POLL_INTERVAL` | No | `5` | Git status polling interval in seconds (set in `.env`) |
+
+> **Note:** Additional backend settings like `SUMMARY_MODEL`, `SUMMARY_MAX_TOKENS`, and `GIT_POLL_INTERVAL` can be configured in the backend's `config.py` defaults or by extending the docker-compose environment section. See `backend/app/config.py` for all available settings.
 
 ### Example `.env` File
 
@@ -112,9 +111,6 @@ CLAUDE_PATH_HOST=/Users/yourusername/.claude
 
 # Optional: Disable AI summaries
 # SUMMARY_ENABLED=false
-
-# Optional: Configure summary model
-# SUMMARY_MODEL=claude-haiku-4-5-20251001
 ```
 
 ### Path Translation

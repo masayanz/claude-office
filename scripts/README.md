@@ -7,117 +7,129 @@ Utility scripts for testing and demonstrating the Claude Office Visualizer witho
 - [Overview](#overview)
 - [Prerequisites](#prerequisites)
 - [Available Scripts](#available-scripts)
-- [Simulation Script](#simulation-script)
+- [Simulation Scenarios](#simulation-scenarios)
 - [Single Agent Test](#single-agent-test)
+- [Type Generation](#type-generation)
 - [Running Scripts](#running-scripts)
+- [Configuration](#configuration)
 - [Related Documentation](#related-documentation)
 
 ## Overview
 
-The scripts directory contains testing utilities that simulate Claude Code events:
+The scripts directory contains testing and development utilities:
 
-- **Event Simulation**: Send realistic event sequences to exercise frontend features
-- **Background Tasks**: Simulate background task notifications for the Remote Workers display
+- **Event Simulation**: Three scenarios exercising different frontend features
 - **Pathfinding Debug**: Test agent navigation with single-agent scenarios
+- **Type Generation**: Sync TypeScript types from Pydantic backend models
 - **Demo Mode**: Showcase the visualizer without active Claude Code sessions
 
 ## Prerequisites
 
-| Requirement | Version | Purpose |
-|-------------|---------|---------|
-| Python | 3.14+ | Runtime |
-| uv | Latest | Package management |
-| Backend | Running | Event receiver at `localhost:8000` |
-| Frontend | Running | Visualization at `localhost:3000` |
+| Requirement | Purpose |
+|-------------|---------|
+| Python 3.14+ | Runtime |
+| uv | Package management |
+| Backend running | Event receiver at `localhost:8000` |
+| Frontend running | Visualization at `localhost:3000` |
 
 ## Available Scripts
 
 | Script | Purpose | Session ID |
 |--------|---------|------------|
-| `simulate_events.py` | Full simulation with multiple agents | `sim_session_123` |
+| `simulate_events.py` | Run simulation scenarios | `sim_session_123` (default) |
 | `test_single_agent.py` | Debug pathfinding with one agent | `test_single_agent` |
+| `gen_types.py` | Generate TypeScript from Pydantic models | N/A |
 
-## Simulation Script
+## Simulation Scenarios
 
-The main simulation script exercises all frontend features in a coordinated sequence.
+The main simulation script supports three scenarios, each exercising different aspects of the visualizer.
 
-### Features Tested
+### Scenario Comparison
+
+| Scenario | Duration | Agents | Purpose |
+|----------|----------|--------|---------|
+| `basic` | ~60s | 1 | Minimal happy-path lifecycle |
+| `complex` | ~5-10min | 4 | Full multi-agent workflow with compaction |
+| `edge_cases` | ~2min | 1-2 | Error handling, permissions, cleanup |
+
+### Features Tested by Scenario
 
 ```mermaid
 graph TD
-    Session[Session Lifecycle]
-    Agents[Agent Management]
-    Context[Context Window]
-    UI[UI Elements]
+    subgraph Basic["basic"]
+        B1[Session Lifecycle]
+        B2[Single Agent]
+        B3[Tool Use]
+    end
 
-    Session --> Start[Session Start]
-    Session --> End[Session End]
+    subgraph Complex["complex"]
+        C1[Multi-Agent Queueing]
+        C2[Context Compaction]
+        C3[Background Tasks]
+        C4[Heat-Map Edits]
+        C5[Todo Updates]
+    end
 
-    Agents --> Spawn[Agent Spawning]
-    Agents --> Work[Tool Use]
-    Agents --> Depart[Agent Departure]
+    subgraph EdgeCases["edge_cases"]
+        E1[Permission Requests]
+        E2[Tool Errors]
+        E3[Orphan Cleanup]
+        E4[Task Failures]
+    end
 
-    Context --> Fill[Token Accumulation]
-    Context --> Compact[Compaction at 80%]
-
-    UI --> Todos[Whiteboard Todos]
-    UI --> Remote[Remote Workers]
-    UI --> Marquee[Desk Marquees]
-    UI --> Bubbles[Speech Bubbles]
-
-    style Session fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
-    style Agents fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
-    style Context fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style UI fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
-    style Start fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style End fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Spawn fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Work fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Depart fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Fill fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Compact fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Todos fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Marquee fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Bubbles fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
-    style Remote fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    style Basic fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    style Complex fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style EdgeCases fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    style B1 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style B2 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style B3 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style C1 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style C2 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style C3 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style C4 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style C5 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style E1 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style E2 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style E3 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
+    style E4 fill:#37474f,stroke:#78909c,stroke-width:1px,color:#ffffff
 ```
 
-### Simulation Sequence
+### Basic Scenario
 
-1. **Session Start** - Initialize office, boss arrives
-2. **Todo Creation** - Add items to whiteboard
-3. **Agent Spawning** - Employees arrive from elevator with creative names
-4. **Tool Use** - Agents work at desks, showing tool bubbles
-5. **Context Building** - Token usage increases toward 80%
-6. **Compaction** - Boss walks to trash can, stomps 5 times
-7. **Agent Departure** - Employees return to elevator
-8. **Background Tasks** - Simulate 4 background task completions (3 success, 1 failure)
-9. **Session End** - Cleanup
+Simple agent spawn/complete cycle exercising the fundamental lifecycle:
 
-### Agent Names
+1. Session starts
+2. Boss receives user prompt
+3. Boss reads a file and makes an edit
+4. Single subagent spawns, does tool uses, completes
+5. Session ends
 
-The simulation uses creative job titles:
+### Complex Scenario
 
-| Name | Name | Name |
-|------|------|------|
-| Scout | Fixer | Builder |
-| Tester | Validator | Researcher |
-| Debugger | Optimizer | Refactorer |
-| Doc Writer | Type Ninja | Bug Hunter |
-| Code Sage | Test Wizard | Lint Master |
+Full multi-agent workflow (default scenario):
 
-### Context Window Behavior
+1. Session starts at 35% context (compaction triggers during work)
+2. Boss creates todo list and reads PRD
+3. Boss makes file edits to seed heat-map
+4. Four subagents spawn with staggered starts
+5. Boss updates todos while agents work
+6. Context compaction fires automatically at 80%
+7. Background task notifications arrive
+8. All todos marked complete, session ends
 
-| Parameter | Value | Description |
-|-----------|-------|-------------|
-| Max tokens | 200,000 | Simulated context limit |
-| Start percentage | 20% | Initial context usage |
-| Compaction threshold | 80% | Triggers boss animation |
-| Post-compaction | ~30% | Reduced after stomping |
+### Edge Cases Scenario
+
+Unusual but valid sequences to verify error handling:
+
+- **Permission Requests**: Boss and agent both hit permission blocks
+- **Tool Errors**: Multiple tool failures incrementing error counter
+- **Orphan Cleanup**: Subagent removed via CLEANUP without proper stop
+- **Background Task Failure**: Failed task status in Remote Workers display
+- **Long Prompts**: Prompt truncation in speech bubbles
 
 ### Background Task Notifications
 
-The simulation sends 4 background task notifications to populate the Remote Workers whiteboard mode:
+The complex scenario sends 4 background task notifications:
 
 | Task ID | Status | Summary |
 |---------|--------|---------|
@@ -155,16 +167,44 @@ Path: boss slot -> corridor -> desk 1 (256, 464)
 Path: desk -> corridor -> boss right slot (760, 868) -> elevator (86, 192)
 ```
 
+## Type Generation
+
+The `gen_types.py` script generates TypeScript interfaces from backend Pydantic models.
+
+### What It Does
+
+1. Imports all Pydantic models from `backend/app/models/`
+2. Generates JSON schema with camelCase field names
+3. Converts to TypeScript using `json-schema-to-typescript`
+4. Outputs to `frontend/src/types/generated.ts`
+
+### When to Run
+
+Run this after modifying backend Pydantic models to keep frontend types in sync.
+
 ## Running Scripts
 
 ### From Project Root
 
 ```bash
-# Run full simulation (also available via frontend Simulate button)
+# Run complex scenario (default)
 make simulate
+
+# Run specific scenario
+uv run python scripts/simulate_events.py basic
+uv run python scripts/simulate_events.py edge_cases
+
+# Run with custom session ID
+uv run python scripts/simulate_events.py complex --session my_session
+
+# Run quietly (no progress output)
+uv run python scripts/simulate_events.py basic --quiet
 
 # Run single agent test
 make test-agent
+
+# Generate TypeScript types
+make gen-types
 ```
 
 ### From Scripts Directory
@@ -172,11 +212,16 @@ make test-agent
 ```bash
 cd scripts
 
-# Full simulation
-uv run python simulate_events.py
+# Run simulation
+uv run python simulate_events.py basic
+uv run python simulate_events.py complex
+uv run python simulate_events.py edge_cases
 
 # Single agent test
 uv run python test_single_agent.py
+
+# Generate types (must run from backend/)
+cd ../backend && uv run python ../scripts/gen_types.py
 ```
 
 ### Via Backend API
@@ -193,40 +238,34 @@ Or click the **Simulate** button in the frontend header.
 
 ### Simulation Constants
 
-Edit `simulate_events.py` to adjust behavior:
+Defined in `scripts/scenarios/_base.py`:
 
 | Constant | Default | Description |
 |----------|---------|-------------|
 | `API_URL` | `http://localhost:8000/api/v1/events` | Backend endpoint |
-| `SESSION_ID` | `sim_session_123` | Session identifier |
 | `MAX_CONTEXT_TOKENS` | `200000` | Simulated context limit |
 | `COMPACTION_THRESHOLD` | `0.80` | Trigger at 80% |
 | `COMPACTION_ANIMATION_DURATION` | `10` | Seconds for animation |
 
-### Adding Custom Agents
+### Agent Names
 
-Add names to the `AGENT_NAMES` list:
+Creative job titles used across all scenarios:
 
-```python
-AGENT_NAMES = [
-    "Scout",
-    "Fixer",
-    # Add your custom names here
-    "My Custom Agent",
-]
-```
+| Name | Name | Name |
+|------|------|------|
+| Scout | Fixer | Builder |
+| Tester | Validator | Researcher |
+| Debugger | Optimizer | Refactorer |
+| Doc Writer | Type Ninja | Bug Hunter |
+| Code Sage | Test Wizard | Lint Master |
 
-### Adding Task Descriptions
+### Task Descriptions
 
-Add descriptions to the `TASK_DESCRIPTIONS` list:
+Realistic task descriptions for marquee display (sample):
 
-```python
-TASK_DESCRIPTIONS = [
-    "Analyze authentication flow...",
-    # Add your custom tasks here
-    "My custom task description for the marquee",
-]
-```
+- "Analyze authentication flow and identify security vulnerabilities in login module"
+- "Refactor database queries to improve performance and reduce N+1 query issues"
+- "Implement comprehensive unit tests for the payment processing service"
 
 ## Related Documentation
 

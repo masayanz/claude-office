@@ -109,7 +109,7 @@ Pie chart visualization of tool usage by category.
 | write | Write | Green |
 | edit | Edit | Amber |
 | bash | Bash | Purple |
-| task | Task | Pink |
+| task | Task, Agent | Pink |
 | todo | TodoWrite | Cyan |
 | web | WebSearch, WebFetch | Red |
 | other | All others | Gray |
@@ -355,6 +355,7 @@ tool_categories = {
     "Edit": "edit",
     "Bash": "bash",
     "Task": "task",
+    "Agent": "task",
     "TodoWrite": "todo",
     "WebSearch": "web",
     "WebFetch": "web",

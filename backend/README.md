@@ -34,6 +34,8 @@ graph TD
     API[FastAPI Server]
     SM[State Machine]
     EP[Event Processor]
+    EH[Event Handlers]
+    BS[Broadcast Service]
     WS[WebSocket Manager]
     DB[SQLite Database]
     AI[Summary Service]
@@ -42,18 +44,22 @@ graph TD
 
     Hooks -->|HTTP POST| API
     API --> EP
-    EP --> SM
+    EP --> EH
+    EH --> SM
     EP --> DB
     EP --> AI
-    SM --> WS
-    Git --> WS
+    SM --> BS
+    Git --> BS
+    BS --> WS
     WS -->|WebSocket| FE
 
     style Hooks fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style API fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
     style SM fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
     style EP fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style WS fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    style EH fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
+    style BS fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    style WS fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
     style DB fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
     style AI fill:#ff6f00,stroke:#ffa726,stroke-width:2px,color:#ffffff
     style Git fill:#37474f,stroke:#78909c,stroke-width:2px,color:#ffffff
@@ -63,10 +69,12 @@ graph TD
 ### Data Flow
 
 1. Claude Code hooks send events to `/api/v1/events`
-2. Event processor validates and enriches events (AI summaries, token usage)
-3. State machine updates office state (boss, agents, context)
-4. WebSocket manager broadcasts changes to connected clients
-5. Events are persisted to SQLite for replay
+2. Event processor validates and routes to appropriate handlers
+3. Handlers enrich events (AI summaries, token usage) and update state machine
+4. State machine updates office state (boss, agents, context)
+5. Broadcast service orchestrates state changes to WebSocket manager
+6. WebSocket manager broadcasts changes to connected clients
+7. Events are persisted to SQLite for replay
 
 ### Task System Support
 
@@ -233,12 +241,20 @@ backend/
 │   ├── api/
 │   │   ├── routes/
 │   │   │   ├── events.py      # Event ingestion endpoint
+│   │   │   ├── preferences.py # User preferences endpoints
 │   │   │   └── sessions.py    # Session management endpoints
 │   │   └── websocket.py       # WebSocket connection manager
 │   ├── core/
+│   │   ├── handlers/          # Event type handlers
+│   │   │   ├── agent_handler.py       # Subagent lifecycle events
+│   │   │   ├── conversation_handler.py # User conversation events
+│   │   │   ├── session_handler.py     # Session start/end events
+│   │   │   └── tool_handler.py        # Tool use events
+│   │   ├── broadcast_service.py   # State broadcast orchestration
 │   │   ├── constants.py       # Shared constants
 │   │   ├── event_processor.py # Event validation and processing
 │   │   ├── jsonl_parser.py    # Claude transcript parsing
+│   │   ├── logging.py         # Logging configuration
 │   │   ├── office_layout.py   # Office layout constants and zones
 │   │   ├── path_utils.py      # File path utilities
 │   │   ├── quotes.py          # Loading screen quotes
@@ -246,7 +262,8 @@ backend/
 │   │   ├── summary_service.py # AI-powered summaries
 │   │   ├── task_file_poller.py # Claude task file monitoring
 │   │   ├── task_persistence.py # Task database persistence
-│   │   └── transcript_poller.py # Token usage extraction
+│   │   ├── transcript_poller.py # Token usage extraction
+│   │   └── whiteboard_tracker.py # Whiteboard state tracking
 │   ├── db/
 │   │   ├── database.py        # SQLAlchemy async setup
 │   │   └── models.py          # Database models
@@ -255,7 +272,8 @@ backend/
 │   │   ├── common.py          # Shared Pydantic models
 │   │   ├── events.py          # Event type models
 │   │   ├── git.py             # Git status models
-│   │   └── sessions.py        # Session state models
+│   │   ├── sessions.py        # Session state models
+│   │   └── ui.py              # UI-specific models
 │   ├── services/
 │   │   └── git_service.py     # Git status polling service
 │   ├── config.py              # Settings management

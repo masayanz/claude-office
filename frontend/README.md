@@ -138,7 +138,7 @@ frontend/src/
 │   │   ├── TrashCanSprite.tsx    # Context utilization display
 │   │   ├── CityWindow.tsx        # Day/night city skyline
 │   │   ├── EmployeeOfTheMonth.tsx # Wall poster decoration
-│   │   ├── Whiteboard.tsx        # Todo list display
+│   │   ├── Whiteboard.tsx        # Whiteboard mode dispatcher
 │   │   ├── WallClock.tsx         # Animated wall clock (analog/digital)
 │   │   ├── DigitalClock.tsx      # LED-style digital clock display
 │   │   ├── SafetySign.tsx        # Tool counter display
@@ -151,8 +151,31 @@ frontend/src/
 │   │   ├── DebugOverlays.tsx     # Debug visualization tools
 │   │   ├── ZoomControls.tsx      # Zoom level controls
 │   │   ├── EventLog.tsx          # Event log panel
+│   │   ├── EventDetailModal.tsx  # Event detail popup
+│   │   ├── ConversationHistory.tsx # Conversation display
 │   │   ├── GitStatusPanel.tsx    # Git status display
-│   │   └── AgentStatus.tsx       # Agent status indicator
+│   │   ├── AgentStatus.tsx       # Agent status indicator
+│   │   ├── whiteboard/           # Whiteboard display modes
+│   │   │   ├── TodoListMode.tsx  # Todo list display
+│   │   │   ├── HeatMapMode.tsx   # Activity heat map
+│   │   │   ├── StonksMode.tsx    # Performance chart
+│   │   │   ├── WeatherMode.tsx   # Weather display
+│   │   │   └── ...               # Additional modes
+│   │   ├── city/                 # City skyline rendering
+│   │   │   ├── buildingRenderer.ts
+│   │   │   ├── skyRenderer.ts    # Day/night gradient
+│   │   │   └── timeUtils.ts      # Time calculations
+│   │   └── shared/               # Shared drawing utilities
+│   │       ├── drawArm.ts        # Clock arm drawing
+│   │       ├── drawBubble.ts     # Speech bubble rendering
+│   │       └── iconMap.ts        # Icon mappings
+│   ├── layout/                   # Layout components
+│   │   ├── SessionSidebar.tsx    # Session browser sidebar
+│   │   ├── RightSidebar.tsx      # Event log and status
+│   │   ├── HeaderControls.tsx    # Header buttons
+│   │   ├── MobileDrawer.tsx      # Mobile navigation
+│   │   ├── MobileAgentActivity.tsx # Mobile agent list
+│   │   └── StatusToast.tsx       # Toast notifications
 │   └── overlay/                  # Modal components
 │       ├── Modal.tsx             # Modal overlay component
 │       └── SettingsModal.tsx     # User preferences modal
@@ -160,8 +183,10 @@ frontend/src/
 │   ├── gameStore.ts              # Unified Zustand store
 │   └── preferencesStore.ts       # User preferences store
 ├── machines/
-│   ├── agentMachine.ts           # XState agent lifecycle
-│   └── agentMachineService.ts    # Machine spawning/routing
+│   ├── agentMachine.ts           # XState agent lifecycle (composition root)
+│   ├── agentMachineCommon.ts     # Shared actions, guards, delays
+│   ├── agentArrivalMachine.ts    # Arrival sub-machine states
+│   └── agentDepartureMachine.ts  # Departure sub-machine states
 ├── systems/
 │   ├── animationSystem.ts        # Single RAF loop
 │   ├── compactionAnimation.ts    # Boss stomp animation
@@ -174,18 +199,21 @@ frontend/src/
 │   └── hmrCleanup.ts             # Hot module reload cleanup
 ├── hooks/
 │   ├── useWebSocketEvents.ts     # WebSocket message handler
-│   └── useOfficeTextures.ts      # Texture loading hook
+│   ├── useOfficeTextures.ts      # Texture loading hook
+│   ├── useSessions.ts            # Session list management
+│   └── useSessionSwitch.ts       # Session switching logic
 ├── constants/
 │   ├── canvas.ts                 # Canvas dimensions
 │   ├── positions.ts              # Coordinate constants
 │   └── quotes.ts                 # Loading screen quotes
 └── types/
-    └── index.ts                  # TypeScript type definitions
+    ├── index.ts                  # TypeScript type definitions
+    └── generated.ts              # Auto-generated types from backend
 ```
 
 ## Key Components
 
-### OfficeGameV2
+### OfficeGame
 
 The main canvas component that orchestrates all rendering:
 
@@ -196,15 +224,23 @@ The main canvas component that orchestrates all rendering:
 
 ### Agent State Machine
 
-Agents follow a defined lifecycle through XState:
+Agents follow a defined lifecycle through XState v5, implemented as a composition of sub-machines:
 
 ```
-Arrival:  spawn → arriving → in_queue → walking_to_ready → conversing
+Arrival:  spawn → arriving → in_arrival_queue → walking_to_ready → conversing
           → walking_to_boss → at_boss → walking_to_desk → idle
 
-Departure: idle → departing → in_queue → walking_to_ready → conversing
-           → walking_to_boss → at_boss → walking_to_elevator → removed
+Departure: idle → departing → in_departure_queue → walking_to_ready → conversing
+           → walking_to_boss → at_boss → walking_to_elevator → in_elevator
+           → waiting_for_door_close → elevator_closing → removed
 ```
+
+The machine is split across:
+
+- `agentMachine.ts` — Composition root with shared setup
+- `agentArrivalMachine.ts` — Arrival flow states
+- `agentDepartureMachine.ts` — Departure flow states
+- `agentMachineCommon.ts` — Shared actions, guards, and delays
 
 ### Animation System
 

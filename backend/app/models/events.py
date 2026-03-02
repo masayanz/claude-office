@@ -6,6 +6,12 @@ from pydantic import BaseModel, Field
 
 from app.models.common import BubbleContent, SpeechContent
 
+__all__ = [
+    "EventType",
+    "EventData",
+    "Event",
+]
+
 
 class EventType(StrEnum):
     """Types of events sent from Claude Code hooks."""
@@ -68,6 +74,8 @@ class EventData(BaseModel):
     background_task_output_file: str | None = None
     background_task_status: str | None = None  # "completed" | "failed"
     background_task_summary: str | None = None
+    # Task list override (from CLAUDE_CODE_TASK_LIST_ID env var)
+    task_list_id: str | None = None
 
 
 class Event(BaseModel):

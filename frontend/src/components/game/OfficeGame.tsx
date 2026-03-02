@@ -20,7 +20,11 @@ import {
   Application as PixiApplication,
 } from "pixi.js";
 import { useMemo, useEffect, useRef, type ReactNode } from "react";
-import { TransformWrapper, TransformComponent } from "react-zoom-pan-pinch";
+import {
+  TransformWrapper,
+  TransformComponent,
+  type ReactZoomPanPinchRef,
+} from "react-zoom-pan-pinch";
 import { useShallow } from "zustand/react/shallow";
 import { performFullCleanup, getHmrVersion } from "@/systems/hmrCleanup";
 
@@ -98,6 +102,8 @@ extend({ Container, Text, Graphics, Sprite });
 export function OfficeGame(): ReactNode {
   // Track PixiJS app for cleanup
   const appRef = useRef<PixiApplication | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const transformRef = useRef<ReactZoomPanPinchRef>(null);
 
   // HMR version for forcing remount
   const hmrVersion = getHmrVersion();
@@ -162,8 +168,9 @@ export function OfficeGame(): ReactNode {
   const deskTasks = useMemo(() => {
     const tasks = new Map<number, string>();
     for (const agent of agents.values()) {
-      if (agent.desk && agent.phase === "idle" && agent.currentTask) {
-        tasks.set(agent.desk, agent.currentTask);
+      if (agent.desk && agent.phase === "idle") {
+        const label = agent.currentTask ?? agent.name ?? "";
+        if (label) tasks.set(agent.desk, label);
       }
     }
     return tasks;
@@ -203,13 +210,29 @@ export function OfficeGame(): ReactNode {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [debugMode]);
 
+  // Reset the pan/zoom transform whenever the container is resized (e.g. sidebar
+  // open/close). Without this, react-zoom-pan-pinch keeps a stale translate that
+  // was calculated against the old container dimensions, which crops the scene.
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const observer = new ResizeObserver(() => {
+      transformRef.current?.resetTransform(0);
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <div className="w-full h-full flex items-center justify-center overflow-hidden relative">
+    <div
+      ref={containerRef}
+      className="w-full h-full flex items-center justify-center overflow-hidden relative"
+    >
       <TransformWrapper
+        ref={transformRef}
         initialScale={1}
         minScale={1}
         maxScale={3}
-        centerOnInit={true}
         wheel={{ step: 0.1 }}
         pinch={{ step: 5 }}
         doubleClick={{ mode: "reset" }}

@@ -79,7 +79,6 @@ try:
             "--output",
             str(output_path),
             "--unreachableDefinitions",
-            "--style.singleQuote",
         ],
         capture_output=True,
         text=True,

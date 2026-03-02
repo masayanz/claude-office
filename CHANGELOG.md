@@ -2,7 +2,7 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
-## [Unreleased] - Refactor
+## [0.10.0] - 2026-03-01
 
 ### Changed
 
@@ -30,6 +30,10 @@ All notable changes to Claude Office Visualizer are documented here.
 ### Fixed
 
 - `TodoListMode.tsx` used `todo.activeForm` (camelCase) but `TodoItem` has no `alias_generator`, so the backend sends `active_form`. Fixed to match actual wire format.
+
+### Documentation
+
+- Synced all documentation with current implementation: architecture diagrams updated with event handlers and broadcast service, function locations fixed after event_processor refactor, project structure sections expanded with previously undocumented files.
 
 ---
 

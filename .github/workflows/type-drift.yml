@@ -1,6 +1,7 @@
 name: Type Drift Check
 
 on:
+  workflow_dispatch:
   push:
     branches: [main]
     paths:

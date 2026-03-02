@@ -36,9 +36,22 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.10.0 (March 2026)
+
+- **Major Codebase Refactoring**: Split large files into focused modules — whiteboard into 11 mode components, event processor into handlers, page into layout components
+- **Auto-Generated TypeScript Types**: Frontend types now auto-generated from Pydantic backend models via `make gen-types`
+- **Pre-commit Type Sync**: Hooks automatically regenerate types when backend models change
+- **CI Type Drift Detection**: Workflow fails if frontend types drift from backend models
+
+### v0.9.0 (March 2026)
+
+- **Conversation History Tab**: Chat-style panel showing full exchanges — user prompts, Claude responses (with markdown), thinking blocks, and tool calls
+- **Event Detail Modal**: Click any event to inspect its full payload
+- **Session Restore Improvements**: Reconnecting to in-progress sessions now rebuilds full conversation history
+
 ### v0.8.0 (February 2026)
 
-- **Task List Discovery Fix**: Projects using `CLAUDE_CODE_TASK_LIST_ID` now have their tasks correctly tracked. The visualizer respects this env var and polls the right task directory.
+- **Task List Discovery Fix**: Projects using `CLAUDE_CODE_TASK_LIST_ID` now have their tasks correctly tracked
 
 ### v0.7.0 (February 2026)
 

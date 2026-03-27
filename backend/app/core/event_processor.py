@@ -36,6 +36,7 @@ from app.core.handlers import (
 from app.core.jsonl_parser import get_last_assistant_response
 from app.core.state_machine import StateMachine
 from app.core.beads_poller import get_beads_poller, has_beads, init_beads_poller
+from app.services.git_service import git_service
 from app.core.task_file_poller import init_task_file_poller
 from app.core.task_persistence import load_tasks, save_tasks
 from app.core.transcript_poller import init_transcript_poller
@@ -74,9 +75,6 @@ def derive_git_root(working_dir: str) -> str | None:
 
             if parent == parent.parent:
                 break
-
-        if path.exists() and path.is_dir():
-            return str(path)
 
     except (OSError, ValueError) as e:
         logger.warning(f"Error deriving git root from {working_dir}: {e}")
@@ -285,6 +283,15 @@ class EventProcessor:
         if event.event_type == EventType.SESSION_START:
             await handle_session_start(sm, event, self._ensure_task_file_poller)
             await self._start_beads_if_available(event.session_id)
+            # Configure git service immediately so polling starts without waiting
+            # for a WebSocket reconnect (avoids race condition where WS connects
+            # before the session_start event is persisted to the DB).
+            project_root = await self.get_project_root(event.session_id)
+            if project_root:
+                git_service.configure(
+                    session_id=event.session_id,
+                    project_root=project_root,
+                )
 
         # ------------------------------------------------------------------
         # Auto-start task polling for missed SESSION_START (backend restart)

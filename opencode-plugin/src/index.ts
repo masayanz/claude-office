@@ -110,6 +110,16 @@ function debug(...args: unknown[]): void {
   }
 }
 
+/**
+ * Check if a tool name represents a subagent/task tool.
+ * OpenCode uses lowercase names (task, agent) while Claude Code uses
+ * capitalized names (Task, Agent). Match both.
+ */
+function isSubagentTool(toolName: string): boolean {
+  const lower = toolName.toLowerCase();
+  return lower === "task" || lower === "agent";
+}
+
 function isoNow(): string {
   return new Date().toISOString();
 }
@@ -237,7 +247,7 @@ const plugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
         ) {
           toolsSentPre.add(key);
           // Emit pre_tool_use or subagent_start based on tool name
-          if (toolPart.tool === "Task" || toolPart.tool === "Agent") {
+          if (isSubagentTool(toolPart.tool)) {
             const input = toolPart.state.input || {};
             await sendEvent(
               makeEvent("subagent_start", toolPart.sessionID, {
@@ -269,7 +279,7 @@ const plugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
           toolsSentPost.add(key);
           const success = toolPart.state.status === "completed";
 
-          if (toolPart.tool === "Task" || toolPart.tool === "Agent") {
+          if (isSubagentTool(toolPart.tool)) {
             await sendEvent(
               makeEvent("subagent_stop", toolPart.sessionID, {
                 agent_id: `subagent_${toolPart.callID}`,
@@ -500,7 +510,7 @@ const plugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
       const { tool, sessionID, callID } = input;
 
       // For Task/Agent tools, emit subagent_start instead
-      if (tool === "Task" || tool === "Agent") {
+      if (isSubagentTool(tool)) {
         await sendEvent(
           makeEvent("subagent_start", sessionID, {
             agent_id: `subagent_${callID}`,
@@ -543,7 +553,7 @@ const plugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
     async "tool.execute.after"(input, output) {
       const { tool, sessionID, callID } = input;
 
-      if (tool === "Task" || tool === "Agent") {
+      if (isSubagentTool(tool)) {
         await sendEvent(
           makeEvent("subagent_stop", sessionID, {
             agent_id: `subagent_${callID}`,

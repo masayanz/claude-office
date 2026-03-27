@@ -16,6 +16,7 @@ from __future__ import annotations
 import random
 import time
 import threading
+from pathlib import Path
 
 from scripts.scenarios._base import (
     AGENT_NAMES,
@@ -101,7 +102,12 @@ def _agent_workflow(
         tokens = ctx.increment_context(output_delta=random.randint(1000, 2000))
         ctx.send_event(
             "post_tool_use",
-            {"tool_name": tool, "tool_input": {"file_path": file_path}, "agent_id": agent_id, **tokens},
+            {
+                "tool_name": tool,
+                "tool_input": {"file_path": file_path},
+                "agent_id": agent_id,
+                **tokens,
+            },
         )
         time.sleep(random.uniform(1.0, 2.0))
 
@@ -130,7 +136,13 @@ def run(ctx: SimulationContext) -> None:
 
     # Session start
     ctx.log(f"[basic] Session start: {ctx.session_id}")
-    ctx.send_event("session_start", {"project_name": "BasicSimulation"})
+    ctx.send_event(
+        "session_start",
+        {
+            "project_name": "BasicSimulation",
+            "working_dir": str(Path(__file__).parent.parent.parent),
+        },
+    )
     time.sleep(1)
 
     # User prompt
@@ -144,7 +156,12 @@ def run(ctx: SimulationContext) -> None:
     tokens = ctx.increment_context(input_delta=15_000, output_delta=5_000)
     ctx.send_event(
         "pre_tool_use",
-        {"tool_name": "Read", "tool_input": {"file_path": "src/auth/login.py"}, "agent_id": "main", **tokens},
+        {
+            "tool_name": "Read",
+            "tool_input": {"file_path": "src/auth/login.py"},
+            "agent_id": "main",
+            **tokens,
+        },
     )
     time.sleep(2)
     ctx.send_event(

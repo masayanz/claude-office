@@ -21,8 +21,7 @@ import {
 import { FileStatus } from "@/types";
 
 // Check if sessionId represents a real session (not the placeholder)
-const isRealSession = (sessionId: string) =>
-  sessionId !== "None" && sessionId !== "sim_session_123";
+const isRealSession = (sessionId: string) => sessionId !== "None";
 
 const getStatusIcon = (status: FileStatus) => {
   switch (status) {
@@ -63,9 +62,15 @@ const getStatusLabel = (status: FileStatus) => {
 export function GitStatusPanel() {
   const gitStatus = useGameStore(selectGitStatus);
   const sessionId = useGameStore((state) => state.sessionId);
+  const isConnected = useGameStore((state) => state.isConnected);
   const hasSession = isRealSession(sessionId);
 
   if (!gitStatus) {
+    const message = !hasSession
+      ? "No session selected"
+      : isConnected
+        ? "No git repository detected"
+        : "Waiting for git status...";
     return (
       <div className="flex flex-col h-full bg-slate-950 border border-slate-800 rounded-lg overflow-hidden font-mono text-xs">
         <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center gap-2">
@@ -75,7 +80,7 @@ export function GitStatusPanel() {
           </span>
         </div>
         <div className="flex-grow flex items-center justify-center text-slate-600 italic p-4 text-center">
-          {hasSession ? "Waiting for git status..." : "No session selected"}
+          {message}
         </div>
       </div>
     );

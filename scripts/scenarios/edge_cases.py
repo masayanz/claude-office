@@ -12,6 +12,7 @@ Exercises unusual but valid sequences to verify the frontend handles them:
 from __future__ import annotations
 
 import time
+from pathlib import Path
 
 from scripts.scenarios._base import SimulationContext
 
@@ -20,7 +21,10 @@ def _scenario_permission_request(ctx: SimulationContext) -> None:
     """Boss and a subagent both hit permission requests simultaneously."""
     ctx.log("[edge] Scenario: permission requests")
 
-    ctx.send_event("session_start", {"project_name": "EdgeCases"})
+    ctx.send_event(
+        "session_start",
+        {"project_name": "EdgeCases", "working_dir": str(Path(__file__).parent.parent.parent)},
+    )
     time.sleep(0.5)
 
     # Long prompt to test truncation
@@ -38,7 +42,12 @@ def _scenario_permission_request(ctx: SimulationContext) -> None:
     # Boss gets permission, continues working
     ctx.send_event(
         "post_tool_use",
-        {"tool_name": "Bash", "tool_input": {"command": "rm -rf /tmp/test"}, "agent_id": "main", "success": True},
+        {
+            "tool_name": "Bash",
+            "tool_input": {"command": "rm -rf /tmp/test"},
+            "agent_id": "main",
+            "success": True,
+        },
     )
     time.sleep(1)
 
@@ -52,7 +61,11 @@ def _scenario_permission_request(ctx: SimulationContext) -> None:
     # Agent hits permission request
     ctx.send_event(
         "permission_request",
-        {"tool_name": "Write", "tool_input": {"file_path": "/etc/hosts"}, "agent_id": "edge_agent_1"},
+        {
+            "tool_name": "Write",
+            "tool_input": {"file_path": "/etc/hosts"},
+            "agent_id": "edge_agent_1",
+        },
     )
     time.sleep(3)
 
@@ -157,7 +170,10 @@ def run(ctx: SimulationContext) -> None:
     ctx.reset(initial_fraction=0.0)
     ctx.log(f"[edge] Starting edge-case scenarios: {ctx.session_id}")
 
-    ctx.send_event("session_start", {"project_name": "EdgeCases"})
+    ctx.send_event(
+        "session_start",
+        {"project_name": "EdgeCases", "working_dir": str(Path(__file__).parent.parent.parent)},
+    )
     time.sleep(1)
 
     ctx.send_event(

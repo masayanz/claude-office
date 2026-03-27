@@ -18,6 +18,7 @@ from __future__ import annotations
 import random
 import threading
 import time
+from pathlib import Path
 
 from scripts.scenarios._base import (
     AGENT_NAMES,
@@ -117,7 +118,12 @@ def _agent_workflow(
         tokens = ctx.increment_context(output_delta=random.randint(1000, 3000))
         ctx.send_event(
             "post_tool_use",
-            {"tool_name": tool, "tool_input": {"file_path": file_path}, "agent_id": agent_id, **tokens},
+            {
+                "tool_name": tool,
+                "tool_input": {"file_path": file_path},
+                "agent_id": agent_id,
+                **tokens,
+            },
         )
 
         if ctx.check_and_trigger_compaction():
@@ -149,46 +155,102 @@ _TODO_STATES = [
     # After feature A done, B in progress
     [
         {"content": "Review PRD.md", "status": "completed", "activeForm": "Reviewing PRD"},
-        {"content": "Implement feature A", "status": "completed", "activeForm": "Implementing feature A"},
-        {"content": "Implement feature B", "status": "in_progress", "activeForm": "Implementing feature B"},
+        {
+            "content": "Implement feature A",
+            "status": "completed",
+            "activeForm": "Implementing feature A",
+        },
+        {
+            "content": "Implement feature B",
+            "status": "in_progress",
+            "activeForm": "Implementing feature B",
+        },
         {"content": "Write unit tests", "status": "pending", "activeForm": "Writing tests"},
-        {"content": "Run integration tests", "status": "pending", "activeForm": "Running integration tests"},
+        {
+            "content": "Run integration tests",
+            "status": "pending",
+            "activeForm": "Running integration tests",
+        },
         {"content": "Deploy to staging", "status": "pending", "activeForm": "Deploying to staging"},
     ],
     # After feature B done, writing tests
     [
         {"content": "Review PRD.md", "status": "completed", "activeForm": "Reviewing PRD"},
-        {"content": "Implement feature A", "status": "completed", "activeForm": "Implementing feature A"},
-        {"content": "Implement feature B", "status": "completed", "activeForm": "Implementing feature B"},
+        {
+            "content": "Implement feature A",
+            "status": "completed",
+            "activeForm": "Implementing feature A",
+        },
+        {
+            "content": "Implement feature B",
+            "status": "completed",
+            "activeForm": "Implementing feature B",
+        },
         {"content": "Write unit tests", "status": "in_progress", "activeForm": "Writing tests"},
-        {"content": "Run integration tests", "status": "pending", "activeForm": "Running integration tests"},
+        {
+            "content": "Run integration tests",
+            "status": "pending",
+            "activeForm": "Running integration tests",
+        },
         {"content": "Deploy to staging", "status": "pending", "activeForm": "Deploying to staging"},
     ],
     # Running integration tests
     [
         {"content": "Review PRD.md", "status": "completed", "activeForm": "Reviewing PRD"},
-        {"content": "Implement feature A", "status": "completed", "activeForm": "Implementing feature A"},
-        {"content": "Implement feature B", "status": "completed", "activeForm": "Implementing feature B"},
+        {
+            "content": "Implement feature A",
+            "status": "completed",
+            "activeForm": "Implementing feature A",
+        },
+        {
+            "content": "Implement feature B",
+            "status": "completed",
+            "activeForm": "Implementing feature B",
+        },
         {"content": "Write unit tests", "status": "completed", "activeForm": "Writing tests"},
-        {"content": "Run integration tests", "status": "in_progress", "activeForm": "Running integration tests"},
+        {
+            "content": "Run integration tests",
+            "status": "in_progress",
+            "activeForm": "Running integration tests",
+        },
         {"content": "Deploy to staging", "status": "pending", "activeForm": "Deploying to staging"},
     ],
 ]
 
 _TODO_FINAL = [
     {"content": "Review PRD.md", "status": "completed", "activeForm": "Reviewing PRD"},
-    {"content": "Implement feature A", "status": "completed", "activeForm": "Implementing feature A"},
-    {"content": "Implement feature B", "status": "completed", "activeForm": "Implementing feature B"},
+    {
+        "content": "Implement feature A",
+        "status": "completed",
+        "activeForm": "Implementing feature A",
+    },
+    {
+        "content": "Implement feature B",
+        "status": "completed",
+        "activeForm": "Implementing feature B",
+    },
     {"content": "Write unit tests", "status": "completed", "activeForm": "Writing tests"},
-    {"content": "Run integration tests", "status": "completed", "activeForm": "Running integration tests"},
+    {
+        "content": "Run integration tests",
+        "status": "completed",
+        "activeForm": "Running integration tests",
+    },
     {"content": "Deploy to staging", "status": "completed", "activeForm": "Deploying to staging"},
 ]
 
 _BACKGROUND_TASKS = [
     {"task_id": "bg_task_a1b2c3d4", "status": "completed", "summary": "Linting codebase with ruff"},
-    {"task_id": "bg_task_e5f6g7h8", "status": "completed", "summary": "Running type checks with pyright"},
+    {
+        "task_id": "bg_task_e5f6g7h8",
+        "status": "completed",
+        "summary": "Running type checks with pyright",
+    },
     {"task_id": "bg_task_i9j0k1l2", "status": "failed", "summary": "Deploy to production failed"},
-    {"task_id": "bg_task_m3n4o5p6", "status": "completed", "summary": "Generated API documentation"},
+    {
+        "task_id": "bg_task_m3n4o5p6",
+        "status": "completed",
+        "summary": "Generated API documentation",
+    },
 ]
 
 
@@ -206,14 +268,19 @@ def run(ctx: SimulationContext) -> None:
     )
 
     ctx.log(f"[complex] Session start: {ctx.session_id}")
-    ctx.send_event("session_start", {"project_name": "Simulation"})
+    ctx.send_event(
+        "session_start",
+        {"project_name": "Simulation", "working_dir": str(Path(__file__).parent.parent.parent)},
+    )
     time.sleep(1)
 
     # User prompt with report keyword to trigger printer animation
     ctx.log("[complex] Sending user prompt...")
     ctx.send_event(
         "user_prompt_submit",
-        {"prompt": "Please implement the new feature based on PRD.md and generate a report documenting the changes made."},
+        {
+            "prompt": "Please implement the new feature based on PRD.md and generate a report documenting the changes made."
+        },
     )
     time.sleep(2)
 
@@ -225,12 +292,36 @@ def run(ctx: SimulationContext) -> None:
             "tool_name": "TodoWrite",
             "tool_input": {
                 "todos": [
-                    {"content": "Review PRD.md", "status": "in_progress", "activeForm": "Reviewing PRD"},
-                    {"content": "Implement feature A", "status": "pending", "activeForm": "Implementing feature A"},
-                    {"content": "Implement feature B", "status": "pending", "activeForm": "Implementing feature B"},
-                    {"content": "Write unit tests", "status": "pending", "activeForm": "Writing tests"},
-                    {"content": "Run integration tests", "status": "pending", "activeForm": "Running integration tests"},
-                    {"content": "Deploy to staging", "status": "pending", "activeForm": "Deploying to staging"},
+                    {
+                        "content": "Review PRD.md",
+                        "status": "in_progress",
+                        "activeForm": "Reviewing PRD",
+                    },
+                    {
+                        "content": "Implement feature A",
+                        "status": "pending",
+                        "activeForm": "Implementing feature A",
+                    },
+                    {
+                        "content": "Implement feature B",
+                        "status": "pending",
+                        "activeForm": "Implementing feature B",
+                    },
+                    {
+                        "content": "Write unit tests",
+                        "status": "pending",
+                        "activeForm": "Writing tests",
+                    },
+                    {
+                        "content": "Run integration tests",
+                        "status": "pending",
+                        "activeForm": "Running integration tests",
+                    },
+                    {
+                        "content": "Deploy to staging",
+                        "status": "pending",
+                        "activeForm": "Deploying to staging",
+                    },
                 ]
             },
             "agent_id": "main",
@@ -266,7 +357,12 @@ def run(ctx: SimulationContext) -> None:
         tokens = ctx.increment_context(input_delta=500, output_delta=200)
         ctx.send_event(
             "pre_tool_use",
-            {"tool_name": "Edit", "tool_input": {"file_path": edit_file}, "agent_id": "main", **tokens},
+            {
+                "tool_name": "Edit",
+                "tool_input": {"file_path": edit_file},
+                "agent_id": "main",
+                **tokens,
+            },
         )
         time.sleep(0.5)
         ctx.send_event(
@@ -304,7 +400,12 @@ def run(ctx: SimulationContext) -> None:
         tokens = ctx.increment_context(input_delta=2000, output_delta=1000)
         ctx.send_event(
             "pre_tool_use",
-            {"tool_name": "Read", "tool_input": {"file_path": "backend/app/main.py"}, "agent_id": "main", **tokens},
+            {
+                "tool_name": "Read",
+                "tool_input": {"file_path": "backend/app/main.py"},
+                "agent_id": "main",
+                **tokens,
+            },
         )
 
         if ctx.check_and_trigger_compaction():
@@ -316,7 +417,11 @@ def run(ctx: SimulationContext) -> None:
         time.sleep(2)
         ctx.send_event(
             "post_tool_use",
-            {"tool_name": "Read", "tool_input": {"file_path": "backend/app/main.py"}, "agent_id": "main"},
+            {
+                "tool_name": "Read",
+                "tool_input": {"file_path": "backend/app/main.py"},
+                "agent_id": "main",
+            },
         )
 
         # Only update todos on the last pass to reduce spam
@@ -358,7 +463,14 @@ def run(ctx: SimulationContext) -> None:
     time.sleep(3)
 
     ctx.log("[complex] *** SENDING STOP EVENT ***")
-    ctx.send_event("stop", {"speech_content": {"boss_phone": "All tasks completed successfully! Great work everyone."}})
+    ctx.send_event(
+        "stop",
+        {
+            "speech_content": {
+                "boss_phone": "All tasks completed successfully! Great work everyone."
+            }
+        },
+    )
     ctx.log("[complex] *** STOP EVENT SENT — waiting 10s for bubble to display ***")
     time.sleep(10)
 

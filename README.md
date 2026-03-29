@@ -36,6 +36,11 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.10.1 (March 2026)
+
+- **Beads Integration**: Auto-detects `.beads/` directories and displays beads issues as todos in the task list panel
+- **Subagent Linking Fix**: Resolved race condition where subagents could get stuck in "arriving" state
+
 ### v0.10.0 (March 2026)
 
 - **Major Codebase Refactoring**: Split large files into focused modules — whiteboard into 11 mode components, event processor into handlers, page into layout components

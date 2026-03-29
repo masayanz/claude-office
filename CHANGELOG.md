@@ -2,6 +2,37 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
+## [0.11.0] - 2026-03-28
+
+### Added
+
+- **Drag-to-resize sidebars**: Left and right sidebars now support drag-to-resize via edge handles for flexible workspace customization
+- **Drag-to-resize panels**: Internal panels (Sessions/Git Status, Agent Status/Events) support vertical resizing via dividers
+- **useDragResize hook**: Reusable custom hook for drag-to-resize functionality with viewport-relative constraints
+
+### Fixed
+
+- **Sidebar overflow on small screens**: Max heights now use viewport-relative values (70% of viewport) instead of hardcoded 800px
+- **Unused import**: Removed unused `useRef` import from SessionSidebar
+
+## [0.10.1] - 2026-03-18
+
+### Added
+
+- **Beads Integration**: Auto-detects `.beads/` directories in session project roots and polls `bd query --json` for open/in_progress/blocked issues, displaying them as todos in the visualizer's task list panel
+- **Configurable beads polling**: `BEADS_POLL_INTERVAL` environment variable (default: 3.0 seconds)
+- **Beads tests**: 37 comprehensive unit tests for beads_poller module
+
+### Fixed
+
+- **Subagent stuck in "arriving" state**: When native `SubagentStart` hooks don't produce `subagent_info` events, agents could get stuck forever. Added fallback linking in `SubagentStop` handler to match unlinked agents on-the-fly
+- **Beads CLI error handling**: WARNING on first CLI failure, DEBUG for subsequent failures (avoids silent failures)
+
+### Changed
+
+- **Stable beads hashing**: Uses SHA-256 of id/title/status/owner fields for change detection instead of full JSON serialization
+- **Updated ARCHITECTURE.md** with beads integration documentation
+
 ## [0.10.0] - 2026-03-01
 
 ### Changed

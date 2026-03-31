@@ -16,9 +16,9 @@ from pathlib import Path
 from typing import Any
 
 from sqlalchemy import delete, select
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 
 from app.config import get_settings
+from app.core.beads_poller import get_beads_poller, has_beads, init_beads_poller
 from app.core.broadcast_service import broadcast_error, broadcast_event, broadcast_state
 from app.core.handlers import (
     enrich_agent_from_transcript,
@@ -35,8 +35,6 @@ from app.core.handlers import (
 )
 from app.core.jsonl_parser import get_last_assistant_response
 from app.core.state_machine import StateMachine
-from app.core.beads_poller import get_beads_poller, has_beads, init_beads_poller
-from app.services.git_service import git_service
 from app.core.task_file_poller import init_task_file_poller
 from app.core.task_persistence import load_tasks, save_tasks
 from app.core.transcript_poller import init_transcript_poller
@@ -46,6 +44,7 @@ from app.models.agents import AgentState
 from app.models.common import TodoItem
 from app.models.events import Event, EventData, EventType
 from app.models.sessions import ConversationEntry, GameState, HistoryEntry
+from app.services.git_service import git_service
 
 logger = logging.getLogger(__name__)
 
@@ -518,8 +517,9 @@ class EventProcessor:
     async def _persist_event(self, event: Event) -> None:
         """Save event to database and manage session records.
 
-        Uses INSERT OR IGNORE to avoid UNIQUE constraint race conditions
-        when multiple events arrive concurrently for the same session.
+        Uses ``session.merge()`` for dialect-agnostic upsert that avoids
+        UNIQUE constraint race conditions when multiple events arrive
+        concurrently for the same session.
         """
         async with AsyncSessionLocal() as db:
             project_name = event.data.project_name if event.data else None
@@ -529,15 +529,17 @@ class EventProcessor:
             source_dir = project_dir or working_dir
             project_root = derive_git_root(source_dir) if source_dir else None
 
-            # Upsert: insert if not exists, ignore if already present.
-            # This avoids UNIQUE constraint failures from concurrent events.
-            # All column values are supplied explicitly here because Core-level INSERT
-            # statements do not evaluate ORM-level default= lambdas — omitting them
-            # would leave created_at, updated_at, and status as NULL.
-            now = datetime.now(UTC)
-            stmt = (
-                sqlite_insert(SessionRecord)
-                .values(
+            # Check for existing session first.
+            result = await db.execute(
+                select(SessionRecord).where(SessionRecord.id == event.session_id)
+            )
+            session_rec = result.scalar_one_or_none()
+
+            if session_rec is None:
+                # First event for this session — create record with merge
+                # to handle any concurrent insert race gracefully.
+                now = datetime.now(UTC)
+                session_rec = SessionRecord(
                     id=event.session_id,
                     project_name=project_name,
                     project_root=project_root,
@@ -545,19 +547,7 @@ class EventProcessor:
                     created_at=now,
                     updated_at=now,
                 )
-                .on_conflict_do_nothing(index_elements=["id"])
-            )
-            await db.execute(stmt)
-
-            # Fetch the (guaranteed to exist) session record for updates.
-            result = await db.execute(
-                select(SessionRecord).where(SessionRecord.id == event.session_id)
-            )
-            session_rec = result.scalar_one_or_none()
-            if session_rec is None:
-                raise RuntimeError(
-                    f"SessionRecord {event.session_id!r} not found after upsert — possible flush failure"
-                )
+                session_rec = await db.merge(session_rec)
 
             # Update project info if not yet set.
             if project_name and not session_rec.project_name:

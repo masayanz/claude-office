@@ -26,6 +26,7 @@ class SessionRecord(Base):
         onupdate=lambda: datetime.now(UTC),
     )
     status: Mapped[str] = mapped_column(String, default="active")
+    label: Mapped[str | None] = mapped_column(String, nullable=True, default=None)
 
     events: Mapped[list[EventRecord]] = relationship(
         "EventRecord", back_populates="session", cascade="all, delete-orphan"

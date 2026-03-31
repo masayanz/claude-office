@@ -26,6 +26,10 @@ uv run pytest tests/test_file.py::test_name  # Single backend test
 # Hooks (cd hooks/)
 ./install.sh       # Install hooks
 ./uninstall.sh     # Remove hooks
+
+# OpenCode Plugin (cd opencode-plugin/)
+bun run build      # Build plugin
+bun run typecheck  # Type check
 ```
 
 ## Development Workflow
@@ -65,4 +69,5 @@ See `.claude/skills/*/SKILL.md` for details.
 | Hooks | `hooks/pyproject.toml` |
 | Hooks CLI | `hooks/src/claude_office_hooks/main.py` (`__version__`) |
 | Frontend package | `frontend/package.json` |
-| Frontend display | `frontend/src/app/page.tsx` (header badge)
+| Frontend display | `frontend/src/app/page.tsx` (header badge) |
+| OpenCode plugin | `opencode-plugin/package.json` |

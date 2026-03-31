@@ -50,7 +50,7 @@ requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.135.2",
     "pydantic>=2.12.5",
-    "requests>=2.33.0",
+    "requests>=2.33.1",
     "uvicorn>=0.42.0",
     "websockets>=16.0",
 ]

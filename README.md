@@ -36,6 +36,21 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.12.0 (March 2026)
+
+- **OpenCode Plugin**: Send lifecycle events from OpenCode to visualize alongside Claude Code sessions
+- **Session Labels**: Custom labels for sessions via the sidebar, replacing auto-generated names
+- **Smarter Session Selection**: Auto-selects the session with the most events for better multi-session workflows
+
+### v0.11.0 (March 2026)
+
+- **Drag-to-Resize Sidebars & Panels**: Flexible workspace customization with edge handles and vertical dividers
+
+### v0.10.1 (March 2026)
+
+- **Beads Integration**: Auto-detects `.beads/` directories and displays beads issues as todos in the task list panel
+- **Subagent Linking Fix**: Resolved race condition where subagents could get stuck in "arriving" state
+
 ### v0.10.0 (March 2026)
 
 - **Major Codebase Refactoring**: Split large files into focused modules — whiteboard into 11 mode components, event processor into handlers, page into layout components
@@ -116,7 +131,7 @@ Then open [http://localhost:3000](http://localhost:3000) and run any Claude Code
 
 ## Prerequisites
 
-- Python 3.14+
+- Python 3.13+
 - Node.js 20+ (Bun auto-detected if available)
 - uv (Python package manager)
 - Claude Code CLI installed and configured, **or** [OpenCode](https://opencode.ai) with Bun

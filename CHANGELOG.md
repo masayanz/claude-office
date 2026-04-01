@@ -2,6 +2,25 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
+## [0.12.0] - 2026-03-31
+
+### Added
+
+- **OpenCode Plugin Integration**: New `opencode-plugin/` component sends OpenCode lifecycle events to the Claude Office backend, enabling the same pixel-art office visualization for OpenCode coding sessions
+- **Session Labels**: Sessions can now be given custom labels via `PATCH /sessions/{id}/label`, displayed in the sidebar session list
+- **Improved Session Selection**: Auto-selects the active session with the most events (better heuristic for distinguishing main vs child sessions)
+
+### Changed
+
+- **Dialect-agnostic session upsert**: Replaced SQLite-specific `INSERT OR IGNORE` with SQLAlchemy `session.merge()` for database portability
+- **All dependencies updated** to latest versions: anthropic 0.87, eslint 9.39.4, pygments 2.20, starlette 1.0, @opencode-ai/plugin 1.3.12
+- **CLAUDE.md** updated with OpenCode plugin in version management table and commands section
+
+### Fixed
+
+- **Git status panel messaging**: Three-state messaging (no session / no git repo / waiting) replaces binary check
+- **Simulation sessions**: `sim_` sessions now correctly show git status in the panel
+
 ## [0.11.0] - 2026-03-28
 
 ### Added

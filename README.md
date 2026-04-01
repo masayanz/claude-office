@@ -36,6 +36,16 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.12.0 (March 2026)
+
+- **OpenCode Plugin**: Send lifecycle events from OpenCode to visualize alongside Claude Code sessions
+- **Session Labels**: Custom labels for sessions via the sidebar, replacing auto-generated names
+- **Smarter Session Selection**: Auto-selects the session with the most events for better multi-session workflows
+
+### v0.11.0 (March 2026)
+
+- **Drag-to-Resize Sidebars & Panels**: Flexible workspace customization with edge handles and vertical dividers
+
 ### v0.10.1 (March 2026)
 
 - **Beads Integration**: Auto-detects `.beads/` directories and displays beads issues as todos in the task list panel

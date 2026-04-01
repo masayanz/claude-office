@@ -7,6 +7,8 @@ import {
   type ClockType,
   type ClockFormat,
 } from "@/stores/preferencesStore";
+import { useTranslation } from "@/hooks/useTranslation";
+import { locales, type Locale } from "@/i18n";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -24,9 +26,17 @@ export default function SettingsModal({
   );
   const setClockType = usePreferencesStore((s) => s.setClockType);
   const setClockFormat = usePreferencesStore((s) => s.setClockFormat);
+  const language = usePreferencesStore((s) => s.language);
+  const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const setAutoFollowNewSessions = usePreferencesStore(
     (s) => s.setAutoFollowNewSessions,
   );
+
+  const { t } = useTranslation();
+
+  const handleLanguageChange = (locale: Locale) => {
+    setLanguage(locale);
+  };
 
   const handleClockTypeChange = (type: ClockType) => {
     setClockType(type);
@@ -44,21 +54,43 @@ export default function SettingsModal({
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title="Settings"
+      title={t("settings.title")}
       footer={
         <button
           onClick={onClose}
           className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-lg transition-colors"
         >
-          Close
+          {t("modal.close")}
         </button>
       }
     >
       <div className="space-y-6">
+        {/* Language */}
+        <div>
+          <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+            {t("settings.language")}
+          </label>
+          <div className="flex gap-3">
+            {(Object.entries(locales) as [Locale, string][]).map(([locale, label]) => (
+              <button
+                key={locale}
+                onClick={() => handleLanguageChange(locale)}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors ${
+                  language === locale
+                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                    : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
         {/* Clock Type */}
         <div>
           <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
-            Clock Type
+            {t("settings.clockType")}
           </label>
           <div className="flex gap-3">
             <button
@@ -69,7 +101,7 @@ export default function SettingsModal({
                   : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
               }`}
             >
-              Analog
+              {t("settings.analog")}
             </button>
             <button
               onClick={() => handleClockTypeChange("digital")}
@@ -79,7 +111,7 @@ export default function SettingsModal({
                   : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
               }`}
             >
-              Digital
+              {t("settings.digital")}
             </button>
           </div>
         </div>
@@ -88,7 +120,7 @@ export default function SettingsModal({
         {clockType === "digital" && (
           <div>
             <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
-              Time Format
+              {t("settings.timeFormat")}
             </label>
             <div className="flex gap-3">
               <button
@@ -99,7 +131,7 @@ export default function SettingsModal({
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
                 }`}
               >
-                12-hour
+                {t("settings.12hour")}
               </button>
               <button
                 onClick={() => handleClockFormatChange("24h")}
@@ -109,7 +141,7 @@ export default function SettingsModal({
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
                 }`}
               >
-                24-hour
+                {t("settings.24hour")}
               </button>
             </div>
           </div>
@@ -118,7 +150,7 @@ export default function SettingsModal({
         {/* Session Settings */}
         <div className="pt-4 border-t border-slate-800">
           <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
-            Session Behavior
+            {t("settings.sessionBehavior")}
           </label>
           <div
             role="button"
@@ -134,10 +166,10 @@ export default function SettingsModal({
           >
             <div>
               <p className="text-slate-300 text-sm font-medium">
-                Auto-follow new sessions
+                {t("settings.autoFollow")}
               </p>
               <p className="text-slate-500 text-xs mt-0.5">
-                Automatically switch to new sessions in the current project
+                {t("settings.autoFollowDesc")}
               </p>
             </div>
             <div
@@ -157,7 +189,7 @@ export default function SettingsModal({
         {/* Tip */}
         <div className="pt-4 border-t border-slate-800">
           <p className="text-slate-500 text-xs">
-            Tip: Click the clock in the office to quickly cycle between modes.
+            {t("settings.clockTip")}
           </p>
         </div>
       </div>

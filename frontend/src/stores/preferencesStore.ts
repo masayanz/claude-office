@@ -1,6 +1,7 @@
 "use client";
 
 import { create } from "zustand";
+import type { Locale } from "@/i18n";
 
 // ============================================================================
 // TYPES
@@ -13,6 +14,7 @@ interface PreferencesState {
   clockType: ClockType;
   clockFormat: ClockFormat;
   autoFollowNewSessions: boolean;
+  language: Locale;
   isLoaded: boolean;
 
   // Actions
@@ -20,6 +22,7 @@ interface PreferencesState {
   setClockType: (type: ClockType) => Promise<void>;
   setClockFormat: (format: ClockFormat) => Promise<void>;
   setAutoFollowNewSessions: (enabled: boolean) => Promise<void>;
+  setLanguage: (language: Locale) => Promise<void>;
   cycleClockMode: () => Promise<void>;
 }
 
@@ -32,6 +35,7 @@ const API_BASE = "http://localhost:8000/api/v1/preferences";
 const DEFAULT_CLOCK_TYPE: ClockType = "analog";
 const DEFAULT_CLOCK_FORMAT: ClockFormat = "12h";
 const DEFAULT_AUTO_FOLLOW_NEW_SESSIONS = true;
+const DEFAULT_LANGUAGE: Locale = "en";
 
 // ============================================================================
 // API HELPERS
@@ -69,6 +73,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   clockType: DEFAULT_CLOCK_TYPE,
   clockFormat: DEFAULT_CLOCK_FORMAT,
   autoFollowNewSessions: DEFAULT_AUTO_FOLLOW_NEW_SESSIONS,
+  language: DEFAULT_LANGUAGE,
   isLoaded: false,
 
   loadPreferences: async () => {
@@ -82,6 +87,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       autoFollowRaw === undefined
         ? DEFAULT_AUTO_FOLLOW_NEW_SESSIONS
         : autoFollowRaw === "true";
+    const language = (prefs.language as Locale) || DEFAULT_LANGUAGE;
 
     set({
       clockType:
@@ -93,6 +99,7 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
           ? clockFormat
           : DEFAULT_CLOCK_FORMAT,
       autoFollowNewSessions,
+      language: language === "en" || language === "pt-BR" || language === "es" ? language : DEFAULT_LANGUAGE,
       isLoaded: true,
     });
   },
@@ -110,6 +117,11 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   setAutoFollowNewSessions: async (enabled) => {
     set({ autoFollowNewSessions: enabled });
     await setPreference("auto_follow_new_sessions", String(enabled));
+  },
+
+  setLanguage: async (language) => {
+    set({ language });
+    await setPreference("language", language);
   },
 
   cycleClockMode: async () => {
@@ -148,4 +160,5 @@ export const selectClockType = (state: PreferencesState) => state.clockType;
 export const selectClockFormat = (state: PreferencesState) => state.clockFormat;
 export const selectAutoFollowNewSessions = (state: PreferencesState) =>
   state.autoFollowNewSessions;
+export const selectLanguage = (state: PreferencesState) => state.language;
 export const selectIsLoaded = (state: PreferencesState) => state.isLoaded;

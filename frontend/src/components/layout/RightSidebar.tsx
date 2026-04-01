@@ -5,6 +5,7 @@ import { AgentStatus } from "@/components/game/AgentStatus";
 import { EventLog } from "@/components/game/EventLog";
 import { ConversationHistory } from "@/components/game/ConversationHistory";
 import { useDragResize } from "@/hooks/useDragResize";
+import { useTranslation } from "@/hooks/useTranslation";
 
 // ============================================================================
 // CONSTANTS
@@ -29,6 +30,7 @@ const getMaxPanelHeight = () => Math.floor(window.innerHeight * 0.7);
  * sidebar width (left edge) and the split between the two panels (divider).
  */
 export function RightSidebar(): React.ReactNode {
+  const { t } = useTranslation();
   const [activeTab, setActiveTab] = useState<"events" | "conversation">(
     "events",
   );
@@ -70,7 +72,7 @@ export function RightSidebar(): React.ReactNode {
       <div
         className="absolute left-0 top-0 w-1.5 h-full cursor-ew-resize z-10 hover:bg-purple-500/40 active:bg-purple-500/60 transition-colors"
         onMouseDown={handleWidthDragStart}
-        title="Drag to resize"
+        title={t("sessions.dragToResize")}
       />
 
       {/* Agent Status */}
@@ -85,7 +87,7 @@ export function RightSidebar(): React.ReactNode {
       <div
         className="flex-shrink-0 h-3 cursor-ns-resize flex items-center justify-center group -my-1"
         onMouseDown={handleHeightDragStart}
-        title="Drag to resize"
+        title={t("sessions.dragToResize")}
       >
         <div className="w-10 h-1 rounded-full bg-slate-700 group-hover:bg-purple-500 group-active:bg-purple-400 transition-colors" />
       </div>
@@ -102,7 +104,7 @@ export function RightSidebar(): React.ReactNode {
                 : "text-slate-500 hover:text-slate-300"
             }`}
           >
-            Events
+            {t("sidebar.events")}
           </button>
           <button
             onClick={() => setActiveTab("conversation")}
@@ -112,7 +114,7 @@ export function RightSidebar(): React.ReactNode {
                 : "text-slate-500 hover:text-slate-300"
             }`}
           >
-            Conversation
+            {t("sidebar.conversation")}
           </button>
         </div>
 

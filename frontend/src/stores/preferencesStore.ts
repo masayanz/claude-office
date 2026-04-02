@@ -47,8 +47,8 @@ async function fetchPreferences(): Promise<Record<string, string>> {
     if (res.ok) {
       return (await res.json()) as Record<string, string>;
     }
-  } catch {
-    // Silently fail - use defaults
+  } catch (err) {
+    console.warn("[preferences] Failed to fetch:", err);
   }
   return {};
 }
@@ -60,8 +60,8 @@ async function setPreference(key: string, value: string): Promise<void> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ value }),
     });
-  } catch {
-    // Silently fail
+  } catch (err) {
+    console.warn(`[preferences] Failed to save "${key}":`, err);
   }
 }
 
@@ -79,9 +79,8 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   loadPreferences: async () => {
     const prefs = await fetchPreferences();
 
-    const clockType = (prefs.clock_type as ClockType) || DEFAULT_CLOCK_TYPE;
-    const clockFormat =
-      (prefs.clock_format as ClockFormat) || DEFAULT_CLOCK_FORMAT;
+    const clockTypeRaw = prefs.clock_type || DEFAULT_CLOCK_TYPE;
+    const clockFormatRaw = prefs.clock_format || DEFAULT_CLOCK_FORMAT;
     const autoFollowRaw = prefs.auto_follow_new_sessions;
     const autoFollowNewSessions =
       autoFollowRaw === undefined
@@ -91,12 +90,12 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 
     set({
       clockType:
-        clockType === "analog" || clockType === "digital"
-          ? clockType
+        clockTypeRaw === "analog" || clockTypeRaw === "digital"
+          ? clockTypeRaw
           : DEFAULT_CLOCK_TYPE,
       clockFormat:
-        clockFormat === "12h" || clockFormat === "24h"
-          ? clockFormat
+        clockFormatRaw === "12h" || clockFormatRaw === "24h"
+          ? clockFormatRaw
           : DEFAULT_CLOCK_FORMAT,
       autoFollowNewSessions,
       language: isLocale(language) ? language : DEFAULT_LANGUAGE,

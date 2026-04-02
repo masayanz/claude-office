@@ -28,6 +28,7 @@ export function StatusToast({ message }: StatusToastProps): React.ReactNode {
 
   return (
     <div
+      role="status"
       className={`px-4 py-1.5 rounded-full border shadow-lg flex items-center gap-3 text-[11px] font-bold tracking-wide uppercase whitespace-nowrap animate-in slide-in-from-top-2 duration-300
         ${
           message.type === "success"

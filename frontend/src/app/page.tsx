@@ -68,7 +68,7 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   // i18n
   // ------------------------------------------------------------------
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
 
   // ------------------------------------------------------------------
   // UI-only state
@@ -151,6 +151,10 @@ export default function V2TestPage(): React.ReactNode {
   useEffect(() => {
     loadPreferences();
   }, [loadPreferences]);
+
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
 
   // ------------------------------------------------------------------
   // Mobile breakpoint detection
@@ -303,6 +307,8 @@ export default function V2TestPage(): React.ReactNode {
           {isMobile && (
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? t("modal.close") : t("mobile.menu")}
+              aria-expanded={mobileMenuOpen}
               className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white transition-colors"
             >
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}

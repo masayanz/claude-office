@@ -9,6 +9,7 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import type { Session } from "@/hooks/useSessions";
 import { useDragResize } from "@/hooks/useDragResize";
@@ -59,7 +60,8 @@ export function SessionSidebar({
   onSessionSelect,
   onDeleteSession,
 }: SessionSidebarProps): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
+  const dateFnsLocale = language === "pt-BR" ? dateFnsPtBR : language === "es" ? dateFnsEs : undefined;
 
   const {
     size: sidebarWidth,
@@ -195,6 +197,7 @@ export function SessionSidebar({
                           <span>
                             {formatDistanceToNow(new Date(session.updatedAt), {
                               addSuffix: true,
+                              locale: dateFnsLocale,
                             })}
                           </span>
                         </div>

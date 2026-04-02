@@ -131,6 +131,11 @@ const en = {
   // Loading Screen
   "loading.office": "Loading office...",
 
+  // Zoom Controls
+  "zoom.in": "Zoom in",
+  "zoom.out": "Zoom out",
+  "zoom.reset": "Reset zoom",
+
   // Mobile
   "mobile.menu": "Menu",
   "mobile.agentActivity": "Agent Activity",

@@ -133,6 +133,11 @@ const ptBR: Record<TranslationKey, string> = {
   // Loading Screen
   "loading.office": "Carregando escritório...",
 
+  // Zoom Controls
+  "zoom.in": "Aumentar zoom",
+  "zoom.out": "Diminuir zoom",
+  "zoom.reset": "Resetar zoom",
+
   // Mobile
   "mobile.menu": "Menu",
   "mobile.agentActivity": "Atividade dos Agentes",

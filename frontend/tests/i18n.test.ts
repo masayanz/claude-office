@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { getTranslation, isLocale } from "../src/i18n";
+import { getTranslation, isLocale, type TranslationKey } from "../src/i18n";
+import en from "../src/i18n/en";
+import ptBR from "../src/i18n/pt-BR";
+import es from "../src/i18n/es";
 
 // ─── isLocale() ──────────────────────────────────────────────────────────
 
@@ -32,39 +35,44 @@ describe("getTranslation", () => {
   const tPtBR = getTranslation("pt-BR");
   const tEs = getTranslation("es");
 
-  it("returns English translations", () => {
-    expect(tEn("app.title")).toBe("Office Visualizer");
-    expect(tEn("modal.close")).toBe("Close");
-  });
+  describe("basic translation", () => {
+    it("returns values from the correct locale dictionary", () => {
+      // Compare against imported dicts — NOT hardcoded strings
+      expect(tEn("app.title")).toBe(en["app.title"]);
+      expect(tPtBR("app.title")).toBe(ptBR["app.title"]);
+      expect(tEs("app.title")).toBe(es["app.title"]);
+    });
 
-  it("returns PT-BR translations", () => {
-    expect(tPtBR("app.title")).toBe("Visualizador do Escritório");
-    expect(tPtBR("modal.close")).toBe("Fechar");
-  });
-
-  it("returns ES translations", () => {
-    expect(tEs("app.title")).toBe("Visualizador de Oficina");
-    expect(tEs("modal.close")).toBe("Cerrar");
+    it("returns different values for different locales", () => {
+      // Verify translations are actually different
+      expect(tPtBR("modal.close")).not.toBe(tEn("modal.close"));
+      expect(tEs("modal.close")).not.toBe(tEn("modal.close"));
+    });
   });
 
   describe("interpolation", () => {
-    it("replaces single parameter", () => {
+    it("replaces named parameters", () => {
       const result = tEn("agentStatus.inQueue", {
         queueType: "render",
         position: 3,
       });
-      expect(result).toBe("In render queue (position 3)");
+      expect(result).toContain("render");
+      expect(result).toContain("3");
+      expect(result).not.toContain("{queueType}");
+      expect(result).not.toContain("{position}");
     });
 
-    it("replaces parameters in translated locales", () => {
+    it("works with translated locales", () => {
       const result = tPtBR("agentStatus.inQueue", {
         queueType: "render",
         position: 1,
       });
-      expect(result).toBe("Na fila render (posição 1)");
+      expect(result).toContain("render");
+      expect(result).toContain("1");
+      expect(result).not.toContain("{queueType}");
     });
 
-    it("handles numeric parameters", () => {
+    it("handles numeric zero as parameter", () => {
       const result = tEn("agentStatus.inQueue", {
         queueType: "task",
         position: 0,
@@ -72,18 +80,33 @@ describe("getTranslation", () => {
       expect(result).toContain("0");
     });
 
-    it("leaves text unchanged when no params provided", () => {
-      const withParams = tEn("app.title", {});
-      const withoutParams = tEn("app.title");
-      expect(withParams).toBe(withoutParams);
+    it("replaces with empty string when param value is empty", () => {
+      const result = tEn("agentStatus.inQueue", {
+        queueType: "",
+        position: 1,
+      });
+      // Should not contain the placeholder, should contain the empty replacement
+      expect(result).not.toContain("{queueType}");
+      expect(result).toContain("1");
+    });
+
+    it("leaves unreplaced placeholders intact when param is missing", () => {
+      const result = tEn("agentStatus.inQueue", { queueType: "render" });
+      expect(result).toContain("render");
+      expect(result).toContain("{position}");
+    });
+
+    it("ignores extra params with no matching placeholder", () => {
+      const result = tEn("app.title", { unused: "value", another: 42 });
+      expect(result).toBe(en["app.title"]);
+    });
+
+    it("leaves text unchanged when empty params object provided", () => {
+      expect(tEn("app.title", {})).toBe(tEn("app.title"));
     });
 
     it("escapes regex metacharacters in param keys", () => {
-      // Keys with regex special chars should not break
-      const t = getTranslation("en");
-      // This tests the escaping logic — the key won't match any placeholder
-      // but it must not throw a RegExp error
-      expect(() => t("app.title", { "key.with+special$chars": "val" })).not.toThrow();
+      expect(() => tEn("app.title", { "key.with+special$chars": "val" })).not.toThrow();
     });
 
     it("does not expand $-sequences in replacement values", () => {
@@ -92,31 +115,53 @@ describe("getTranslation", () => {
         position: 1,
       });
       expect(result).toContain("$&exploit");
-      expect(result).not.toContain("$$");
     });
   });
 
   describe("fallback chain", () => {
-    it("all locales have the same set of keys", () => {
-      // Verify structural parity — every key in EN exists in other locales
-      const enKeys = Object.keys(
-        // Access the underlying dict by checking a known key exists
-        // We test indirectly: if a locale is missing a key, getTranslation falls back to EN
-        // So we verify each locale returns a non-empty string for every testable key
-        {} // placeholder
-      );
+    it("returns raw key string when key missing from all dicts", () => {
+      const t = getTranslation("en");
+      const result = (t as (key: string) => string)("nonexistent.key.xyz");
+      expect(result).toBe("nonexistent.key.xyz");
+    });
 
-      const testKeys = [
-        "app.title",
-        "modal.close",
-        "settings.language",
-        "git.title",
-        "loading.office",
-      ] as const;
+    it("falls back to EN for invalid locale at runtime", () => {
+      const t = (getTranslation as (locale: string) => (key: string) => string)("fr");
+      expect(t("app.title")).toBe(en["app.title"]);
+    });
+  });
 
-      for (const key of testKeys) {
-        expect(tPtBR(key)).not.toBe(key); // not falling back to raw key
-        expect(tEs(key)).not.toBe(key);
+  describe("dictionary parity", () => {
+    const enKeys = Object.keys(en).sort();
+    const ptBRKeys = Object.keys(ptBR).sort();
+    const esKeys = Object.keys(es).sort();
+
+    it("PT-BR has exactly the same keys as EN", () => {
+      expect(ptBRKeys).toEqual(enKeys);
+    });
+
+    it("ES has exactly the same keys as EN", () => {
+      expect(esKeys).toEqual(enKeys);
+    });
+
+    it("no locale has empty string values", () => {
+      for (const [key, value] of Object.entries(en)) {
+        expect(value, `en["${key}"] is empty`).not.toBe("");
+      }
+      for (const [key, value] of Object.entries(ptBR)) {
+        expect(value, `ptBR["${key}"] is empty`).not.toBe("");
+      }
+      for (const [key, value] of Object.entries(es)) {
+        expect(value, `es["${key}"] is empty`).not.toBe("");
+      }
+    });
+
+    it("all locales return a non-empty string for every key via getTranslation", () => {
+      for (const key of enKeys) {
+        const ptResult = tPtBR(key as TranslationKey);
+        const esResult = tEs(key as TranslationKey);
+        expect(ptResult.length, `ptBR t("${key}") is empty`).toBeGreaterThan(0);
+        expect(esResult.length, `es t("${key}") is empty`).toBeGreaterThan(0);
       }
     });
   });

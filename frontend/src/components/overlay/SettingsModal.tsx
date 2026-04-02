@@ -77,8 +77,26 @@ export default function SettingsModal({
                 type="button"
                 role="radio"
                 aria-checked={language === locale}
+                tabIndex={language === locale ? 0 : -1}
                 onClick={() => handleLanguageChange(locale)}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors ${
+                onKeyDown={(e) => {
+                  const items = Object.keys(locales) as Locale[];
+                  const idx = items.indexOf(locale);
+                  let next: number | null = null;
+                  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                    e.preventDefault();
+                    next = (idx + 1) % items.length;
+                  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    next = (idx - 1 + items.length) % items.length;
+                  }
+                  if (next !== null) {
+                    handleLanguageChange(items[next]);
+                    const parent = e.currentTarget.parentElement;
+                    if (parent) (parent.children[next] as HTMLElement)?.focus();
+                  }
+                }}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                   language === locale
                     ? "bg-purple-500/20 border-purple-500 text-purple-300"
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
@@ -100,8 +118,18 @@ export default function SettingsModal({
               type="button"
               role="radio"
               aria-checked={clockType === "analog"}
+              tabIndex={clockType === "analog" ? 0 : -1}
               onClick={() => handleClockTypeChange("analog")}
-              className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors ${
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const next = clockType === "analog" ? "digital" : "analog";
+                  handleClockTypeChange(next);
+                  const sibling = clockType === "analog" ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+                  (sibling as HTMLElement)?.focus();
+                }
+              }}
+              className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                 clockType === "analog"
                   ? "bg-purple-500/20 border-purple-500 text-purple-300"
                   : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
@@ -113,8 +141,18 @@ export default function SettingsModal({
               type="button"
               role="radio"
               aria-checked={clockType === "digital"}
+              tabIndex={clockType === "digital" ? 0 : -1}
               onClick={() => handleClockTypeChange("digital")}
-              className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors ${
+              onKeyDown={(e) => {
+                if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                  e.preventDefault();
+                  const next = clockType === "digital" ? "analog" : "digital";
+                  handleClockTypeChange(next);
+                  const sibling = clockType === "digital" ? e.currentTarget.previousElementSibling : e.currentTarget.nextElementSibling;
+                  (sibling as HTMLElement)?.focus();
+                }
+              }}
+              className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                 clockType === "digital"
                   ? "bg-purple-500/20 border-purple-500 text-purple-300"
                   : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
@@ -136,8 +174,18 @@ export default function SettingsModal({
                 type="button"
                 role="radio"
                 aria-checked={clockFormat === "12h"}
+                tabIndex={clockFormat === "12h" ? 0 : -1}
                 onClick={() => handleClockFormatChange("12h")}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors ${
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const next: ClockFormat = clockFormat === "12h" ? "24h" : "12h";
+                    handleClockFormatChange(next);
+                    const sibling = clockFormat === "12h" ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
+                    (sibling as HTMLElement)?.focus();
+                  }
+                }}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                   clockFormat === "12h"
                     ? "bg-purple-500/20 border-purple-500 text-purple-300"
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
@@ -149,8 +197,18 @@ export default function SettingsModal({
                 type="button"
                 role="radio"
                 aria-checked={clockFormat === "24h"}
+                tabIndex={clockFormat === "24h" ? 0 : -1}
                 onClick={() => handleClockFormatChange("24h")}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors ${
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    const next: ClockFormat = clockFormat === "24h" ? "12h" : "24h";
+                    handleClockFormatChange(next);
+                    const sibling = clockFormat === "24h" ? e.currentTarget.previousElementSibling : e.currentTarget.nextElementSibling;
+                    (sibling as HTMLElement)?.focus();
+                  }
+                }}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                   clockFormat === "24h"
                     ? "bg-purple-500/20 border-purple-500 text-purple-300"
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
@@ -168,7 +226,8 @@ export default function SettingsModal({
             {t("settings.sessionBehavior")}
           </label>
           <div
-            role="button"
+            role="switch"
+            aria-checked={autoFollowNewSessions}
             tabIndex={0}
             onClick={handleAutoFollowToggle}
             onKeyDown={(e) => {

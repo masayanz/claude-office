@@ -133,6 +133,11 @@ const es: Record<TranslationKey, string> = {
   // Loading Screen
   "loading.office": "Cargando oficina...",
 
+  // Zoom Controls
+  "zoom.in": "Acercar",
+  "zoom.out": "Alejar",
+  "zoom.reset": "Restablecer zoom",
+
   // Mobile
   "mobile.menu": "Menú",
   "mobile.agentActivity": "Actividad de agentes",

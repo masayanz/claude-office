@@ -141,6 +141,24 @@ const en = {
   "mobile.agentActivity": "Agent Activity",
   "mobile.boss": "BOSS",
   "mobile.noActiveAgents": "No active agents",
+
+  // Status Messages
+  "status.switchedToSession": "Switched to session {sessionId}...",
+  "status.deletingSession": "Deleting session {sessionId}...",
+  "status.sessionDeleted": "Session deleted.",
+  "status.failedDeleteSession": "Failed to delete session.",
+  "status.errorConnecting": "Error connecting to backend.",
+  "status.clearingDatabase": "Clearing database...",
+  "status.databaseCleared": "Database cleared.",
+  "status.failedClearDatabase": "Failed to clear database.",
+  "status.triggeringSimulation": "Triggering simulation...",
+  "status.simulationStarted": "Simulation started!",
+  "status.failedSimulation": "Failed to trigger simulation.",
+  "status.storeReset": "Store reset.",
+  "status.sessionDeletedSwitched": "Session deleted. Switched to {sessionName}",
+  "status.sessionDeletedNoOthers": "Session deleted. No other sessions available.",
+  "status.connectedTo": "Connected to {sessionName}",
+  "status.autoFollowed": "Auto-followed new session: {sessionName}",
 } as const;
 
 export type TranslationKey = keyof typeof en;

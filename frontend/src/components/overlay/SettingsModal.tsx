@@ -114,52 +114,42 @@ export default function SettingsModal({
             {t("settings.clockType")}
           </label>
           <div className="flex gap-3" role="radiogroup" aria-label={t("settings.clockType")}>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={clockType === "analog"}
-              tabIndex={clockType === "analog" ? 0 : -1}
-              onClick={() => handleClockTypeChange("analog")}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                  e.preventDefault();
-                  const next = clockType === "analog" ? "digital" : "analog";
-                  handleClockTypeChange(next);
-                  const sibling = clockType === "analog" ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
-                  (sibling as HTMLElement)?.focus();
-                }
-              }}
-              className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
-                clockType === "analog"
-                  ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                  : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-              }`}
-            >
-              {t("settings.analog")}
-            </button>
-            <button
-              type="button"
-              role="radio"
-              aria-checked={clockType === "digital"}
-              tabIndex={clockType === "digital" ? 0 : -1}
-              onClick={() => handleClockTypeChange("digital")}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                  e.preventDefault();
-                  const next = clockType === "digital" ? "analog" : "digital";
-                  handleClockTypeChange(next);
-                  const sibling = clockType === "digital" ? e.currentTarget.previousElementSibling : e.currentTarget.nextElementSibling;
-                  (sibling as HTMLElement)?.focus();
-                }
-              }}
-              className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
-                clockType === "digital"
-                  ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                  : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-              }`}
-            >
-              {t("settings.digital")}
-            </button>
+            {(["analog", "digital"] as const).map((type) => (
+              <button
+                key={type}
+                type="button"
+                role="radio"
+                aria-checked={clockType === type}
+                tabIndex={clockType === type ? 0 : -1}
+                onClick={() => handleClockTypeChange(type)}
+                onKeyDown={(e) => {
+                  const values: ClockType[] = ["analog", "digital"];
+                  const parent = e.currentTarget.parentElement;
+                  if (!parent) return;
+                  const buttons = Array.from(parent.children) as HTMLElement[];
+                  const idx = buttons.indexOf(e.currentTarget);
+                  let nextIdx: number | null = null;
+                  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                    e.preventDefault();
+                    nextIdx = (idx + 1) % values.length;
+                  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                    e.preventDefault();
+                    nextIdx = (idx - 1 + values.length) % values.length;
+                  }
+                  if (nextIdx !== null) {
+                    handleClockTypeChange(values[nextIdx]);
+                    buttons[nextIdx].focus();
+                  }
+                }}
+                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                  clockType === type
+                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                    : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                }`}
+              >
+                {type === "analog" ? t("settings.analog") : t("settings.digital")}
+              </button>
+            ))}
           </div>
         </div>
 
@@ -170,52 +160,42 @@ export default function SettingsModal({
               {t("settings.timeFormat")}
             </label>
             <div className="flex gap-3" role="radiogroup" aria-label={t("settings.timeFormat")}>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={clockFormat === "12h"}
-                tabIndex={clockFormat === "12h" ? 0 : -1}
-                onClick={() => handleClockFormatChange("12h")}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    const next: ClockFormat = clockFormat === "12h" ? "24h" : "12h";
-                    handleClockFormatChange(next);
-                    const sibling = clockFormat === "12h" ? e.currentTarget.nextElementSibling : e.currentTarget.previousElementSibling;
-                    (sibling as HTMLElement)?.focus();
-                  }
-                }}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
-                  clockFormat === "12h"
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                    : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-                }`}
-              >
-                {t("settings.12hour")}
-              </button>
-              <button
-                type="button"
-                role="radio"
-                aria-checked={clockFormat === "24h"}
-                tabIndex={clockFormat === "24h" ? 0 : -1}
-                onClick={() => handleClockFormatChange("24h")}
-                onKeyDown={(e) => {
-                  if (e.key === "ArrowRight" || e.key === "ArrowDown" || e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    const next: ClockFormat = clockFormat === "24h" ? "12h" : "24h";
-                    handleClockFormatChange(next);
-                    const sibling = clockFormat === "24h" ? e.currentTarget.previousElementSibling : e.currentTarget.nextElementSibling;
-                    (sibling as HTMLElement)?.focus();
-                  }
-                }}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
-                  clockFormat === "24h"
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                    : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-                }`}
-              >
-                {t("settings.24hour")}
-              </button>
+              {(["12h", "24h"] as const).map((fmt) => (
+                <button
+                  key={fmt}
+                  type="button"
+                  role="radio"
+                  aria-checked={clockFormat === fmt}
+                  tabIndex={clockFormat === fmt ? 0 : -1}
+                  onClick={() => handleClockFormatChange(fmt)}
+                  onKeyDown={(e) => {
+                    const values: ClockFormat[] = ["12h", "24h"];
+                    const parent = e.currentTarget.parentElement;
+                    if (!parent) return;
+                    const buttons = Array.from(parent.children) as HTMLElement[];
+                    const idx = buttons.indexOf(e.currentTarget);
+                    let nextIdx: number | null = null;
+                    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                      e.preventDefault();
+                      nextIdx = (idx + 1) % values.length;
+                    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      nextIdx = (idx - 1 + values.length) % values.length;
+                    }
+                    if (nextIdx !== null) {
+                      handleClockFormatChange(values[nextIdx]);
+                      buttons[nextIdx].focus();
+                    }
+                  }}
+                  className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                    clockFormat === fmt
+                      ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                  }`}
+                >
+                  {fmt === "12h" ? t("settings.12hour") : t("settings.24hour")}
+                </button>
+              ))}
             </div>
           </div>
         )}

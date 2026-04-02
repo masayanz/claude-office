@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { agentMachineService } from "@/machines/agentMachineService";
 import { useGameStore } from "@/stores/gameStore";
+import { useTranslation } from "@/hooks/useTranslation";
 import {
   usePreferencesStore,
   selectAutoFollowNewSessions,
@@ -47,6 +48,8 @@ export function useSessions(
   const [sessionId, setSessionId] = useState("sim_session_123");
   const [sessions, setSessions] = useState<Session[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
+
+  const { t } = useTranslation();
 
   const autoFollowNewSessions = usePreferencesStore(
     selectAutoFollowNewSessions,
@@ -99,12 +102,12 @@ export function useSessions(
           if (newSession) {
             setSessionId(newSession.id);
             showStatus(
-              `Session deleted. Switched to ${newSession.label || newSession.projectName || newSession.id.slice(0, 8)}`,
+              t("status.sessionDeletedSwitched", { sessionName: newSession.label || newSession.projectName || newSession.id.slice(0, 8) }),
               "info",
             );
           }
         } else {
-          showStatus("Session deleted. No other sessions available.", "info");
+          showStatus(t("status.sessionDeletedNoOthers"), "info");
         }
       }
     };
@@ -133,7 +136,7 @@ export function useSessions(
       if (bestSession) {
         setSessionId(bestSession.id);
         showStatus(
-          `Connected to ${bestSession.label || bestSession.projectName || bestSession.id.slice(0, 8)}`,
+          t("status.connectedTo", { sessionName: bestSession.label || bestSession.projectName || bestSession.id.slice(0, 8) }),
           "info",
         );
       }
@@ -171,7 +174,7 @@ export function useSessions(
 
       setSessionId(newSessionInProject.id);
       showStatus(
-        `Auto-followed new session: ${newSessionInProject.label || newSessionInProject.projectName || newSessionInProject.id.slice(0, 8)}`,
+        t("status.autoFollowed", { sessionName: newSessionInProject.label || newSessionInProject.projectName || newSessionInProject.id.slice(0, 8) }),
         "info",
       );
     }

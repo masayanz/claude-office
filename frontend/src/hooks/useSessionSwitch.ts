@@ -2,6 +2,7 @@
 
 import { agentMachineService } from "@/machines/agentMachineService";
 import { useGameStore } from "@/stores/gameStore";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
 
 // ============================================================================
@@ -38,6 +39,8 @@ export function useSessionSwitch({
   fetchSessions,
   showStatus,
 }: UseSessionSwitchOptions): UseSessionSwitchResult {
+  const { t } = useTranslation();
+
   const handleSessionSelect = async (id: string): Promise<void> => {
     if (id === sessionId) return;
 
@@ -48,14 +51,14 @@ export function useSessionSwitch({
     useGameStore.getState().resetForSessionSwitch();
 
     setSessionId(id);
-    showStatus(`Switched to session ${id.slice(0, 8)}...`, "info");
+    showStatus(t("status.switchedToSession", { sessionId: id.slice(0, 8) }), "info");
   };
 
   const handleDeleteSession = async (session: Session): Promise<void> => {
     const id = session.id;
 
     try {
-      showStatus(`Deleting session ${id.slice(0, 8)}...`, "info");
+      showStatus(t("status.deletingSession", { sessionId: id.slice(0, 8) }), "info");
       const res = await fetch(`http://localhost:8000/api/v1/sessions/${id}`, {
         method: "DELETE",
       });
@@ -67,19 +70,19 @@ export function useSessionSwitch({
           setSessionId("sim_session_123");
         }
         await fetchSessions();
-        showStatus("Session deleted.", "success");
+        showStatus(t("status.sessionDeleted"), "success");
       } else {
-        showStatus("Failed to delete session.", "error");
+        showStatus(t("status.failedDeleteSession"), "error");
       }
     } catch (e) {
       console.error(e);
-      showStatus("Error connecting to backend.", "error");
+      showStatus(t("status.errorConnecting"), "error");
     }
   };
 
   const handleClearDB = async (): Promise<void> => {
     try {
-      showStatus("Clearing database...", "info");
+      showStatus(t("status.clearingDatabase"), "info");
       const res = await fetch("http://localhost:8000/api/v1/sessions", {
         method: "DELETE",
       });
@@ -88,38 +91,38 @@ export function useSessionSwitch({
         useGameStore.getState().resetForSessionSwitch();
         setSessionId("sim_session_123");
         await fetchSessions();
-        showStatus("Database cleared.", "success");
+        showStatus(t("status.databaseCleared"), "success");
       } else {
-        showStatus("Failed to clear database.", "error");
+        showStatus(t("status.failedClearDatabase"), "error");
       }
     } catch (e) {
       console.error(e);
-      showStatus("Error connecting to backend.", "error");
+      showStatus(t("status.errorConnecting"), "error");
     }
   };
 
   const handleSimulate = async (): Promise<void> => {
     try {
-      showStatus("Triggering simulation...", "info");
+      showStatus(t("status.triggeringSimulation"), "info");
       const res = await fetch(
         "http://localhost:8000/api/v1/sessions/simulate",
         { method: "POST" },
       );
       if (res.ok) {
-        showStatus("Simulation started!", "success");
+        showStatus(t("status.simulationStarted"), "success");
       } else {
-        showStatus("Failed to trigger simulation.", "error");
+        showStatus(t("status.failedSimulation"), "error");
       }
     } catch (e) {
       console.error(e);
-      showStatus("Error connecting to backend.", "error");
+      showStatus(t("status.errorConnecting"), "error");
     }
   };
 
   const handleReset = (): void => {
     agentMachineService.reset();
     useGameStore.getState().resetForSessionSwitch();
-    showStatus("Store reset.", "info");
+    showStatus(t("status.storeReset"), "info");
   };
 
   return {

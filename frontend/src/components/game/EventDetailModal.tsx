@@ -36,8 +36,6 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
     >
       {/* Backdrop */}
       <div
@@ -46,7 +44,12 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
       />
 
       {/* Modal Panel */}
-      <div className="relative z-10 w-full max-w-2xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden font-mono text-xs">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${event.type.replace(/_/g, " ")} — ${event.summary}`}
+        className="relative z-10 w-full max-w-2xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden font-mono text-xs"
+      >
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-950 flex-shrink-0">
           <span

@@ -143,6 +143,24 @@ const ptBR: Record<TranslationKey, string> = {
   "mobile.agentActivity": "Atividade dos Agentes",
   "mobile.boss": "CHEFE",
   "mobile.noActiveAgents": "Sem agentes ativos",
+
+  // Status Messages
+  "status.switchedToSession": "Mudou para sessão {sessionId}...",
+  "status.deletingSession": "Excluindo sessão {sessionId}...",
+  "status.sessionDeleted": "Sessão excluída.",
+  "status.failedDeleteSession": "Falha ao excluir sessão.",
+  "status.errorConnecting": "Erro ao conectar ao backend.",
+  "status.clearingDatabase": "Limpando banco de dados...",
+  "status.databaseCleared": "Banco de dados limpo.",
+  "status.failedClearDatabase": "Falha ao limpar banco de dados.",
+  "status.triggeringSimulation": "Iniciando simulação...",
+  "status.simulationStarted": "Simulação iniciada!",
+  "status.failedSimulation": "Falha ao iniciar simulação.",
+  "status.storeReset": "Estado resetado.",
+  "status.sessionDeletedSwitched": "Sessão excluída. Mudou para {sessionName}",
+  "status.sessionDeletedNoOthers": "Sessão excluída. Nenhuma outra sessão disponível.",
+  "status.connectedTo": "Conectado a {sessionName}",
+  "status.autoFollowed": "Seguindo nova sessão: {sessionName}",
 };
 
 export default ptBR;

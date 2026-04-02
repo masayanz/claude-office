@@ -143,6 +143,24 @@ const es: Record<TranslationKey, string> = {
   "mobile.agentActivity": "Actividad de agentes",
   "mobile.boss": "JEFE",
   "mobile.noActiveAgents": "No hay agentes activos",
+
+  // Status Messages
+  "status.switchedToSession": "Cambió a sesión {sessionId}...",
+  "status.deletingSession": "Eliminando sesión {sessionId}...",
+  "status.sessionDeleted": "Sesión eliminada.",
+  "status.failedDeleteSession": "Error al eliminar sesión.",
+  "status.errorConnecting": "Error al conectar con el backend.",
+  "status.clearingDatabase": "Limpiando base de datos...",
+  "status.databaseCleared": "Base de datos limpia.",
+  "status.failedClearDatabase": "Error al limpiar base de datos.",
+  "status.triggeringSimulation": "Iniciando simulación...",
+  "status.simulationStarted": "¡Simulación iniciada!",
+  "status.failedSimulation": "Error al iniciar simulación.",
+  "status.storeReset": "Estado reiniciado.",
+  "status.sessionDeletedSwitched": "Sesión eliminada. Cambió a {sessionName}",
+  "status.sessionDeletedNoOthers": "Sesión eliminada. No hay otras sesiones disponibles.",
+  "status.connectedTo": "Conectado a {sessionName}",
+  "status.autoFollowed": "Siguiendo nueva sesión: {sessionName}",
 };
 
 export default es;

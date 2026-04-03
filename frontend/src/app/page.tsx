@@ -213,9 +213,7 @@ export default function V2TestPage(): React.ReactNode {
           </>
         }
       >
-        <p>
-          {t("modal.wipeWarning")}
-        </p>
+        <p>{t("modal.wipeWarning")}</p>
       </Modal>
 
       <Modal
@@ -294,8 +292,9 @@ export default function V2TestPage(): React.ReactNode {
           ?
         </p>
         <p className="text-slate-400 text-sm mt-2">
-          {t("modal.deleteSessionWarning")} {sessionPendingDelete?.eventCount ?? 0}{" "}
-          {t("modal.events")}. {t("modal.cannotBeUndone")}
+          {t("modal.deleteSessionWarning")}{" "}
+          {sessionPendingDelete?.eventCount ?? 0} {t("modal.events")}.{" "}
+          {t("modal.cannotBeUndone")}
         </p>
       </Modal>
 

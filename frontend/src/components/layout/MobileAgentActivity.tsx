@@ -46,7 +46,9 @@ export function MobileAgentActivity({
         <div className="mb-3 p-2 bg-slate-900/50 rounded-lg border border-amber-500/30">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full bg-amber-500" />
-            <span className="text-amber-400 font-bold text-xs">{t("mobile.boss")}</span>
+            <span className="text-amber-400 font-bold text-xs">
+              {t("mobile.boss")}
+            </span>
             <span className="text-slate-500 text-[10px] font-mono ml-auto">
               {boss.backendState}
             </span>

@@ -75,6 +75,19 @@ const ptBR: Record<TranslationKey, string> = {
   "eventLog.events": "eventos",
   "eventLog.waiting": "Aguardando eventos...",
 
+  // Event Types
+  "eventType.pre_tool_use": "Pré Uso de Ferramenta",
+  "eventType.post_tool_use": "Pós Uso de Ferramenta",
+  "eventType.user_prompt_submit": "Prompt do Usuário",
+  "eventType.permission_request": "Pedido de Permissão",
+  "eventType.subagent_start": "Início do Subagente",
+  "eventType.subagent_stop": "Fim do Subagente",
+  "eventType.session_start": "Início da Sessão",
+  "eventType.session_end": "Fim da Sessão",
+  "eventType.stop": "Parada",
+  "eventType.error": "Erro",
+  "eventType.background_task_notification": "Tarefa em Segundo Plano",
+
   // Agent Status
   "agentStatus.title": "Estado dos Agentes",
   "agentStatus.agents": "agentes",
@@ -128,7 +141,8 @@ const ptBR: Record<TranslationKey, string> = {
   "eventDetail.resultSummary": "Resumo do Resultado",
   "eventDetail.errorType": "Tipo de Erro",
   "eventDetail.toolInput": "Entrada da Ferramenta",
-  "eventDetail.noDetail": "Nenhum detalhe adicional disponível para este evento.",
+  "eventDetail.noDetail":
+    "Nenhum detalhe adicional disponível para este evento.",
 
   // Loading Screen
   "loading.office": "Carregando escritório...",
@@ -158,7 +172,8 @@ const ptBR: Record<TranslationKey, string> = {
   "status.failedSimulation": "Falha ao iniciar simulação.",
   "status.storeReset": "Estado resetado.",
   "status.sessionDeletedSwitched": "Sessão excluída. Mudou para {sessionName}",
-  "status.sessionDeletedNoOthers": "Sessão excluída. Nenhuma outra sessão disponível.",
+  "status.sessionDeletedNoOthers":
+    "Sessão excluída. Nenhuma outra sessão disponível.",
   "status.connectedTo": "Conectado a {sessionName}",
   "status.autoFollowed": "Seguindo nova sessão: {sessionName}",
 };

@@ -73,6 +73,19 @@ const en = {
   "eventLog.events": "events",
   "eventLog.waiting": "Waiting for events...",
 
+  // Event Types
+  "eventType.pre_tool_use": "Pre Tool Use",
+  "eventType.post_tool_use": "Post Tool Use",
+  "eventType.user_prompt_submit": "User Prompt",
+  "eventType.permission_request": "Permission Request",
+  "eventType.subagent_start": "Subagent Start",
+  "eventType.subagent_stop": "Subagent Stop",
+  "eventType.session_start": "Session Start",
+  "eventType.session_end": "Session End",
+  "eventType.stop": "Stop",
+  "eventType.error": "Error",
+  "eventType.background_task_notification": "Background Task",
+
   // Agent Status
   "agentStatus.title": "Agent State",
   "agentStatus.agents": "agents",
@@ -156,7 +169,8 @@ const en = {
   "status.failedSimulation": "Failed to trigger simulation.",
   "status.storeReset": "Store reset.",
   "status.sessionDeletedSwitched": "Session deleted. Switched to {sessionName}",
-  "status.sessionDeletedNoOthers": "Session deleted. No other sessions available.",
+  "status.sessionDeletedNoOthers":
+    "Session deleted. No other sessions available.",
   "status.connectedTo": "Connected to {sessionName}",
   "status.autoFollowed": "Auto-followed new session: {sessionName}",
 } as const;

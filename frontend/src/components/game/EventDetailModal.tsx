@@ -9,7 +9,10 @@ import { X } from "lucide-react";
 import { format } from "date-fns";
 import type { EventLogEntry } from "@/stores/gameStore";
 import { useTranslation } from "@/hooks/useTranslation";
-import { getEventTypeBadgeClasses } from "@/utils/event-type-styles";
+import {
+  getEventTypeBadgeClasses,
+  getEventTypeName,
+} from "@/utils/event-type-styles";
 
 interface EventDetailModalProps {
   event: EventLogEntry;
@@ -34,9 +37,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   const hasDetail = Object.keys(detail).length > 0;
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
-    >
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
@@ -47,7 +48,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
       <div
         role="dialog"
         aria-modal="true"
-        aria-label={`${event.type.replace(/_/g, " ")} — ${event.summary}`}
+        aria-label={`${getEventTypeName(event.type, t)} — ${event.summary}`}
         className="relative z-10 w-full max-w-2xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden font-mono text-xs"
       >
         {/* Header */}
@@ -55,7 +56,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
           <span
             className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wider ${getEventTypeBadgeClasses(event.type)}`}
           >
-            {event.type.replace(/_/g, " ")}
+            {getEventTypeName(event.type, t)}
           </span>
           <span className="text-slate-400 text-[11px]">
             {format(event.timestamp, "HH:mm:ss.SSS")}

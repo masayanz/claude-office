@@ -10,7 +10,6 @@ import {
   X,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import { EventLog } from "@/components/game/EventLog";
 import { useTranslation } from "@/hooks/useTranslation";
@@ -52,8 +51,7 @@ export function MobileDrawer({
   onReset,
   onClearDB,
 }: MobileDrawerProps): React.ReactNode {
-  const { t, language } = useTranslation();
-  const dateFnsLocale = language === "pt-BR" ? dateFnsPtBR : language === "es" ? dateFnsEs : undefined;
+  const { t, dateFnsLocale } = useTranslation();
 
   if (!isOpen) return null;
 
@@ -183,7 +181,9 @@ export function MobileDrawer({
                         </span>
                       </div>
                       <div className="flex justify-between text-[10px] text-slate-500">
-                        <span>{session.eventCount} {t("sessions.events")}</span>
+                        <span>
+                          {session.eventCount} {t("sessions.events")}
+                        </span>
                         <span>
                           {formatDistanceToNow(new Date(session.updatedAt), {
                             addSuffix: true,

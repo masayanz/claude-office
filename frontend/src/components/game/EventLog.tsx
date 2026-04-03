@@ -17,7 +17,10 @@ import { format } from "date-fns";
 import { Terminal } from "lucide-react";
 import { EventDetailModal } from "@/components/game/EventDetailModal";
 import { useTranslation } from "@/hooks/useTranslation";
-import { getEventTypeTextColor } from "@/utils/event-type-styles";
+import {
+  getEventTypeTextColor,
+  getEventTypeName,
+} from "@/utils/event-type-styles";
 
 function hasNonEmptyDetail(event: EventLogEntry): boolean {
   return !!event.detail && Object.keys(event.detail).length > 0;
@@ -38,7 +41,9 @@ export function EventLog() {
             <Terminal size={14} className="text-orange-500" />
             {t("eventLog.title")}
           </div>
-          <div className="text-slate-500">{eventLog.length} {t("eventLog.events")}</div>
+          <div className="text-slate-500">
+            {eventLog.length} {t("eventLog.events")}
+          </div>
         </div>
 
         <div className="flex-grow overflow-y-auto p-2 space-y-1">
@@ -69,7 +74,7 @@ export function EventLog() {
                   <span
                     className={`flex-shrink-0 font-bold text-[10px] ${getEventTypeTextColor(event.type)}`}
                   >
-                    [{event.type.replace(/_/g, " ").toUpperCase()}]
+                    [{getEventTypeName(event.type, t).toUpperCase()}]
                   </span>
                   {event.agentId && (
                     <span className="text-blue-400 text-[10px]">

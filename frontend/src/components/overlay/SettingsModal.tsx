@@ -15,6 +15,34 @@ interface SettingsModalProps {
   onClose: () => void;
 }
 
+/**
+ * Shared roving-tabindex keydown handler for radiogroup buttons.
+ * Moves focus and calls onChange with the new value on arrow key presses.
+ */
+function handleRadioKeyDown<T extends string>(
+  e: React.KeyboardEvent,
+  values: T[],
+  current: T,
+  onChange: (value: T) => void,
+): void {
+  const parent = e.currentTarget.parentElement;
+  if (!parent) return;
+  const buttons = Array.from(parent.children) as HTMLElement[];
+  const idx = buttons.indexOf(e.currentTarget as HTMLElement);
+  let nextIdx: number | null = null;
+  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+    e.preventDefault();
+    nextIdx = (idx + 1) % values.length;
+  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+    e.preventDefault();
+    nextIdx = (idx - 1 + values.length) % values.length;
+  }
+  if (nextIdx !== null) {
+    onChange(values[nextIdx]);
+    buttons[nextIdx].focus();
+  }
+}
+
 export default function SettingsModal({
   isOpen,
   onClose,
@@ -33,6 +61,8 @@ export default function SettingsModal({
   );
 
   const { t } = useTranslation();
+
+  const localeValues = Object.keys(locales) as Locale[];
 
   const handleLanguageChange = (locale: Locale) => {
     setLanguage(locale);
@@ -70,41 +100,38 @@ export default function SettingsModal({
           <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
             {t("settings.language")}
           </label>
-          <div className="flex gap-3" role="radiogroup" aria-label={t("settings.language")}>
-            {(Object.entries(locales) as [Locale, string][]).map(([locale, label]) => (
-              <button
-                key={locale}
-                type="button"
-                role="radio"
-                aria-checked={language === locale}
-                tabIndex={language === locale ? 0 : -1}
-                onClick={() => handleLanguageChange(locale)}
-                onKeyDown={(e) => {
-                  const items = Object.keys(locales) as Locale[];
-                  const idx = items.indexOf(locale);
-                  let next: number | null = null;
-                  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                    e.preventDefault();
-                    next = (idx + 1) % items.length;
-                  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    next = (idx - 1 + items.length) % items.length;
+          <div
+            className="flex gap-3"
+            role="radiogroup"
+            aria-label={t("settings.language")}
+          >
+            {(Object.entries(locales) as [Locale, string][]).map(
+              ([locale, label]) => (
+                <button
+                  key={locale}
+                  type="button"
+                  role="radio"
+                  aria-checked={language === locale}
+                  tabIndex={language === locale ? 0 : -1}
+                  onClick={() => handleLanguageChange(locale)}
+                  onKeyDown={(e) =>
+                    handleRadioKeyDown(
+                      e,
+                      localeValues,
+                      locale,
+                      handleLanguageChange,
+                    )
                   }
-                  if (next !== null) {
-                    handleLanguageChange(items[next]);
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) (parent.children[next] as HTMLElement)?.focus();
-                  }
-                }}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
-                  language === locale
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                    : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+                  className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                    language === locale
+                      ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                  }`}
+                >
+                  {label}
+                </button>
+              ),
+            )}
           </div>
         </div>
 
@@ -113,7 +140,11 @@ export default function SettingsModal({
           <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
             {t("settings.clockType")}
           </label>
-          <div className="flex gap-3" role="radiogroup" aria-label={t("settings.clockType")}>
+          <div
+            className="flex gap-3"
+            role="radiogroup"
+            aria-label={t("settings.clockType")}
+          >
             {(["analog", "digital"] as const).map((type) => (
               <button
                 key={type}
@@ -122,32 +153,23 @@ export default function SettingsModal({
                 aria-checked={clockType === type}
                 tabIndex={clockType === type ? 0 : -1}
                 onClick={() => handleClockTypeChange(type)}
-                onKeyDown={(e) => {
-                  const values: ClockType[] = ["analog", "digital"];
-                  const parent = e.currentTarget.parentElement;
-                  if (!parent) return;
-                  const buttons = Array.from(parent.children) as HTMLElement[];
-                  const idx = buttons.indexOf(e.currentTarget);
-                  let nextIdx: number | null = null;
-                  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                    e.preventDefault();
-                    nextIdx = (idx + 1) % values.length;
-                  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    nextIdx = (idx - 1 + values.length) % values.length;
-                  }
-                  if (nextIdx !== null) {
-                    handleClockTypeChange(values[nextIdx]);
-                    buttons[nextIdx].focus();
-                  }
-                }}
+                onKeyDown={(e) =>
+                  handleRadioKeyDown(
+                    e,
+                    ["analog", "digital"] as ClockType[],
+                    type,
+                    handleClockTypeChange,
+                  )
+                }
                 className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                   clockType === type
                     ? "bg-purple-500/20 border-purple-500 text-purple-300"
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
                 }`}
               >
-                {type === "analog" ? t("settings.analog") : t("settings.digital")}
+                {type === "analog"
+                  ? t("settings.analog")
+                  : t("settings.digital")}
               </button>
             ))}
           </div>
@@ -159,7 +181,11 @@ export default function SettingsModal({
             <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
               {t("settings.timeFormat")}
             </label>
-            <div className="flex gap-3" role="radiogroup" aria-label={t("settings.timeFormat")}>
+            <div
+              className="flex gap-3"
+              role="radiogroup"
+              aria-label={t("settings.timeFormat")}
+            >
               {(["12h", "24h"] as const).map((fmt) => (
                 <button
                   key={fmt}
@@ -168,25 +194,14 @@ export default function SettingsModal({
                   aria-checked={clockFormat === fmt}
                   tabIndex={clockFormat === fmt ? 0 : -1}
                   onClick={() => handleClockFormatChange(fmt)}
-                  onKeyDown={(e) => {
-                    const values: ClockFormat[] = ["12h", "24h"];
-                    const parent = e.currentTarget.parentElement;
-                    if (!parent) return;
-                    const buttons = Array.from(parent.children) as HTMLElement[];
-                    const idx = buttons.indexOf(e.currentTarget);
-                    let nextIdx: number | null = null;
-                    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                      e.preventDefault();
-                      nextIdx = (idx + 1) % values.length;
-                    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                      e.preventDefault();
-                      nextIdx = (idx - 1 + values.length) % values.length;
-                    }
-                    if (nextIdx !== null) {
-                      handleClockFormatChange(values[nextIdx]);
-                      buttons[nextIdx].focus();
-                    }
-                  }}
+                  onKeyDown={(e) =>
+                    handleRadioKeyDown(
+                      e,
+                      ["12h", "24h"] as ClockFormat[],
+                      fmt,
+                      handleClockFormatChange,
+                    )
+                  }
                   className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
                     clockFormat === fmt
                       ? "bg-purple-500/20 border-purple-500 text-purple-300"
@@ -243,9 +258,7 @@ export default function SettingsModal({
 
         {/* Tip */}
         <div className="pt-4 border-t border-slate-800">
-          <p className="text-slate-500 text-xs">
-            {t("settings.clockTip")}
-          </p>
+          <p className="text-slate-500 text-xs">{t("settings.clockTip")}</p>
         </div>
       </div>
     </Modal>

@@ -1,3 +1,36 @@
+import type { TranslationKey } from "@/i18n";
+
+/** Map event type string to a translation key, with fallback to formatted raw type. */
+export function getEventTypeTranslationKey(
+  type: string,
+): TranslationKey | null {
+  // Validate the key exists by checking against known event types
+  const knownTypes: Record<string, TranslationKey> = {
+    pre_tool_use: "eventType.pre_tool_use",
+    post_tool_use: "eventType.post_tool_use",
+    user_prompt_submit: "eventType.user_prompt_submit",
+    permission_request: "eventType.permission_request",
+    subagent_start: "eventType.subagent_start",
+    subagent_stop: "eventType.subagent_stop",
+    session_start: "eventType.session_start",
+    session_end: "eventType.session_end",
+    stop: "eventType.stop",
+    error: "eventType.error",
+    background_task_notification: "eventType.background_task_notification",
+  };
+  return knownTypes[type] ?? null;
+}
+
+/** Format event type for display using translation if available. */
+export function getEventTypeName(
+  type: string,
+  t: (key: TranslationKey) => string,
+): string {
+  const key = getEventTypeTranslationKey(type);
+  if (key) return t(key);
+  return type.replace(/_/g, " ");
+}
+
 export function getEventTypeTextColor(type: string): string {
   switch (type) {
     case "pre_tool_use":

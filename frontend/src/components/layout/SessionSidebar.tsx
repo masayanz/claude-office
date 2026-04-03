@@ -9,7 +9,6 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
-import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import type { Session } from "@/hooks/useSessions";
 import { useDragResize } from "@/hooks/useDragResize";
@@ -60,8 +59,7 @@ export function SessionSidebar({
   onSessionSelect,
   onDeleteSession,
 }: SessionSidebarProps): React.ReactNode {
-  const { t, language } = useTranslation();
-  const dateFnsLocale = language === "pt-BR" ? dateFnsPtBR : language === "es" ? dateFnsEs : undefined;
+  const { t, dateFnsLocale } = useTranslation();
 
   const {
     size: sidebarWidth,
@@ -100,7 +98,11 @@ export function SessionSidebar({
       <button
         onClick={onToggleCollapsed}
         className="flex items-center justify-center p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-        title={isCollapsed ? t("sessions.expandSidebar") : t("sessions.collapseSidebar")}
+        title={
+          isCollapsed
+            ? t("sessions.expandSidebar")
+            : t("sessions.collapseSidebar")
+        }
       >
         {isCollapsed ? (
           <PanelLeftOpen size={16} />
@@ -175,7 +177,8 @@ export function SessionSidebar({
                               isActive ? "text-purple-300" : "text-slate-300"
                             }`}
                           >
-                            {session.projectName || t("sessions.unknownProject")}
+                            {session.projectName ||
+                              t("sessions.unknownProject")}
                           </span>
                           <button
                             type="button"
@@ -193,7 +196,9 @@ export function SessionSidebar({
                           {session.id}
                         </div>
                         <div className="flex justify-between text-[10px] text-slate-500">
-                          <span>{session.eventCount} {t("sessions.events")}</span>
+                          <span>
+                            {session.eventCount} {t("sessions.events")}
+                          </span>
                           <span>
                             {formatDistanceToNow(new Date(session.updatedAt), {
                               addSuffix: true,

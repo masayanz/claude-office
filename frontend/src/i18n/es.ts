@@ -75,6 +75,19 @@ const es: Record<TranslationKey, string> = {
   "eventLog.events": "eventos",
   "eventLog.waiting": "Esperando eventos...",
 
+  // Event Types
+  "eventType.pre_tool_use": "Pre Uso de Herramienta",
+  "eventType.post_tool_use": "Post Uso de Herramienta",
+  "eventType.user_prompt_submit": "Solicitud del Usuario",
+  "eventType.permission_request": "Solicitud de Permiso",
+  "eventType.subagent_start": "Inicio de Subagente",
+  "eventType.subagent_stop": "Fin de Subagente",
+  "eventType.session_start": "Inicio de Sesión",
+  "eventType.session_end": "Fin de Sesión",
+  "eventType.stop": "Detener",
+  "eventType.error": "Error",
+  "eventType.background_task_notification": "Tarea en Segundo Plano",
+
   // Agent Status
   "agentStatus.title": "Estado del agente",
   "agentStatus.agents": "agentes",
@@ -128,7 +141,8 @@ const es: Record<TranslationKey, string> = {
   "eventDetail.resultSummary": "Resumen del Resultado",
   "eventDetail.errorType": "Tipo de Error",
   "eventDetail.toolInput": "Entrada de Herramienta",
-  "eventDetail.noDetail": "No hay detalles adicionales disponibles para este evento.",
+  "eventDetail.noDetail":
+    "No hay detalles adicionales disponibles para este evento.",
 
   // Loading Screen
   "loading.office": "Cargando oficina...",
@@ -158,7 +172,8 @@ const es: Record<TranslationKey, string> = {
   "status.failedSimulation": "Error al iniciar simulación.",
   "status.storeReset": "Estado reiniciado.",
   "status.sessionDeletedSwitched": "Sesión eliminada. Cambió a {sessionName}",
-  "status.sessionDeletedNoOthers": "Sesión eliminada. No hay otras sesiones disponibles.",
+  "status.sessionDeletedNoOthers":
+    "Sesión eliminada. No hay otras sesiones disponibles.",
   "status.connectedTo": "Conectado a {sessionName}",
   "status.autoFollowed": "Siguiendo nueva sesión: {sessionName}",
 };

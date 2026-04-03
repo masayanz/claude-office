@@ -102,14 +102,18 @@ export function AgentStatus() {
           <span className="text-2xl font-bold text-slate-200 tabular-nums">
             {agentArray.length}
           </span>
-          <span className="text-slate-500 text-[10px]">{t("agentStatus.agents")}</span>
+          <span className="text-slate-500 text-[10px]">
+            {t("agentStatus.agents")}
+          </span>
         </div>
       </div>
 
       {/* Agent list - scrollable, fills remaining height */}
       <div className="flex-grow overflow-y-auto p-2 space-y-2 min-h-0">
         {agentArray.length === 0 ? (
-          <div className="text-slate-600 italic p-4 text-center">{t("agentStatus.noAgents")}</div>
+          <div className="text-slate-600 italic p-4 text-center">
+            {t("agentStatus.noAgents")}
+          </div>
         ) : (
           agentArray.map((agent) => (
             <div
@@ -204,7 +208,10 @@ export function AgentStatus() {
                 {/* Queue info (if applicable) */}
                 {agent.queueType && agent.queueIndex >= 0 && (
                   <div className="text-[9px] text-slate-500 pt-0.5">
-                    {t("agentStatus.inQueue", { queueType: agent.queueType, position: agent.queueIndex + 1 })}
+                    {t("agentStatus.inQueue", {
+                      queueType: agent.queueType,
+                      position: agent.queueIndex + 1,
+                    })}
                   </div>
                 )}
               </div>

@@ -51,14 +51,20 @@ export function useSessionSwitch({
     useGameStore.getState().resetForSessionSwitch();
 
     setSessionId(id);
-    showStatus(t("status.switchedToSession", { sessionId: id.slice(0, 8) }), "info");
+    showStatus(
+      t("status.switchedToSession", { sessionId: id.slice(0, 8) }),
+      "info",
+    );
   };
 
   const handleDeleteSession = async (session: Session): Promise<void> => {
     const id = session.id;
 
     try {
-      showStatus(t("status.deletingSession", { sessionId: id.slice(0, 8) }), "info");
+      showStatus(
+        t("status.deletingSession", { sessionId: id.slice(0, 8) }),
+        "info",
+      );
       const res = await fetch(`http://localhost:8000/api/v1/sessions/${id}`, {
         method: "DELETE",
       });

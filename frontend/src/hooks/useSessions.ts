@@ -102,7 +102,12 @@ export function useSessions(
           if (newSession) {
             setSessionId(newSession.id);
             showStatus(
-              t("status.sessionDeletedSwitched", { sessionName: newSession.label || newSession.projectName || newSession.id.slice(0, 8) }),
+              t("status.sessionDeletedSwitched", {
+                sessionName:
+                  newSession.label ||
+                  newSession.projectName ||
+                  newSession.id.slice(0, 8),
+              }),
               "info",
             );
           }
@@ -136,7 +141,12 @@ export function useSessions(
       if (bestSession) {
         setSessionId(bestSession.id);
         showStatus(
-          t("status.connectedTo", { sessionName: bestSession.label || bestSession.projectName || bestSession.id.slice(0, 8) }),
+          t("status.connectedTo", {
+            sessionName:
+              bestSession.label ||
+              bestSession.projectName ||
+              bestSession.id.slice(0, 8),
+          }),
           "info",
         );
       }
@@ -174,7 +184,12 @@ export function useSessions(
 
       setSessionId(newSessionInProject.id);
       showStatus(
-        t("status.autoFollowed", { sessionName: newSessionInProject.label || newSessionInProject.projectName || newSessionInProject.id.slice(0, 8) }),
+        t("status.autoFollowed", {
+          sessionName:
+            newSessionInProject.label ||
+            newSessionInProject.projectName ||
+            newSessionInProject.id.slice(0, 8),
+        }),
         "info",
       );
     }

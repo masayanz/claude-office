@@ -49,7 +49,10 @@ export default function Modal({
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <h2 id={titleId} className="text-lg font-bold text-white tracking-tight">
+          <h2
+            id={titleId}
+            className="text-lg font-bold text-white tracking-tight"
+          >
             {title}
           </h2>
           <button

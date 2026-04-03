@@ -21,6 +21,7 @@ System architecture and design documentation for Claude Office Visualizer.
 - [City Skyline Window](#city-skyline-window)
 - [Wall Clock](#wall-clock)
 - [User Preferences](#user-preferences)
+- [Internationalization](#internationalization)
 - [PixiJS Rendering](#pixijs-rendering)
 - [Related Documentation](#related-documentation)
 
@@ -206,6 +207,8 @@ graph LR
 | `hooks/useOfficeTextures.ts` | Texture loading and caching |
 | `hooks/useSessions.ts` | Session listing and management hooks |
 | `hooks/useSessionSwitch.ts` | Session switching logic with auto-follow |
+| `hooks/useDragResize.ts` | Drag-to-resize sidebar panels |
+| `hooks/useTranslation.ts` | i18n translation hook |
 | `machines/agentArrivalMachine.ts` | XState machine for agent arrival flow |
 | `machines/agentDepartureMachine.ts` | XState machine for agent departure flow |
 | `machines/agentMachine.ts` | XState machine for agent state management |
@@ -218,6 +221,12 @@ graph LR
 | `constants/canvas.ts` | Canvas-related constants |
 | `constants/positions.ts` | Position constants for game elements |
 | `constants/quotes.ts` | Work acceptance and completion quotes |
+| `i18n/index.ts` | i18n setup and language loader |
+| `i18n/en.ts` | English translations |
+| `i18n/es.ts` | Spanish translations |
+| `i18n/pt-BR.ts` | Brazilian Portuguese translations |
+| `utils/event-type-styles.ts` | Event type to style mapping for event log |
+| `components/debug/sprite-debug/*.tsx` | Sprite builder/debug tool (standalone debug page) |
 
 ### Hooks (`hooks/src/claude_office_hooks/`)
 
@@ -564,6 +573,7 @@ User preferences are stored in the backend SQLite database as key-value pairs:
 | `clock_type` | `analog`, `digital` | `analog` | Wall clock display mode |
 | `clock_format` | `12h`, `24h` | `12h` | Digital clock time format |
 | `auto_follow_new_sessions` | `true`, `false` | `true` | Auto-follow new sessions in the current project |
+| `language` | `en`, `es`, `pt-BR` | `en` | UI language for internationalization |
 
 **Auto-Follow New Sessions:**
 When enabled (default), the frontend automatically detects new Claude Code sessions in the same project and switches to follow them. Detection is based on matching `projectRoot` paths. This is useful when working in the same repository and starting multiple Claude Code sessions.
@@ -573,6 +583,21 @@ When enabled (default), the frontend automatically detects new Claude Code sessi
 - `PUT /api/v1/preferences/{key}` - Set a preference
 
 **Frontend:** The `preferencesStore.ts` Zustand store manages preference state and syncs with the backend.
+
+## Internationalization
+
+The frontend supports multiple languages via a lightweight i18n system in `frontend/src/i18n/`:
+
+| File | Purpose |
+|------|---------|
+| `i18n/index.ts` | Locale type, translation loader, and `getTranslation()` factory |
+| `i18n/en.ts` | English translations (source of truth) |
+| `i18n/es.ts` | Spanish translations |
+| `i18n/pt-BR.ts` | Brazilian Portuguese translations |
+
+**Usage:** The `useTranslation` hook provides a `t()` function with parameter interpolation. Translations are key-value; English serves as the fallback for missing keys.
+
+**Adding a language:** Create a new file (e.g., `fr.ts`) with all `TranslationKey` entries, register it in `index.ts`, and add the locale to the `Locale` type.
 
 ## PixiJS Rendering
 

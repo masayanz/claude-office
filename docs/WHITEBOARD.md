@@ -67,7 +67,7 @@ Displays the current task list from Claude's TodoWrite tool.
 - Auto-centers on the currently in-progress task
 - Shows page indicator when list exceeds 5 items
 
-**Data Source:** `TodoWrite` tool calls parsed by the state machine
+**Data Source:** `todos` array from the game store, populated from `TodoWrite` events
 
 ---
 
@@ -91,7 +91,7 @@ Displays background task notifications in a video-call-style grid layout. Shows 
 | failed | Red | ❌ |
 | running | Blue | ⏳ |
 
-**Data Source:** `background_task_notification` events parsed from `<task-notification>` XML in user prompts
+**Data Source:** `BACKGROUND_TASK_NOTIFICATION` hook events processed by `WhiteboardTracker`
 
 ---
 
@@ -114,7 +114,7 @@ Pie chart visualization of tool usage by category.
 | web | WebSearch, WebFetch | Red |
 | other | All others | Gray |
 
-**Data Source:** `POST_TOOL_USE` events tracked by `_categorize_tool()`
+**Data Source:** `POST_TOOL_USE` events tracked by `WhiteboardTracker.categorize_tool()`
 
 ---
 
@@ -215,7 +215,7 @@ Parody of workplace safety signs showing consecutive successful tool uses.
 - Counter resets to 0 on any tool failure
 - Last incident time recorded on failure
 
-**Data Source:** `consecutiveSuccesses` and `lastIncidentTime` from state machine
+**Data Source:** `consecutiveSuccesses` and `lastIncidentTime` from `WhiteboardTracker`
 
 ---
 
@@ -265,7 +265,7 @@ Breaking news headlines about session events.
 - Cycles through news items every 4 seconds
 - Shows timestamp for each headline
 - "BREAKING" banner in red
-- Keeps last 20 news items
+- Backend stores up to 20 news items; frontend displays up to 10
 
 **Example Headlines:**
 - "🆕 Explorer-47 joins the team!"
@@ -290,7 +290,7 @@ Tracks context compaction events as coffee breaks.
 
 **Trigger:** Each `CONTEXT_COMPACTION` event increments the counter
 
-**Data Source:** `coffeeCups` counter in state machine
+**Data Source:** `coffeeCups` counter in `WhiteboardTracker`
 
 ---
 
@@ -340,7 +340,7 @@ graph TD
 
 ## Backend Tracking Logic
 
-The state machine tracks whiteboard data in the `transition()` method:
+The `WhiteboardTracker` class (in `backend/app/core/whiteboard_tracker.py`) tracks all whiteboard data. The state machine's `transition()` method delegates to it.
 
 ### Tool Categorization
 
@@ -400,5 +400,7 @@ if tool_name in ("Edit", "Write"):
 ## Related Documentation
 
 - [Architecture Overview](ARCHITECTURE.md) - System architecture and component interaction
+- [Whiteboard Tracker](../backend/app/core/whiteboard_tracker.py) - Backend whiteboard data tracking
 - [State Machine](../backend/app/core/state_machine.py) - Backend event processing
 - [Game Store](../frontend/src/stores/gameStore.ts) - Frontend state management
+- [Whiteboard Modes](../frontend/src/components/game/whiteboard/) - Individual mode components

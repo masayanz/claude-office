@@ -95,7 +95,7 @@ graph TD
 | `CLAUDE_DATA_DIR` | No | `~/.claude` | Host directory to mount (used in volume mount only) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | No | - | OAuth token for AI-powered summaries |
 | `SUMMARY_ENABLED` | No | `true` | Enable/disable AI summaries |
-| `DATABASE_URL` | No | `sqlite+aiosqlite:///app/data/visualizer.db` | Database connection string |
+| `DATABASE_URL` | No | `sqlite+aiosqlite:////app/data/visualizer.db` | Database connection string |
 
 > **Note:** Additional backend settings like `SUMMARY_MODEL`, `SUMMARY_MAX_TOKENS`, and `GIT_POLL_INTERVAL` can be configured in the backend's `config.py` defaults or by extending the docker-compose environment section. See `backend/app/config.py` for all available settings.
 
@@ -149,8 +149,8 @@ The Dockerfile uses a multi-stage build for optimal image size:
 ```mermaid
 graph TD
     subgraph "Stage 1: Frontend Build"
-        Node[Node.js 20 Slim]
-        NPM[npm ci]
+        Bun[oven/bun:1-slim]
+        Install[bun install --frozen-lockfile]
         Build[Next.js Build]
         Static[Static Export to /out]
     end
@@ -162,12 +162,12 @@ graph TD
         Serve[Serve /static + API]
     end
 
-    Node --> NPM --> Build --> Static
+    Bun --> Install --> Build --> Static
     Static -->|Copy to /static| Serve
     Python --> UV --> FastAPI --> Serve
 
-    style Node fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
-    style NPM fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style Bun fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style Install fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style Build fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style Static fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
     style Python fill:#e65100,stroke:#ff9800,stroke-width:2px,color:#ffffff

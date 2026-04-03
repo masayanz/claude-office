@@ -4,7 +4,7 @@ This document describes the AI-powered summary system used in Claude Office Visu
 
 ## Overview
 
-The `SummaryService` (`backend/app/core/summary_service.py`) provides AI-powered text summarization using Claude Haiku. When AI is unavailable, it falls back to simple text extraction methods.
+The `SummaryService` (`backend/app/core/summary_service.py`) provides AI-powered text summarization using Claude Haiku. When AI is unavailable, it falls back to simple text extraction methods. All handler references below are relative to `backend/app/core/handlers/`.
 
 ## Configuration
 
@@ -55,7 +55,7 @@ In 10 words or less, summarize this task:
 
 **Fallback:** First sentence of description (max 50 chars)
 
-**Called From:** `enrich_agent_with_summaries()` in `handlers/agent_handler.py` when a subagent spawns
+**Called From:** `enrich_agent_with_summaries()` in `agent_handler.py` when a subagent spawns
 
 ---
 
@@ -75,7 +75,7 @@ In one sentence, summarize what this request asks for:
 
 **Fallback:** First sentence of prompt (max 150 chars)
 
-**Called From:** `handle_user_prompt_submit()` in `handlers/conversation_handler.py` on `USER_PROMPT_SUBMIT` events
+**Called From:** `handle_user_prompt_submit()` in `conversation_handler.py` on `USER_PROMPT_SUBMIT` events
 
 ---
 
@@ -129,7 +129,7 @@ Generates fun, creative names by matching task keywords to themed name lists:
 Names are randomly selected from each category for variety.
 
 **Called From:**
-- `enrich_agent_with_summaries()` in `handlers/agent_handler.py` when a subagent spawns
+- `enrich_agent_with_summaries()` in `agent_handler.py` when a subagent spawns
 - `_create_agent()` in `state_machine.py` for immediate short name generation
 
 ---
@@ -149,8 +149,8 @@ In 15 words or less, summarize this response:
 **Fallback:** First sentence of response (max 100 chars)
 
 **Called From:**
-- `extract_and_set_boss_speech()` in `handlers/conversation_handler.py` - Boss speech bubble when session stops
-- `extract_and_set_agent_speech()` in `handlers/agent_handler.py` - Agent speech bubble when subagent stops
+- `extract_and_set_boss_speech()` in `conversation_handler.py` - Boss speech bubble when session stops
+- `extract_and_set_agent_speech()` in `agent_handler.py` - Agent speech bubble when subagent stops
 
 ---
 
@@ -167,10 +167,10 @@ Does this request ask for a report, document, or documentation to be created? Re
 **Input Truncation:** 1000 characters max
 
 **Fallback Logic:**
-- Keyword search for: report, document, documentation, readme, write up, writeup, summary report, pdf, markdown file, md file, .md, architecture, changelog, contributing, license, guide
+- Keyword search for: report, document, documentation, readme, write up, writeup, summary report, create a doc, generate a doc, write a doc, pdf, markdown file, md file, .md, architecture, changelog, contributing, license, guide
 - Pattern matching for: "create/write/generate/update/add ... .md"
 
-**Called From:** `detect_and_set_print_report()` in `handlers/conversation_handler.py` on `STOP` events
+**Called From:** `detect_and_set_print_report()` in `conversation_handler.py` on `STOP` events
 
 ---
 

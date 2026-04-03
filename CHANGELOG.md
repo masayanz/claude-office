@@ -2,6 +2,22 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
+## [0.13.0] - 2026-04-02
+
+### Added
+
+- **Internationalization (i18n)**: Full multi-language support with English, Portuguese (BR), and Spanish translations. Language selector in Settings modal with preference persisted across sessions.
+- **`useTranslation` hook**: Centralized translation hook returning `t()`, `language`, and `dateFnsLocale` for locale-aware date formatting.
+- **Event type translations**: Event type names in the event log and detail modal are now translatable across all locales.
+- **i18n test suite**: Comprehensive unit tests covering key parity across locales, interpolation edge cases, prototype-pollution guards, and debug-mode warnings.
+- **`NEXT_PUBLIC_I18N_DEBUG` env var**: Set to `true` in `.env.local` to log missing or duplicate translations to console during development.
+
+### Changed
+
+- **Deduplicated radiogroup handlers**: Extracted shared `handleRadioKeyDown<T>` utility in SettingsModal, replacing three identical inline handlers.
+- **Centralized date-fns locale mapping**: `dateFnsLocale` now returned from `useTranslation` hook instead of duplicated ternaries in SessionSidebar and MobileDrawer.
+- **Extracted `getEventTypeColor`**: Shared utility for event type badge and text colors, eliminating duplication between EventLog and EventDetailModal.
+
 ## [0.12.0] - 2026-03-31
 
 ### Added

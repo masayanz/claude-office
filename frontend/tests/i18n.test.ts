@@ -106,7 +106,9 @@ describe("getTranslation", () => {
     });
 
     it("escapes regex metacharacters in param keys", () => {
-      expect(() => tEn("app.title", { "key.with+special$chars": "val" })).not.toThrow();
+      expect(() =>
+        tEn("app.title", { "key.with+special$chars": "val" }),
+      ).not.toThrow();
     });
 
     it("does not expand $-sequences in replacement values", () => {
@@ -126,7 +128,9 @@ describe("getTranslation", () => {
     });
 
     it("falls back to EN for invalid locale at runtime", () => {
-      const t = (getTranslation as (locale: string) => (key: string) => string)("fr");
+      const t = (getTranslation as (locale: string) => (key: string) => string)(
+        "fr",
+      );
       expect(t("app.title")).toBe(en["app.title"]);
     });
   });

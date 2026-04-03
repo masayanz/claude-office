@@ -38,7 +38,9 @@ export function EventLog() {
             <Terminal size={14} className="text-orange-500" />
             {t("eventLog.title")}
           </div>
-          <div className="text-slate-500">{eventLog.length} {t("eventLog.events")}</div>
+          <div className="text-slate-500">
+            {eventLog.length} {t("eventLog.events")}
+          </div>
         </div>
 
         <div className="flex-grow overflow-y-auto p-2 space-y-1">

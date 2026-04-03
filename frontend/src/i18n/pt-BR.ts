@@ -128,7 +128,8 @@ const ptBR: Record<TranslationKey, string> = {
   "eventDetail.resultSummary": "Resumo do Resultado",
   "eventDetail.errorType": "Tipo de Erro",
   "eventDetail.toolInput": "Entrada da Ferramenta",
-  "eventDetail.noDetail": "Nenhum detalhe adicional disponível para este evento.",
+  "eventDetail.noDetail":
+    "Nenhum detalhe adicional disponível para este evento.",
 
   // Loading Screen
   "loading.office": "Carregando escritório...",
@@ -158,7 +159,8 @@ const ptBR: Record<TranslationKey, string> = {
   "status.failedSimulation": "Falha ao iniciar simulação.",
   "status.storeReset": "Estado resetado.",
   "status.sessionDeletedSwitched": "Sessão excluída. Mudou para {sessionName}",
-  "status.sessionDeletedNoOthers": "Sessão excluída. Nenhuma outra sessão disponível.",
+  "status.sessionDeletedNoOthers":
+    "Sessão excluída. Nenhuma outra sessão disponível.",
   "status.connectedTo": "Conectado a {sessionName}",
   "status.autoFollowed": "Seguindo nova sessão: {sessionName}",
 };

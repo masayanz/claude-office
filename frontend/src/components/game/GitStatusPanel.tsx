@@ -43,26 +43,29 @@ const getStatusIcon = (status: FileStatus) => {
 export function GitStatusPanel() {
   const { t } = useTranslation();
 
-  const getStatusLabel = useCallback((status: FileStatus) => {
-    switch (status) {
-      case "M":
-        return t("git.modified");
-      case "A":
-        return t("git.added");
-      case "D":
-        return t("git.deleted");
-      case "R":
-        return t("git.renamed");
-      case "C":
-        return t("git.copied");
-      case "?":
-        return t("git.untracked");
-      case "!":
-        return t("git.ignored");
-      default:
-        return status;
-    }
-  }, [t]);
+  const getStatusLabel = useCallback(
+    (status: FileStatus) => {
+      switch (status) {
+        case "M":
+          return t("git.modified");
+        case "A":
+          return t("git.added");
+        case "D":
+          return t("git.deleted");
+        case "R":
+          return t("git.renamed");
+        case "C":
+          return t("git.copied");
+        case "?":
+          return t("git.untracked");
+        case "!":
+          return t("git.ignored");
+        default:
+          return status;
+      }
+    },
+    [t],
+  );
   const gitStatus = useGameStore(selectGitStatus);
   const sessionId = useGameStore((state) => state.sessionId);
   const isConnected = useGameStore((state) => state.isConnected);

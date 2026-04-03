@@ -53,7 +53,12 @@ export function MobileDrawer({
   onClearDB,
 }: MobileDrawerProps): React.ReactNode {
   const { t, language } = useTranslation();
-  const dateFnsLocale = language === "pt-BR" ? dateFnsPtBR : language === "es" ? dateFnsEs : undefined;
+  const dateFnsLocale =
+    language === "pt-BR"
+      ? dateFnsPtBR
+      : language === "es"
+        ? dateFnsEs
+        : undefined;
 
   if (!isOpen) return null;
 
@@ -183,7 +188,9 @@ export function MobileDrawer({
                         </span>
                       </div>
                       <div className="flex justify-between text-[10px] text-slate-500">
-                        <span>{session.eventCount} {t("sessions.events")}</span>
+                        <span>
+                          {session.eventCount} {t("sessions.events")}
+                        </span>
                         <span>
                           {formatDistanceToNow(new Date(session.updatedAt), {
                             addSuffix: true,

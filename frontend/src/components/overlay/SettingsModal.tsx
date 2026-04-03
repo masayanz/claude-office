@@ -70,41 +70,48 @@ export default function SettingsModal({
           <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
             {t("settings.language")}
           </label>
-          <div className="flex gap-3" role="radiogroup" aria-label={t("settings.language")}>
-            {(Object.entries(locales) as [Locale, string][]).map(([locale, label]) => (
-              <button
-                key={locale}
-                type="button"
-                role="radio"
-                aria-checked={language === locale}
-                tabIndex={language === locale ? 0 : -1}
-                onClick={() => handleLanguageChange(locale)}
-                onKeyDown={(e) => {
-                  const items = Object.keys(locales) as Locale[];
-                  const idx = items.indexOf(locale);
-                  let next: number | null = null;
-                  if (e.key === "ArrowRight" || e.key === "ArrowDown") {
-                    e.preventDefault();
-                    next = (idx + 1) % items.length;
-                  } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
-                    e.preventDefault();
-                    next = (idx - 1 + items.length) % items.length;
-                  }
-                  if (next !== null) {
-                    handleLanguageChange(items[next]);
-                    const parent = e.currentTarget.parentElement;
-                    if (parent) (parent.children[next] as HTMLElement)?.focus();
-                  }
-                }}
-                className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
-                  language === locale
-                    ? "bg-purple-500/20 border-purple-500 text-purple-300"
-                    : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
+          <div
+            className="flex gap-3"
+            role="radiogroup"
+            aria-label={t("settings.language")}
+          >
+            {(Object.entries(locales) as [Locale, string][]).map(
+              ([locale, label]) => (
+                <button
+                  key={locale}
+                  type="button"
+                  role="radio"
+                  aria-checked={language === locale}
+                  tabIndex={language === locale ? 0 : -1}
+                  onClick={() => handleLanguageChange(locale)}
+                  onKeyDown={(e) => {
+                    const items = Object.keys(locales) as Locale[];
+                    const idx = items.indexOf(locale);
+                    let next: number | null = null;
+                    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+                      e.preventDefault();
+                      next = (idx + 1) % items.length;
+                    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+                      e.preventDefault();
+                      next = (idx - 1 + items.length) % items.length;
+                    }
+                    if (next !== null) {
+                      handleLanguageChange(items[next]);
+                      const parent = e.currentTarget.parentElement;
+                      if (parent)
+                        (parent.children[next] as HTMLElement)?.focus();
+                    }
+                  }}
+                  className={`flex-1 px-4 py-3 rounded-lg border text-sm font-bold transition-colors focus-visible:ring-2 focus-visible:ring-purple-500 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900 outline-none ${
+                    language === locale
+                      ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                  }`}
+                >
+                  {label}
+                </button>
+              ),
+            )}
           </div>
         </div>
 
@@ -113,7 +120,11 @@ export default function SettingsModal({
           <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
             {t("settings.clockType")}
           </label>
-          <div className="flex gap-3" role="radiogroup" aria-label={t("settings.clockType")}>
+          <div
+            className="flex gap-3"
+            role="radiogroup"
+            aria-label={t("settings.clockType")}
+          >
             {(["analog", "digital"] as const).map((type) => (
               <button
                 key={type}
@@ -147,7 +158,9 @@ export default function SettingsModal({
                     : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
                 }`}
               >
-                {type === "analog" ? t("settings.analog") : t("settings.digital")}
+                {type === "analog"
+                  ? t("settings.analog")
+                  : t("settings.digital")}
               </button>
             ))}
           </div>
@@ -159,7 +172,11 @@ export default function SettingsModal({
             <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
               {t("settings.timeFormat")}
             </label>
-            <div className="flex gap-3" role="radiogroup" aria-label={t("settings.timeFormat")}>
+            <div
+              className="flex gap-3"
+              role="radiogroup"
+              aria-label={t("settings.timeFormat")}
+            >
               {(["12h", "24h"] as const).map((fmt) => (
                 <button
                   key={fmt}
@@ -172,7 +189,9 @@ export default function SettingsModal({
                     const values: ClockFormat[] = ["12h", "24h"];
                     const parent = e.currentTarget.parentElement;
                     if (!parent) return;
-                    const buttons = Array.from(parent.children) as HTMLElement[];
+                    const buttons = Array.from(
+                      parent.children,
+                    ) as HTMLElement[];
                     const idx = buttons.indexOf(e.currentTarget);
                     let nextIdx: number | null = null;
                     if (e.key === "ArrowRight" || e.key === "ArrowDown") {
@@ -243,9 +262,7 @@ export default function SettingsModal({
 
         {/* Tip */}
         <div className="pt-4 border-t border-slate-800">
-          <p className="text-slate-500 text-xs">
-            {t("settings.clockTip")}
-          </p>
+          <p className="text-slate-500 text-xs">{t("settings.clockTip")}</p>
         </div>
       </div>
     </Modal>

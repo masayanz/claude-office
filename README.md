@@ -36,6 +36,12 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.13.0 (April 2026)
+
+- **Multi-Language Support (i18n)**: Full internationalization with English, Portuguese (BR), and Spanish. Language selector in Settings — preference persists across sessions
+- **Locale-Aware Date Formatting**: Relative timestamps (e.g. "2 minutes ago") adapt to the selected language via date-fns locales
+- **Translated Event Types**: Event names in the event log and detail modal are now fully translated
+
 ### v0.12.0 (March 2026)
 
 - **OpenCode Plugin**: Send lifecycle events from OpenCode to visualize alongside Claude Code sessions

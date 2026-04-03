@@ -305,7 +305,9 @@ export function ConversationHistory() {
         {t("conversation.title")}
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-slate-500">{messageCount} {t("conversation.msgs")}</span>
+        <span className="text-[10px] text-slate-500">
+          {messageCount} {t("conversation.msgs")}
+        </span>
         <button
           onClick={() => setShowTools(!showTools)}
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
@@ -313,7 +315,11 @@ export function ConversationHistory() {
               ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
               : "bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300"
           }`}
-          title={showTools ? t("conversation.hideToolCalls") : t("conversation.showToolCalls")}
+          title={
+            showTools
+              ? t("conversation.hideToolCalls")
+              : t("conversation.showToolCalls")
+          }
         >
           <Wrench size={9} />
           {toolCount}

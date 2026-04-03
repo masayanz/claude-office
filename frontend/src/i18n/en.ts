@@ -156,7 +156,8 @@ const en = {
   "status.failedSimulation": "Failed to trigger simulation.",
   "status.storeReset": "Store reset.",
   "status.sessionDeletedSwitched": "Session deleted. Switched to {sessionName}",
-  "status.sessionDeletedNoOthers": "Session deleted. No other sessions available.",
+  "status.sessionDeletedNoOthers":
+    "Session deleted. No other sessions available.",
   "status.connectedTo": "Connected to {sessionName}",
   "status.autoFollowed": "Auto-followed new session: {sessionName}",
 } as const;

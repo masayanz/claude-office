@@ -128,7 +128,8 @@ const es: Record<TranslationKey, string> = {
   "eventDetail.resultSummary": "Resumen del Resultado",
   "eventDetail.errorType": "Tipo de Error",
   "eventDetail.toolInput": "Entrada de Herramienta",
-  "eventDetail.noDetail": "No hay detalles adicionales disponibles para este evento.",
+  "eventDetail.noDetail":
+    "No hay detalles adicionales disponibles para este evento.",
 
   // Loading Screen
   "loading.office": "Cargando oficina...",
@@ -158,7 +159,8 @@ const es: Record<TranslationKey, string> = {
   "status.failedSimulation": "Error al iniciar simulación.",
   "status.storeReset": "Estado reiniciado.",
   "status.sessionDeletedSwitched": "Sesión eliminada. Cambió a {sessionName}",
-  "status.sessionDeletedNoOthers": "Sesión eliminada. No hay otras sesiones disponibles.",
+  "status.sessionDeletedNoOthers":
+    "Sesión eliminada. No hay otras sesiones disponibles.",
   "status.connectedTo": "Conectado a {sessionName}",
   "status.autoFollowed": "Siguiendo nueva sesión: {sessionName}",
 };

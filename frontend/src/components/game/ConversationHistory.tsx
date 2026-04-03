@@ -20,6 +20,7 @@ import {
   X,
 } from "lucide-react";
 import type { ConversationEntry } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 // Tool icon mapping
 function getToolIcon(toolName?: string): string {
@@ -43,6 +44,7 @@ function getToolIcon(toolName?: string): string {
 }
 
 function ThinkingEntry({ entry }: { entry: ConversationEntry }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const isLong = entry.text.length > 200;
   const preview = isLong ? entry.text.slice(0, 200) + "…" : entry.text;
@@ -52,7 +54,7 @@ function ThinkingEntry({ entry }: { entry: ConversationEntry }) {
       <Brain size={12} className="text-indigo-400 flex-shrink-0 mt-0.5" />
       <div className="min-w-0 flex-1">
         <div className="text-[9px] uppercase tracking-widest text-indigo-500 mb-1 font-bold">
-          Thinking
+          {t("conversation.thinking")}
         </div>
         <p className="text-indigo-200/70 text-[11px] italic leading-relaxed whitespace-pre-wrap break-words">
           {expanded ? entry.text : preview}
@@ -64,11 +66,11 @@ function ThinkingEntry({ entry }: { entry: ConversationEntry }) {
           >
             {expanded ? (
               <>
-                <ChevronDown size={10} /> Collapse
+                <ChevronDown size={10} /> {t("conversation.collapse")}
               </>
             ) : (
               <>
-                <ChevronRight size={10} /> Show more
+                <ChevronRight size={10} /> {t("conversation.showMore")}
               </>
             )}
           </button>
@@ -188,6 +190,7 @@ function MarkdownContent({ text }: { text: string }) {
 }
 
 function AssistantEntry({ entry }: { entry: ConversationEntry }) {
+  const { t } = useTranslation();
   const [expanded, setExpanded] = useState(false);
   const isLong = entry.text.length > 600;
   const preview = isLong ? entry.text.slice(0, 600) + "…" : entry.text;
@@ -196,7 +199,7 @@ function AssistantEntry({ entry }: { entry: ConversationEntry }) {
     <div className="flex flex-col items-start max-w-[90%] w-full">
       <div className="flex items-center gap-2 mb-1">
         <span className="text-[9px] font-bold uppercase tracking-widest text-slate-500">
-          Claude
+          {t("conversation.claude")}
         </span>
         {entry.agentId && entry.agentId !== "main" && (
           <span className="text-[9px] px-1.5 py-0.5 bg-blue-900/40 border border-blue-700/30 rounded text-blue-400 font-mono">
@@ -213,11 +216,11 @@ function AssistantEntry({ entry }: { entry: ConversationEntry }) {
           >
             {expanded ? (
               <>
-                <ChevronDown size={10} /> Collapse
+                <ChevronDown size={10} /> {t("conversation.collapse")}
               </>
             ) : (
               <>
-                <ChevronRight size={10} /> Show full response
+                <ChevronRight size={10} /> {t("conversation.showFullResponse")}
               </>
             )}
           </button>
@@ -259,6 +262,7 @@ function ConversationEntries({
 }
 
 export function ConversationHistory() {
+  const { t } = useTranslation();
   const conversation = useGameStore(selectConversation);
   const bottomRef = useRef<HTMLDivElement>(null);
   const modalBottomRef = useRef<HTMLDivElement>(null);
@@ -298,10 +302,10 @@ export function ConversationHistory() {
     <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
       <div className="flex items-center gap-2 text-slate-300 font-bold uppercase tracking-wider">
         <MessageSquare size={14} className="text-cyan-500" />
-        Conversation
+        {t("conversation.title")}
       </div>
       <div className="flex items-center gap-2">
-        <span className="text-[10px] text-slate-500">{messageCount} msgs</span>
+        <span className="text-[10px] text-slate-500">{messageCount} {t("conversation.msgs")}</span>
         <button
           onClick={() => setShowTools(!showTools)}
           className={`flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border transition-colors ${
@@ -309,7 +313,7 @@ export function ConversationHistory() {
               ? "bg-amber-500/20 border-amber-500/40 text-amber-400"
               : "bg-slate-800 border-slate-700 text-slate-500 hover:text-slate-300"
           }`}
-          title={showTools ? "Hide tool calls" : "Show tool calls"}
+          title={showTools ? t("conversation.hideToolCalls") : t("conversation.showToolCalls")}
         >
           <Wrench size={9} />
           {toolCount}
@@ -318,7 +322,7 @@ export function ConversationHistory() {
           <button
             onClick={onExpand}
             className="p-0.5 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors"
-            title="Expand conversation"
+            title={t("conversation.expandConversation")}
           >
             <Maximize2 size={12} />
           </button>
@@ -326,7 +330,7 @@ export function ConversationHistory() {
           <button
             onClick={() => setExpanded(false)}
             className="p-0.5 rounded text-slate-500 hover:text-slate-300 hover:bg-slate-800 transition-colors"
-            title="Close"
+            title={t("conversation.close")}
           >
             <X size={12} />
           </button>
@@ -343,7 +347,7 @@ export function ConversationHistory() {
         <div className="flex-grow overflow-y-auto p-3 space-y-2">
           {conversation.length === 0 ? (
             <div className="text-slate-600 italic p-4 text-center">
-              No conversation yet. Start a Claude Code session.
+              {t("conversation.noConversation")}
             </div>
           ) : (
             <ConversationEntries visible={visible} bottomRef={bottomRef} />
@@ -366,7 +370,7 @@ export function ConversationHistory() {
             <div className="flex-grow overflow-y-auto p-4 space-y-2">
               {conversation.length === 0 ? (
                 <div className="text-slate-600 italic p-4 text-center">
-                  No conversation yet. Start a Claude Code session.
+                  {t("conversation.noConversation")}
                 </div>
               ) : (
                 <ConversationEntries

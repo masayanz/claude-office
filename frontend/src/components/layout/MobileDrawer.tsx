@@ -10,8 +10,10 @@ import {
   X,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import { EventLog } from "@/components/game/EventLog";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
 
 // ============================================================================
@@ -50,6 +52,9 @@ export function MobileDrawer({
   onReset,
   onClearDB,
 }: MobileDrawerProps): React.ReactNode {
+  const { t, language } = useTranslation();
+  const dateFnsLocale = language === "pt-BR" ? dateFnsPtBR : language === "es" ? dateFnsEs : undefined;
+
   if (!isOpen) return null;
 
   const handleSimulate = async (): Promise<void> => {
@@ -80,7 +85,7 @@ export function MobileDrawer({
         <div className="p-4">
           {/* Drawer Header */}
           <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-white">Menu</h2>
+            <h2 className="text-lg font-bold text-white">{t("mobile.menu")}</h2>
             <button
               onClick={onClose}
               className="p-2 hover:bg-slate-800 rounded-lg text-slate-400"
@@ -96,21 +101,21 @@ export function MobileDrawer({
               className="flex items-center gap-2 px-3 py-2 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded text-sm font-bold transition-colors"
             >
               <Play size={16} fill="currentColor" />
-              SIMULATE
+              {t("header.simulate")}
             </button>
             <button
               onClick={handleReset}
               className="flex items-center gap-2 px-3 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded text-sm font-bold transition-colors"
             >
               <RefreshCw size={16} />
-              RESET
+              {t("header.reset")}
             </button>
             <button
               onClick={handleClearDB}
               className="flex items-center gap-2 px-3 py-2 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/30 rounded text-sm font-bold transition-colors"
             >
               <Trash2 size={16} />
-              CLEAR DB
+              {t("header.clearDb")}
             </button>
           </div>
 
@@ -119,7 +124,7 @@ export function MobileDrawer({
             <div className="flex items-center gap-2 mb-3">
               <History size={14} className="text-purple-500" />
               <span className="text-slate-300 font-bold uppercase tracking-wider text-xs">
-                Sessions
+                {t("sessions.title")}
               </span>
               <span className="text-slate-600 text-xs">
                 ({sessions.length})
@@ -128,11 +133,11 @@ export function MobileDrawer({
             <div className="flex flex-col gap-2 max-h-60 overflow-y-auto">
               {sessionsLoading && sessions.length === 0 ? (
                 <div className="p-4 text-center text-slate-600 text-xs italic">
-                  Loading sessions...
+                  {t("sessions.loading")}
                 </div>
               ) : sessions.length === 0 ? (
                 <div className="p-4 text-center text-slate-600 text-xs italic">
-                  No sessions found
+                  {t("sessions.noSessions")}
                 </div>
               ) : (
                 sessions.map((session) => {
@@ -174,14 +179,15 @@ export function MobileDrawer({
                             isActive ? "text-purple-300" : "text-slate-300"
                           }`}
                         >
-                          {session.projectName || "Unknown Project"}
+                          {session.projectName || t("sessions.unknownProject")}
                         </span>
                       </div>
                       <div className="flex justify-between text-[10px] text-slate-500">
-                        <span>{session.eventCount} events</span>
+                        <span>{session.eventCount} {t("sessions.events")}</span>
                         <span>
                           {formatDistanceToNow(new Date(session.updatedAt), {
                             addSuffix: true,
+                            locale: dateFnsLocale,
                           })}
                         </span>
                       </div>

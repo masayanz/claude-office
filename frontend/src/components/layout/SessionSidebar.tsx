@@ -9,9 +9,11 @@ import {
   PanelLeftOpen,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
+import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
 import { GitStatusPanel } from "@/components/game/GitStatusPanel";
 import type { Session } from "@/hooks/useSessions";
 import { useDragResize } from "@/hooks/useDragResize";
+import { useTranslation } from "@/hooks/useTranslation";
 
 // ============================================================================
 // CONSTANTS
@@ -58,6 +60,9 @@ export function SessionSidebar({
   onSessionSelect,
   onDeleteSession,
 }: SessionSidebarProps): React.ReactNode {
+  const { t, language } = useTranslation();
+  const dateFnsLocale = language === "pt-BR" ? dateFnsPtBR : language === "es" ? dateFnsEs : undefined;
+
   const {
     size: sidebarWidth,
     isDragging: isWidthDragging,
@@ -95,7 +100,7 @@ export function SessionSidebar({
       <button
         onClick={onToggleCollapsed}
         className="flex items-center justify-center p-2 bg-slate-900 hover:bg-slate-800 border border-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
-        title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        title={isCollapsed ? t("sessions.expandSidebar") : t("sessions.collapseSidebar")}
       >
         {isCollapsed ? (
           <PanelLeftOpen size={16} />
@@ -114,7 +119,7 @@ export function SessionSidebar({
             <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center gap-2 flex-shrink-0">
               <History size={14} className="text-purple-500" />
               <span className="text-slate-300 font-bold uppercase tracking-wider text-xs">
-                Sessions
+                {t("sessions.title")}
               </span>
               <span className="text-slate-600 text-xs">
                 ({sessions.length})
@@ -124,11 +129,11 @@ export function SessionSidebar({
             <div className="overflow-y-auto flex-grow p-2">
               {sessionsLoading && sessions.length === 0 ? (
                 <div className="p-4 text-center text-slate-600 text-xs italic">
-                  Loading sessions...
+                  {t("sessions.loading")}
                 </div>
               ) : sessions.length === 0 ? (
                 <div className="p-4 text-center text-slate-600 text-xs italic">
-                  No sessions found
+                  {t("sessions.noSessions")}
                 </div>
               ) : (
                 <div className="flex flex-col gap-2">
@@ -170,7 +175,7 @@ export function SessionSidebar({
                               isActive ? "text-purple-300" : "text-slate-300"
                             }`}
                           >
-                            {session.projectName || "Unknown Project"}
+                            {session.projectName || t("sessions.unknownProject")}
                           </span>
                           <button
                             type="button"
@@ -179,7 +184,7 @@ export function SessionSidebar({
                               onDeleteSession(session);
                             }}
                             className="p-1 text-slate-500 hover:text-rose-400 hover:bg-slate-800 rounded transition-colors opacity-0 group-hover:opacity-100"
-                            aria-label={`Delete session ${session.id}`}
+                            aria-label={`${t("sessions.deleteSession")} ${session.id}`}
                           >
                             <Trash2 size={12} />
                           </button>
@@ -188,10 +193,11 @@ export function SessionSidebar({
                           {session.id}
                         </div>
                         <div className="flex justify-between text-[10px] text-slate-500">
-                          <span>{session.eventCount} events</span>
+                          <span>{session.eventCount} {t("sessions.events")}</span>
                           <span>
                             {formatDistanceToNow(new Date(session.updatedAt), {
                               addSuffix: true,
+                              locale: dateFnsLocale,
                             })}
                           </span>
                         </div>
@@ -207,7 +213,7 @@ export function SessionSidebar({
           <div
             className="flex-shrink-0 h-3 cursor-ns-resize flex items-center justify-center group -my-1"
             onMouseDown={handleHeightDragStart}
-            title="Drag to resize"
+            title={t("sessions.dragToResize")}
           >
             <div className="w-10 h-1 rounded-full bg-slate-700 group-hover:bg-purple-500 group-active:bg-purple-400 transition-colors" />
           </div>
@@ -224,7 +230,7 @@ export function SessionSidebar({
         <div
           className="absolute right-0 top-0 w-1.5 h-full cursor-ew-resize z-10 hover:bg-purple-500/40 active:bg-purple-500/60 transition-colors"
           onMouseDown={handleWidthDragStart}
-          title="Drag to resize"
+          title={t("sessions.dragToResize")}
         />
       )}
     </aside>

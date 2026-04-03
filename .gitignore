@@ -99,3 +99,6 @@ backend/static/
 PRD.md
 .claude/.cc2cc-session-id
 *.local.*
+
+# --- Paid/Licensed Assets ---
+frontend/public/sprites/paid/

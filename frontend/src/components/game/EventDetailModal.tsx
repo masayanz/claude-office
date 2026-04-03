@@ -8,35 +8,8 @@ import { useEffect, useCallback } from "react";
 import { X } from "lucide-react";
 import { format } from "date-fns";
 import type { EventLogEntry } from "@/stores/gameStore";
-
-function getEventTypeColor(type: string): string {
-  switch (type) {
-    case "pre_tool_use":
-      return "bg-amber-500/20 text-amber-300 border-amber-500/40";
-    case "post_tool_use":
-      return "bg-emerald-500/20 text-emerald-300 border-emerald-500/40";
-    case "user_prompt_submit":
-      return "bg-cyan-500/20 text-cyan-300 border-cyan-500/40";
-    case "permission_request":
-      return "bg-orange-500/20 text-orange-300 border-orange-500/40";
-    case "subagent_start":
-      return "bg-blue-500/20 text-blue-300 border-blue-500/40";
-    case "subagent_stop":
-      return "bg-purple-500/20 text-purple-300 border-purple-500/40";
-    case "session_start":
-      return "bg-green-500/20 text-green-300 border-green-500/40";
-    case "session_end":
-      return "bg-slate-500/20 text-slate-300 border-slate-500/40";
-    case "stop":
-      return "bg-rose-500/20 text-rose-300 border-rose-500/40";
-    case "error":
-      return "bg-red-500/20 text-red-300 border-red-500/40";
-    case "background_task_notification":
-      return "bg-teal-500/20 text-teal-300 border-teal-500/40";
-    default:
-      return "bg-slate-500/20 text-slate-300 border-slate-500/40";
-  }
-}
+import { useTranslation } from "@/hooks/useTranslation";
+import { getEventTypeBadgeClasses } from "@/utils/event-type-styles";
 
 interface EventDetailModalProps {
   event: EventLogEntry;
@@ -44,6 +17,7 @@ interface EventDetailModalProps {
 }
 
 export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
+  const { t } = useTranslation();
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") onClose();
@@ -62,8 +36,6 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      role="dialog"
-      aria-modal="true"
     >
       {/* Backdrop */}
       <div
@@ -72,11 +44,16 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
       />
 
       {/* Modal Panel */}
-      <div className="relative z-10 w-full max-w-2xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden font-mono text-xs">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={`${event.type.replace(/_/g, " ")} — ${event.summary}`}
+        className="relative z-10 w-full max-w-2xl max-h-[80vh] flex flex-col bg-slate-900 border border-slate-700 rounded-xl shadow-2xl overflow-hidden font-mono text-xs"
+      >
         {/* Header */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-slate-700 bg-slate-950 flex-shrink-0">
           <span
-            className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wider ${getEventTypeColor(event.type)}`}
+            className={`px-2 py-0.5 rounded border text-[10px] font-bold uppercase tracking-wider ${getEventTypeBadgeClasses(event.type)}`}
           >
             {event.type.replace(/_/g, " ")}
           </span>
@@ -91,7 +68,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
           <button
             onClick={onClose}
             className="ml-auto p-1.5 text-slate-500 hover:text-white hover:bg-slate-700 rounded transition-colors"
-            aria-label="Close"
+            aria-label={t("modal.close")}
           >
             <X size={14} />
           </button>
@@ -102,7 +79,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
           {/* Summary */}
           <div>
             <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-              Summary
+              {t("eventDetail.summary")}
             </div>
             <div className="text-slate-200 text-[12px]">{event.summary}</div>
           </div>
@@ -113,7 +90,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.toolName && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Tool
+                    {t("eventDetail.tool")}
                   </div>
                   <div className="text-amber-300 text-[12px]">
                     {String(detail.toolName)}
@@ -124,7 +101,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.agentName && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Agent Name
+                    {t("eventDetail.agentName")}
                   </div>
                   <div className="text-blue-300 text-[12px]">
                     {String(detail.agentName)}
@@ -135,7 +112,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.taskDescription && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Task Description
+                    {t("eventDetail.taskDescription")}
                   </div>
                   <div className="text-slate-200 text-[12px] whitespace-pre-wrap leading-relaxed">
                     {String(detail.taskDescription)}
@@ -146,7 +123,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.prompt && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    User Prompt
+                    {t("eventDetail.userPrompt")}
                   </div>
                   <div className="text-cyan-200 text-[12px] whitespace-pre-wrap leading-relaxed bg-slate-800/50 rounded p-2 border border-slate-700">
                     {String(detail.prompt)}
@@ -157,7 +134,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.thinking && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Thinking
+                    {t("eventDetail.thinking")}
                   </div>
                   <div className="text-slate-400 italic text-[12px] whitespace-pre-wrap leading-relaxed bg-slate-800/30 rounded p-2 border border-slate-700/50">
                     {String(detail.thinking)}
@@ -168,7 +145,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.message && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Message
+                    {t("eventDetail.message")}
                   </div>
                   <div className="text-slate-200 text-[12px] whitespace-pre-wrap leading-relaxed">
                     {String(detail.message)}
@@ -179,7 +156,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.resultSummary && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Result Summary
+                    {t("eventDetail.resultSummary")}
                   </div>
                   <div className="text-emerald-300 text-[12px] whitespace-pre-wrap leading-relaxed">
                     {String(detail.resultSummary)}
@@ -190,7 +167,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.errorType && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Error Type
+                    {t("eventDetail.errorType")}
                   </div>
                   <div className="text-red-400 text-[12px]">
                     {String(detail.errorType)}
@@ -201,7 +178,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
               {detail.toolInput && (
                 <div>
                   <div className="text-slate-500 text-[10px] uppercase tracking-widest mb-1">
-                    Tool Input
+                    {t("eventDetail.toolInput")}
                   </div>
                   <pre className="text-slate-300 text-[11px] bg-slate-800 rounded p-3 border border-slate-700 overflow-x-auto whitespace-pre-wrap break-words leading-relaxed">
                     {JSON.stringify(detail.toolInput, null, 2)}
@@ -211,7 +188,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
             </>
           ) : (
             <div className="text-slate-600 italic text-center py-4">
-              No additional detail available for this event.
+              {t("eventDetail.noDetail")}
             </div>
           )}
         </div>
@@ -222,7 +199,7 @@ export function EventDetailModal({ event, onClose }: EventDetailModalProps) {
             onClick={onClose}
             className="px-4 py-1.5 bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-bold rounded transition-colors"
           >
-            Close
+            {t("modal.close")}
           </button>
         </div>
       </div>

@@ -7,6 +7,7 @@
 "use client";
 
 import { useGameStore, selectGitStatus } from "@/stores/gameStore";
+import { useTranslation } from "@/hooks/useTranslation";
 import {
   GitBranch,
   GitCommit,
@@ -19,6 +20,7 @@ import {
   FileQuestion,
 } from "lucide-react";
 import { FileStatus } from "@/types";
+import { useCallback } from "react";
 
 // Check if sessionId represents a real session (not the placeholder)
 const isRealSession = (sessionId: string) => sessionId !== "None";
@@ -38,28 +40,29 @@ const getStatusIcon = (status: FileStatus) => {
   }
 };
 
-const getStatusLabel = (status: FileStatus) => {
-  switch (status) {
-    case "M":
-      return "modified";
-    case "A":
-      return "added";
-    case "D":
-      return "deleted";
-    case "R":
-      return "renamed";
-    case "C":
-      return "copied";
-    case "?":
-      return "untracked";
-    case "!":
-      return "ignored";
-    default:
-      return status;
-  }
-};
-
 export function GitStatusPanel() {
+  const { t } = useTranslation();
+
+  const getStatusLabel = useCallback((status: FileStatus) => {
+    switch (status) {
+      case "M":
+        return t("git.modified");
+      case "A":
+        return t("git.added");
+      case "D":
+        return t("git.deleted");
+      case "R":
+        return t("git.renamed");
+      case "C":
+        return t("git.copied");
+      case "?":
+        return t("git.untracked");
+      case "!":
+        return t("git.ignored");
+      default:
+        return status;
+    }
+  }, [t]);
   const gitStatus = useGameStore(selectGitStatus);
   const sessionId = useGameStore((state) => state.sessionId);
   const isConnected = useGameStore((state) => state.isConnected);
@@ -67,16 +70,16 @@ export function GitStatusPanel() {
 
   if (!gitStatus) {
     const message = !hasSession
-      ? "No session selected"
+      ? t("git.noSession")
       : isConnected
-        ? "No git repository detected"
-        : "Waiting for git status...";
+        ? t("git.noRepo")
+        : t("git.waitingForStatus");
     return (
       <div className="flex flex-col h-full bg-slate-950 border border-slate-800 rounded-lg overflow-hidden font-mono text-xs">
         <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center gap-2">
           <GitBranch size={14} className="text-slate-500" />
           <span className="text-slate-300 font-bold uppercase tracking-wider">
-            Git Status
+            {t("git.title")}
           </span>
         </div>
         <div className="flex-grow flex items-center justify-center text-slate-600 italic p-4 text-center">
@@ -96,7 +99,7 @@ export function GitStatusPanel() {
       <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2 text-slate-300 font-bold uppercase tracking-wider">
           <GitBranch size={14} className="text-emerald-500" />
-          Git Status
+          {t("git.title")}
         </div>
         <div className="flex items-center gap-2 text-[10px]">
           {(gitStatus.ahead ?? 0) > 0 && (
@@ -125,14 +128,14 @@ export function GitStatusPanel() {
           <div className="px-3 py-1.5 bg-slate-900/50 flex items-center gap-2 text-slate-400 flex-shrink-0">
             <FileEdit size={12} />
             <span className="font-bold uppercase tracking-wider text-[10px]">
-              Changed Files
+              {t("git.changedFiles")}
             </span>
             <span className="text-slate-600 text-[10px]">
               ({changedFiles.length})
             </span>
             {stagedCount > 0 && (
               <span className="text-emerald-400 text-[10px]">
-                {stagedCount} staged
+                {stagedCount} {t("git.staged")}
               </span>
             )}
           </div>
@@ -150,7 +153,7 @@ export function GitStatusPanel() {
                         ? "bg-emerald-500/20 text-emerald-400 border border-emerald-500/30"
                         : "bg-amber-500/20 text-amber-400 border border-amber-500/30"
                     }`}
-                    title={`${getStatusLabel(file.status)}: ${file.path}${file.staged ? " (staged)" : ""}`}
+                    title={`${getStatusLabel(file.status)}: ${file.path}${file.staged ? ` (${t("git.staged")})` : ""}`}
                   >
                     {getStatusIcon(file.status)}
                     <span className="truncate">{filename}</span>
@@ -166,7 +169,7 @@ export function GitStatusPanel() {
       <div className="px-3 py-1.5 bg-slate-900/50 border-b border-slate-800 flex items-center gap-2 text-slate-400 flex-shrink-0">
         <GitCommit size={12} />
         <span className="font-bold uppercase tracking-wider text-[10px]">
-          Recent Commits
+          {t("git.recentCommits")}
         </span>
         <span className="text-slate-600 text-[10px]">({commits.length})</span>
       </div>
@@ -175,7 +178,7 @@ export function GitStatusPanel() {
       <div className="flex-grow overflow-y-auto">
         {commits.length === 0 ? (
           <div className="text-slate-600 italic p-4 text-center">
-            No commits found
+            {t("git.noCommits")}
           </div>
         ) : (
           <div className="divide-y divide-slate-800/50">

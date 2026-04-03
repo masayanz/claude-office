@@ -33,11 +33,21 @@ import {
 import Modal from "@/components/overlay/Modal";
 import SettingsModal from "@/components/overlay/SettingsModal";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
 
 // ============================================================================
 // DYNAMIC IMPORT
 // ============================================================================
+
+function LoadingFallback() {
+  const { t } = useTranslation();
+  return (
+    <div className="w-full h-full bg-slate-900 animate-pulse flex items-center justify-center text-white font-mono text-center">
+      {t("app.initializingSystems")}
+    </div>
+  );
+}
 
 const OfficeGame = dynamic(
   () =>
@@ -46,11 +56,7 @@ const OfficeGame = dynamic(
     })),
   {
     ssr: false,
-    loading: () => (
-      <div className="w-full h-full bg-slate-900 animate-pulse flex items-center justify-center text-white font-mono text-center">
-        Initializing Systems...
-      </div>
-    ),
+    loading: () => <LoadingFallback />,
   },
 );
 
@@ -59,6 +65,11 @@ const OfficeGame = dynamic(
 // ============================================================================
 
 export default function V2TestPage(): React.ReactNode {
+  // ------------------------------------------------------------------
+  // i18n
+  // ------------------------------------------------------------------
+  const { t, language } = useTranslation();
+
   // ------------------------------------------------------------------
   // UI-only state
   // ------------------------------------------------------------------
@@ -141,6 +152,10 @@ export default function V2TestPage(): React.ReactNode {
     loadPreferences();
   }, [loadPreferences]);
 
+  useEffect(() => {
+    document.documentElement.lang = language;
+  }, [language]);
+
   // ------------------------------------------------------------------
   // Mobile breakpoint detection
   // ------------------------------------------------------------------
@@ -180,41 +195,39 @@ export default function V2TestPage(): React.ReactNode {
       <Modal
         isOpen={isClearModalOpen}
         onClose={() => setIsClearModalOpen(false)}
-        title="Confirm Database Wipe"
+        title={t("modal.confirmDbWipe")}
         footer={
           <>
             <button
               onClick={() => setIsClearModalOpen(false)}
               className="px-4 py-2 text-slate-400 hover:text-white text-sm font-bold transition-colors"
             >
-              Cancel
+              {t("modal.cancel")}
             </button>
             <button
               onClick={handleConfirmClearDB}
               className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold rounded-lg transition-colors shadow-lg shadow-rose-900/20"
             >
-              Wipe All Data
+              {t("modal.wipeAllData")}
             </button>
           </>
         }
       >
         <p>
-          Are you sure you want to permanently delete all session history and
-          events? This action cannot be undone and will reset the current
-          visualizer state.
+          {t("modal.wipeWarning")}
         </p>
       </Modal>
 
       <Modal
         isOpen={isHelpModalOpen}
         onClose={() => setIsHelpModalOpen(false)}
-        title="Keyboard Shortcuts"
+        title={t("modal.keyboardShortcuts")}
         footer={
           <button
             onClick={() => setIsHelpModalOpen(false)}
             className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-lg transition-colors"
           >
-            Close
+            {t("modal.close")}
           </button>
         }
       >
@@ -223,25 +236,25 @@ export default function V2TestPage(): React.ReactNode {
             <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
               D
             </kbd>
-            <span className="text-slate-300">Toggle debug mode</span>
+            <span className="text-slate-300">{t("modal.toggleDebug")}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-slate-700">
             <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
               P
             </kbd>
-            <span className="text-slate-300">Show agent paths</span>
+            <span className="text-slate-300">{t("modal.showAgentPaths")}</span>
           </div>
           <div className="flex justify-between items-center py-2 border-b border-slate-700">
             <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
               Q
             </kbd>
-            <span className="text-slate-300">Show queue slots</span>
+            <span className="text-slate-300">{t("modal.showQueueSlots")}</span>
           </div>
           <div className="flex justify-between items-center py-2">
             <kbd className="px-2 py-1 bg-slate-800 rounded text-white font-bold">
               L
             </kbd>
-            <span className="text-slate-300">Show phase labels</span>
+            <span className="text-slate-300">{t("modal.showPhaseLabels")}</span>
           </div>
         </div>
       </Modal>
@@ -254,26 +267,26 @@ export default function V2TestPage(): React.ReactNode {
       <Modal
         isOpen={sessionPendingDelete !== null}
         onClose={() => setSessionPendingDelete(null)}
-        title="Delete Session"
+        title={t("modal.deleteSession")}
         footer={
           <>
             <button
               onClick={() => setSessionPendingDelete(null)}
               className="px-4 py-2 text-slate-400 hover:text-white text-sm font-bold transition-colors"
             >
-              Cancel
+              {t("modal.cancel")}
             </button>
             <button
               onClick={handleConfirmDeleteSession}
               className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-sm font-bold rounded-lg transition-colors shadow-lg shadow-rose-900/20"
             >
-              Delete
+              {t("modal.delete")}
             </button>
           </>
         }
       >
         <p>
-          Are you sure you want to delete session{" "}
+          {t("modal.deleteSessionConfirm")}{" "}
           <span className="font-mono text-purple-400">
             {sessionPendingDelete?.projectName ||
               sessionPendingDelete?.id.slice(0, 8)}
@@ -281,8 +294,8 @@ export default function V2TestPage(): React.ReactNode {
           ?
         </p>
         <p className="text-slate-400 text-sm mt-2">
-          This will permanently remove {sessionPendingDelete?.eventCount ?? 0}{" "}
-          events. This action cannot be undone.
+          {t("modal.deleteSessionWarning")} {sessionPendingDelete?.eventCount ?? 0}{" "}
+          {t("modal.events")}. {t("modal.cannotBeUndone")}
         </p>
       </Modal>
 
@@ -294,6 +307,8 @@ export default function V2TestPage(): React.ReactNode {
           {isMobile && (
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              aria-label={mobileMenuOpen ? t("modal.close") : t("mobile.menu")}
+              aria-expanded={mobileMenuOpen}
               className="p-2 bg-slate-800 hover:bg-slate-700 rounded-lg text-white transition-colors"
             >
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
@@ -305,7 +320,7 @@ export default function V2TestPage(): React.ReactNode {
             }`}
           >
             <span className="text-orange-500">Claude</span>{" "}
-            {!isMobile && "Office Visualizer"}
+            {!isMobile && t("app.title")}
             {!isMobile && (
               <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
                 v0.12.0
@@ -341,7 +356,7 @@ export default function V2TestPage(): React.ReactNode {
               }`}
             />
             <span className="text-xs text-slate-400 font-mono">
-              {agents.size} agents
+              {agents.size} {t("header.agents")}
             </span>
           </div>
         )}

@@ -16,41 +16,15 @@ import {
 import { format } from "date-fns";
 import { Terminal } from "lucide-react";
 import { EventDetailModal } from "@/components/game/EventDetailModal";
-
-function getEventTypeColor(type: string) {
-  switch (type) {
-    case "pre_tool_use":
-      return "text-amber-400";
-    case "post_tool_use":
-      return "text-emerald-400";
-    case "user_prompt_submit":
-      return "text-cyan-400";
-    case "permission_request":
-      return "text-orange-400";
-    case "subagent_start":
-      return "text-blue-400";
-    case "subagent_stop":
-      return "text-purple-400";
-    case "session_start":
-      return "text-green-400";
-    case "session_end":
-      return "text-slate-500";
-    case "stop":
-      return "text-rose-400";
-    case "error":
-      return "text-red-500";
-    case "background_task_notification":
-      return "text-teal-400";
-    default:
-      return "text-slate-400";
-  }
-}
+import { useTranslation } from "@/hooks/useTranslation";
+import { getEventTypeTextColor } from "@/utils/event-type-styles";
 
 function hasNonEmptyDetail(event: EventLogEntry): boolean {
   return !!event.detail && Object.keys(event.detail).length > 0;
 }
 
 export function EventLog() {
+  const { t } = useTranslation();
   const eventLog = useGameStore(selectEventLog);
   const [selectedEvent, setSelectedEvent] = useState<EventLogEntry | null>(
     null,
@@ -62,15 +36,15 @@ export function EventLog() {
         <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2 text-slate-300 font-bold uppercase tracking-wider">
             <Terminal size={14} className="text-orange-500" />
-            Event Log
+            {t("eventLog.title")}
           </div>
-          <div className="text-slate-500">{eventLog.length} events</div>
+          <div className="text-slate-500">{eventLog.length} {t("eventLog.events")}</div>
         </div>
 
         <div className="flex-grow overflow-y-auto p-2 space-y-1">
           {eventLog.length === 0 ? (
             <div className="text-slate-600 italic p-4 text-center">
-              Waiting for events...
+              {t("eventLog.waiting")}
             </div>
           ) : (
             eventLog.map((event, index) => (
@@ -93,7 +67,7 @@ export function EventLog() {
                     {format(event.timestamp, "HH:mm:ss")}
                   </span>
                   <span
-                    className={`flex-shrink-0 font-bold text-[10px] ${getEventTypeColor(event.type)}`}
+                    className={`flex-shrink-0 font-bold text-[10px] ${getEventTypeTextColor(event.type)}`}
                   >
                     [{event.type.replace(/_/g, " ").toUpperCase()}]
                   </span>

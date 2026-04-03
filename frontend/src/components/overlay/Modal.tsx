@@ -1,7 +1,8 @@
 "use client";
 
 import { X } from "lucide-react";
-import { ReactNode, useEffect } from "react";
+import { ReactNode, useEffect, useId } from "react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 interface ModalProps {
   isOpen: boolean;
@@ -18,6 +19,9 @@ export default function Modal({
   children,
   footer,
 }: ModalProps) {
+  const { t } = useTranslation();
+  const titleId = useId();
+
   // Close on Escape key
   useEffect(() => {
     const handleEsc = (e: KeyboardEvent) => {
@@ -32,18 +36,25 @@ export default function Modal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200"
+      onClick={onClose}
+    >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         className="bg-slate-900 border border-slate-800 rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-800 bg-slate-900/50">
-          <h2 className="text-lg font-bold text-white tracking-tight">
+          <h2 id={titleId} className="text-lg font-bold text-white tracking-tight">
             {title}
           </h2>
           <button
             onClick={onClose}
+            aria-label={t("modal.close")}
             className="p-1 hover:bg-slate-800 rounded-lg text-slate-400 hover:text-white transition-colors"
           >
             <X size={20} />

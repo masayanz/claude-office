@@ -5,10 +5,14 @@
  * Shows animated dots and a "Loading office..." message.
  */
 
+"use client";
+
 import { type ReactNode } from "react";
 import { CANVAS_WIDTH, CANVAS_HEIGHT } from "@/constants/canvas";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export function LoadingScreen(): ReactNode {
+  const { t } = useTranslation();
   return (
     <pixiContainer>
       {/* Dark background */}
@@ -22,7 +26,7 @@ export function LoadingScreen(): ReactNode {
       {/* Loading text rendered at 2x for sharpness */}
       <pixiContainer x={CANVAS_WIDTH / 2} y={CANVAS_HEIGHT / 2} scale={0.5}>
         <pixiText
-          text="Loading office..."
+          text={t("loading.office")}
           anchor={0.5}
           style={{
             fontFamily: "monospace",

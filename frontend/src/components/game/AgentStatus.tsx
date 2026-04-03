@@ -9,6 +9,7 @@
 
 import { useGameStore, selectAgents } from "@/stores/gameStore";
 import { useShallow } from "zustand/react/shallow";
+import { useTranslation } from "@/hooks/useTranslation";
 import {
   Users,
   Briefcase,
@@ -82,6 +83,7 @@ function formatState(state: string): string {
 }
 
 export function AgentStatus() {
+  const { t } = useTranslation();
   const agents = useGameStore(useShallow(selectAgents));
   const agentArray = Array.from(agents.values());
 
@@ -94,20 +96,20 @@ export function AgentStatus() {
       <div className="bg-slate-900 px-3 py-2 border-b border-slate-800 flex items-center justify-between flex-shrink-0">
         <div className="flex items-center gap-2 text-slate-300 font-bold uppercase tracking-wider text-[11px]">
           <Users size={14} className="text-blue-400" />
-          Agent State
+          {t("agentStatus.title")}
         </div>
         <div className="flex items-center gap-1">
           <span className="text-2xl font-bold text-slate-200 tabular-nums">
             {agentArray.length}
           </span>
-          <span className="text-slate-500 text-[10px]">agents</span>
+          <span className="text-slate-500 text-[10px]">{t("agentStatus.agents")}</span>
         </div>
       </div>
 
       {/* Agent list - scrollable, fills remaining height */}
       <div className="flex-grow overflow-y-auto p-2 space-y-2 min-h-0">
         {agentArray.length === 0 ? (
-          <div className="text-slate-600 italic p-4 text-center">No agents</div>
+          <div className="text-slate-600 italic p-4 text-center">{t("agentStatus.noAgents")}</div>
         ) : (
           agentArray.map((agent) => (
             <div
@@ -121,7 +123,7 @@ export function AgentStatus() {
               >
                 <div className="flex items-center gap-2 min-w-0">
                   <span className="font-bold text-slate-100 truncate">
-                    {agent.name || `Agent #${agent.number}`}
+                    {agent.name || `${t("agentStatus.agent")} #${agent.number}`}
                   </span>
                   <span className="text-slate-600 text-[9px] flex-shrink-0">
                     #{agent.id.slice(0, 7)}
@@ -130,7 +132,7 @@ export function AgentStatus() {
                 {agent.desk && (
                   <span className="text-slate-500 text-[10px] flex items-center gap-1 flex-shrink-0">
                     <MapPin size={10} />
-                    Desk {agent.desk}
+                    {t("agentStatus.desk")} {agent.desk}
                   </span>
                 )}
               </div>
@@ -148,7 +150,7 @@ export function AgentStatus() {
                       <span className="line-clamp-2">{agent.currentTask}</span>
                     ) : (
                       <span className="text-slate-600 italic">
-                        No task summary
+                        {t("agentStatus.noTaskSummary")}
                       </span>
                     )}
                   </div>
@@ -170,7 +172,7 @@ export function AgentStatus() {
                       </span>
                     ) : (
                       <span className="text-slate-600 italic">
-                        No recent tool call
+                        {t("agentStatus.noRecentToolCall")}
                       </span>
                     )}
                   </div>
@@ -202,7 +204,7 @@ export function AgentStatus() {
                 {/* Queue info (if applicable) */}
                 {agent.queueType && agent.queueIndex >= 0 && (
                   <div className="text-[9px] text-slate-500 pt-0.5">
-                    In {agent.queueType} queue (position {agent.queueIndex + 1})
+                    {t("agentStatus.inQueue", { queueType: agent.queueType, position: agent.queueIndex + 1 })}
                   </div>
                 )}
               </div>

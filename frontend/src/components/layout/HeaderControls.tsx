@@ -9,6 +9,7 @@ import {
   HelpCircle,
   Settings,
 } from "lucide-react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 // ============================================================================
 // TYPES
@@ -47,6 +48,7 @@ export function HeaderControls({
   onOpenSettings,
   onOpenHelp,
 }: HeaderControlsProps): React.ReactNode {
+  const { t } = useTranslation();
   return (
     <div className="flex gap-4 items-center">
       <button
@@ -54,7 +56,7 @@ export function HeaderControls({
         className="flex items-center gap-2 px-3 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 border border-emerald-500/30 rounded text-xs font-bold transition-colors"
       >
         <Play size={14} fill="currentColor" />
-        SIMULATE
+        {t("header.simulate")}
       </button>
 
       <button
@@ -62,7 +64,7 @@ export function HeaderControls({
         className="flex items-center gap-2 px-3 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-500 border border-amber-500/30 rounded text-xs font-bold transition-colors"
       >
         <RefreshCw size={14} />
-        RESET
+        {t("header.reset")}
       </button>
 
       <button
@@ -70,7 +72,7 @@ export function HeaderControls({
         className="flex items-center gap-2 px-3 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 border border-rose-500/30 rounded text-xs font-bold transition-colors"
       >
         <Trash2 size={14} />
-        CLEAR DB
+        {t("header.clearDb")}
       </button>
 
       <button
@@ -82,7 +84,7 @@ export function HeaderControls({
         }`}
       >
         <Bug size={14} />
-        DEBUG {debugMode ? "ON" : "OFF"}
+        {debugMode ? t("header.debugOn") : t("header.debugOff")}
       </button>
 
       <button
@@ -90,7 +92,7 @@ export function HeaderControls({
         className="flex items-center gap-2 px-3 py-1.5 bg-slate-500/10 hover:bg-slate-500/20 text-slate-400 border border-slate-500/30 rounded text-xs font-bold transition-colors"
       >
         <Settings size={14} />
-        SETTINGS
+        {t("header.settings")}
       </button>
 
       <button
@@ -98,13 +100,13 @@ export function HeaderControls({
         className="flex items-center gap-2 px-3 py-1.5 bg-slate-500/10 hover:bg-slate-500/20 text-slate-400 border border-slate-500/30 rounded text-xs font-bold transition-colors"
       >
         <HelpCircle size={14} />
-        HELP
+        {t("header.help")}
       </button>
 
       {/* Connection and AI status */}
       <div className="flex flex-col items-end border-l border-slate-800 pl-4">
         <span className="text-[10px] uppercase font-bold text-slate-500 tracking-widest leading-none mb-1">
-          Status
+          {t("header.status")}
         </span>
         <div className="flex items-center gap-3">
           <div
@@ -116,7 +118,7 @@ export function HeaderControls({
               size={12}
               className={isConnected ? "animate-pulse" : ""}
             />
-            {isConnected ? "CONNECTED" : "DISCONNECTED"}
+            {isConnected ? t("header.connected") : t("header.disconnected")}
           </div>
           <div
             className={`flex items-center gap-1.5 font-mono text-xs ${
@@ -124,7 +126,7 @@ export function HeaderControls({
             }`}
           >
             <span className="text-[10px]">AI</span>
-            {aiSummaryEnabled ? "ON" : "OFF"}
+            {aiSummaryEnabled ? t("header.aiOn") : t("header.aiOff")}
           </div>
         </div>
       </div>

@@ -62,6 +62,8 @@ const ptBR: Record<TranslationKey, string> = {
   "sessions.unknownProject": "Projeto Desconhecido",
   "sessions.deleteSession": "Excluir sessão",
   "sessions.events": "eventos",
+  "sessions.events_one": "{count} evento",
+  "sessions.events_other": "{count} eventos",
   "sessions.expandSidebar": "Expandir barra lateral",
   "sessions.collapseSidebar": "Recolher barra lateral",
   "sessions.dragToResize": "Arraste para redimensionar",
@@ -73,11 +75,15 @@ const ptBR: Record<TranslationKey, string> = {
   // Event Log
   "eventLog.title": "Log de Eventos",
   "eventLog.events": "eventos",
+  "eventLog.events_one": "{count} evento",
+  "eventLog.events_other": "{count} eventos",
   "eventLog.waiting": "Aguardando eventos...",
 
   // Agent Status
   "agentStatus.title": "Estado dos Agentes",
   "agentStatus.agents": "agentes",
+  "agentStatus.agents_one": "{count} agente",
+  "agentStatus.agents_other": "{count} agentes",
   "agentStatus.noAgents": "Sem agentes",
   "agentStatus.agent": "Agente",
   "agentStatus.desk": "Mesa",
@@ -105,6 +111,8 @@ const ptBR: Record<TranslationKey, string> = {
   // Conversation
   "conversation.title": "Conversa",
   "conversation.msgs": "msgs",
+  "conversation.msgs_one": "{count} msg",
+  "conversation.msgs_other": "{count} msgs",
   "conversation.thinking": "Pensando",
   "conversation.showMore": "Mostrar mais",
   "conversation.collapse": "Recolher",

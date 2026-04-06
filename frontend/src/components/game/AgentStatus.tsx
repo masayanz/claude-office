@@ -103,7 +103,7 @@ export function AgentStatus() {
             {agentArray.length}
           </span>
           <span className="text-slate-500 text-[10px]">
-            {t("agentStatus.agents")}
+            {t("agentStatus.agents", { count: agentArray.length })}
           </span>
         </div>
       </div>

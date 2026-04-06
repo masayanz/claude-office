@@ -31,10 +31,22 @@ export function getTranslation(locale: Locale) {
     key: TranslationKey,
     params?: Record<string, string | number>,
   ): string {
-    const localeValue = dict[key];
-    const text = localeValue ?? en[key] ?? key;
+    // Pluralization support: if params contains "count", try _one/_other suffixes
+    let text: string | undefined;
+    if (params && typeof params.count === "number") {
+      const pluralSuffix = params.count === 1 ? "_one" : "_other";
+      const pluralKey = `${key}${pluralSuffix}` as TranslationKey;
+      text = dict[pluralKey] ?? en[pluralKey];
+    }
+
+    // Fall back to base key
+    if (text === undefined) {
+      const localeValue = dict[key];
+      text = localeValue ?? en[key] ?? key;
+    }
 
     if (i18nDebug && locale !== "en") {
+      const localeValue = dict[key];
       if (localeValue === undefined) {
         console.warn(
           `[i18n] Missing "${locale}" translation for key: "${key}"`,

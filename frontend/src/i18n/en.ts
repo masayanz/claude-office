@@ -60,6 +60,8 @@ const en = {
   "sessions.unknownProject": "Unknown Project",
   "sessions.deleteSession": "Delete session",
   "sessions.events": "events",
+  "sessions.events_one": "{count} event",
+  "sessions.events_other": "{count} events",
   "sessions.expandSidebar": "Expand sidebar",
   "sessions.collapseSidebar": "Collapse sidebar",
   "sessions.dragToResize": "Drag to resize",
@@ -71,11 +73,15 @@ const en = {
   // Event Log
   "eventLog.title": "Event Log",
   "eventLog.events": "events",
+  "eventLog.events_one": "{count} event",
+  "eventLog.events_other": "{count} events",
   "eventLog.waiting": "Waiting for events...",
 
   // Agent Status
   "agentStatus.title": "Agent State",
   "agentStatus.agents": "agents",
+  "agentStatus.agents_one": "{count} agent",
+  "agentStatus.agents_other": "{count} agents",
   "agentStatus.noAgents": "No agents",
   "agentStatus.agent": "Agent",
   "agentStatus.desk": "Desk",
@@ -103,6 +109,8 @@ const en = {
   // Conversation
   "conversation.title": "Conversation",
   "conversation.msgs": "msgs",
+  "conversation.msgs_one": "{count} msg",
+  "conversation.msgs_other": "{count} msgs",
   "conversation.thinking": "Thinking",
   "conversation.showMore": "Show more",
   "conversation.collapse": "Collapse",

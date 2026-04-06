@@ -306,7 +306,7 @@ export function ConversationHistory() {
       </div>
       <div className="flex items-center gap-2">
         <span className="text-[10px] text-slate-500">
-          {messageCount} {t("conversation.msgs")}
+          {t("conversation.msgs", { count: messageCount })}
         </span>
         <button
           onClick={() => setShowTools(!showTools)}

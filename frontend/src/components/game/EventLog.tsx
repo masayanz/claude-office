@@ -39,7 +39,7 @@ export function EventLog() {
             {t("eventLog.title")}
           </div>
           <div className="text-slate-500">
-            {eventLog.length} {t("eventLog.events")}
+            {t("eventLog.events", { count: eventLog.length })}
           </div>
         </div>
 

@@ -189,7 +189,7 @@ export function MobileDrawer({
                       </div>
                       <div className="flex justify-between text-[10px] text-slate-500">
                         <span>
-                          {session.eventCount} {t("sessions.events")}
+                          {t("sessions.events", { count: session.eventCount })}
                         </span>
                         <span>
                           {formatDistanceToNow(new Date(session.updatedAt), {

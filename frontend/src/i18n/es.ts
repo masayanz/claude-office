@@ -62,6 +62,8 @@ const es: Record<TranslationKey, string> = {
   "sessions.unknownProject": "Proyecto desconocido",
   "sessions.deleteSession": "Eliminar sesión",
   "sessions.events": "eventos",
+  "sessions.events_one": "{count} evento",
+  "sessions.events_other": "{count} eventos",
   "sessions.expandSidebar": "Expandir barra lateral",
   "sessions.collapseSidebar": "Contraer barra lateral",
   "sessions.dragToResize": "Arrastrar para redimensionar",
@@ -73,11 +75,15 @@ const es: Record<TranslationKey, string> = {
   // Event Log
   "eventLog.title": "Registro de Eventos",
   "eventLog.events": "eventos",
+  "eventLog.events_one": "{count} evento",
+  "eventLog.events_other": "{count} eventos",
   "eventLog.waiting": "Esperando eventos...",
 
   // Agent Status
   "agentStatus.title": "Estado del agente",
   "agentStatus.agents": "agentes",
+  "agentStatus.agents_one": "{count} agente",
+  "agentStatus.agents_other": "{count} agentes",
   "agentStatus.noAgents": "Sin agentes",
   "agentStatus.agent": "Agente",
   "agentStatus.desk": "Escritorio",
@@ -105,6 +111,8 @@ const es: Record<TranslationKey, string> = {
   // Conversation
   "conversation.title": "Conversación",
   "conversation.msgs": "msgs",
+  "conversation.msgs_one": "{count} msg",
+  "conversation.msgs_other": "{count} msgs",
   "conversation.thinking": "Pensando",
   "conversation.showMore": "Mostrar más",
   "conversation.collapse": "Contraer",

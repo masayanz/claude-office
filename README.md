@@ -45,6 +45,8 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 - **Settings Overhaul**: New building configuration and consolidated general settings tabs
 - **Kanban Whiteboard Mode**: 12th whiteboard mode showing task workflow in columns
 
+Special thanks to [@mjcadile](https://github.com/mjcadile) ([PR #20](https://github.com/paulrobello/claude-office/pull/20)) for the multi-floor building navigation, floor/room routing, and live session counts that power this release.
+
 ### v0.14.0 (April 2026)
 
 - **Pluralization Support (i18n)**: Count-based translations now correctly display singular/plural forms (e.g., "1 event" vs "5 events") in all supported languages

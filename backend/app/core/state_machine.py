@@ -305,20 +305,33 @@ def _handle_post_tool_use(sm: "StateMachine", event: Event) -> None:
 
 def _handle_subagent_start(sm: "StateMachine", event: Event) -> None:
     """Handle SUBAGENT_START: create a new agent and add to arrival queue."""
-    if event.data and event.data.agent_id and len(sm.agents) < sm.MAX_AGENTS:
-        agent = sm.create_agent(event.data)
-        sm.boss_state = BossState.DELEGATING
-        sm.elevator_state = ElevatorState.OPEN
+    if not event.data:
+        logger.warning("SUBAGENT_START guard failed: no event.data")
+        return
+    if not event.data.agent_id:
+        logger.warning(
+            f"SUBAGENT_START guard failed: missing agent_id (agent_id={event.data.agent_id})"
+        )
+        return
+    if len(sm.agents) >= sm.MAX_AGENTS:
+        logger.warning(
+            f"SUBAGENT_START guard failed: MAX_AGENTS reached "
+            f"({len(sm.agents)}/{sm.MAX_AGENTS}), agent_id={event.data.agent_id}"
+        )
+        return
+    agent = sm.create_agent(event.data)
+    sm.boss_state = BossState.DELEGATING
+    sm.elevator_state = ElevatorState.OPEN
 
-        if agent.id not in sm.arrival_queue:
-            sm.arrival_queue.append(agent.id)
+    if agent.id not in sm.arrival_queue:
+        sm.arrival_queue.append(agent.id)
 
-        sm.agents[agent.id] = agent
-        sm.phase = OfficePhase.BUSY
+    sm.agents[agent.id] = agent
+    sm.phase = OfficePhase.BUSY
 
-        short_name = agent.name or f"Agent-{agent.id[-4:]}"
-        sm.whiteboard.record_agent_start(agent.id, short_name, agent.color)
-        sm.whiteboard.add_news_item("agent", f"{short_name} joins the team!")
+    short_name = agent.name or f"Agent-{agent.id[-4:]}"
+    sm.whiteboard.record_agent_start(agent.id, short_name, agent.color)
+    sm.whiteboard.add_news_item("agent", f"{short_name} joins the team!")
 
 
 def _handle_subagent_stop(sm: "StateMachine", event: Event) -> None:

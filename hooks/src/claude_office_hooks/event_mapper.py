@@ -154,14 +154,34 @@ def _handle_post_tool_use(
             tool_input = cast(dict[str, Any], tool_input_raw)
             is_background = bool(tool_input.get("run_in_background"))
 
-        if is_background:
-            # Background agent — let native SubagentStop handle completion
+        # Check if the Agent tool response indicates an async agent (still running).
+        # In Claude Code v2.1+, the "Agent" tool is always async — PostToolUse fires
+        # immediately after spawning, with an "agentId" in the response. Sending
+        # subagent_stop here would remove the agent before it starts working.
+        # The native SubagentStop hook handles completion for async agents.
+        tool_response_raw = raw_data.get("tool_response", {})
+        has_async_agent_id = False
+        if isinstance(tool_response_raw, dict):
+            tool_response = cast(dict[str, Any], tool_response_raw)
+            has_async_agent_id = bool(tool_response.get("agentId"))
+
+        if is_background or has_async_agent_id:
+            # Background or async agent — let native SubagentStop handle completion
             data["agent_id"] = "main"
+            # Still extract native agent info for transcript path resolution
+            if has_async_agent_id and isinstance(tool_response_raw, dict):
+                native_agent_id = cast(dict[str, Any], tool_response_raw).get("agentId")
+                data["native_agent_id"] = native_agent_id
+                if native_agent_id:
+                    agent_path = _build_agent_transcript_path(
+                        data.get("transcript_path") or transcript_path, native_agent_id
+                    )
+                    if agent_path:
+                        data["agent_transcript_path"] = agent_path
         else:
             # Synchronous agent — send subagent_stop immediately
             payload["event_type"] = "subagent_stop"
             data["agent_id"] = f"subagent_{data.get('tool_use_id', 'unknown')}"
-            tool_response_raw = raw_data.get("tool_response", {})
             if isinstance(tool_response_raw, dict):
                 tool_response = cast(dict[str, Any], tool_response_raw)
                 data["result"] = tool_response.get("content", [])

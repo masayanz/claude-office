@@ -1,10 +1,39 @@
-# Claude Office Visualizer - Real-Time Pixel Art Visualization of Claude Code Operations
+# Claude Office Visualizer v0.15.0 - Multi-Floor Buildings, Kanban Boards & More!
 
-I'm excited to share **Claude Office Visualizer**, a fun project that transforms Claude Code CLI operations into a real-time pixel art office simulation. Watch as Claude delegates work and manages a team of AI employees!
+I'm excited to share a major update to **Claude Office Visualizer**, the real-time pixel art office simulation that visualizes Claude Code operations. Watch as Claude delegates work and manages a team of AI employees across multiple floors!
+
+## What's New in v0.15.0
+
+**Multi-Floor Building Navigation** (huge thanks to [@mjcadile](https://github.com/mjcadile) for [PR #20](https://github.com/paulrobello/claude-office/pull/20))
+- Browse a multi-story building with independent offices per floor
+- Breadcrumb navigation between building, floor, and room views
+- Live session counts on each floor and room card
+- Automatic session switching when navigating between floors
+
+**12 Whiteboard Modes** (was 10)
+- New Kanban mode: task workflow in columns (To Do / In Progress / Done) with color-coded cards
+- New Remote Workers mode: background task status in video-call-style tiles
+
+**Settings Overhaul**
+- Building configuration tab for floor/room layout
+- Consolidated general preferences tab
+
+**Security Hardening** (12 security fixes)
+- Localhost-only middleware, CORS lockdown, WebSocket origin validation
+- Rate limiting, clipboard limits, path traversal protection, token redaction
+
+**Also:**
+- Internationalization with pluralization support (English, Portuguese, Spanish)
+- Fixed subagents not spawning visually on Claude Code v2.1.x (#28)
+- Docker deployment support
+- Full OpenCode plugin integration
 
 ## Screenshots
 
-![Office View](https://raw.githubusercontent.com/paulrobello/claude-office/main/screenshot.png)
+| | |
+|---|---|
+| ![Office View](https://raw.githubusercontent.com/paulrobello/claude-office/main/screenshot.png) | ![Multi-Floor Building](https://raw.githubusercontent.com/paulrobello/claude-office/main/screenshots/sc_floor_office.png) |
+| ![Floor View](https://raw.githubusercontent.com/paulrobello/claude-office/main/screenshots/sc_floor_view.png) | ![Settings](https://raw.githubusercontent.com/paulrobello/claude-office/main/screenshots/sc_general_settings.png) |
 
 ## Demo Video
 
@@ -22,14 +51,16 @@ Claude Office Visualizer hooks into the Claude Code CLI and visualizes everythin
 ## Key Features
 
 **Visual Elements:**
-- Animated pixel art office environment
+- Animated pixel art office environment with multi-floor building view
 - Simple cartoon characters with multiple animation states (idle, walking, working, etc.)
 - Day/night cycle in the city skyline window based on your local time
 - Filling trashcan that shows context window utilization
 - Compaction animation where the boss stomps on the trashcan
 
-**Multi-Mode Whiteboard** - Click to cycle through 10 display modes:
+**12-Mode Whiteboard** - Click to cycle through display modes (keyboard shortcuts 0-9, T, B, K):
 - Todo list (synced with Claude's TodoWrite)
+- Kanban board with task workflow columns
+- Remote workers with background task status tiles
 - Tool usage pie chart
 - Org chart showing agent hierarchy
 - Timeline of agent lifespans
@@ -41,10 +72,14 @@ Claude Office Visualizer hooks into the Claude Code CLI and visualizes everythin
 - Stonks chart
 
 **Other Features:**
+- Multi-language support (English, Portuguese, Spanish)
+- Drag-to-resize sidebars and panels
+- User preferences persisted across sessions
 - Git status panel showing repository state
 - Printer that animates when Claude produces reports
 - Random quotes when agents receive or turn in work
 - WebSocket-based real-time updates
+- OpenCode plugin integration as alternative to Claude Code CLI
 
 ## Technical Stack
 
@@ -74,6 +109,10 @@ make dev-tmux
 ```
 
 Works on **macOS**, **Linux**, and **Windows**. Docker deployment is also available.
+
+## Changelog
+
+For the full release history, see [CHANGELOG.md](https://github.com/paulrobello/claude-office/blob/main/CHANGELOG.md).
 
 
 ## Why I Built This

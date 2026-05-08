@@ -33,6 +33,8 @@ All notable changes to Claude Office Visualizer are documented here.
 
 ### Fixed
 
+- **Premature subagent_stop for async Agent tool**: In Claude Code v2.1+, the "Agent" tool is always async — PostToolUse fires immediately after spawning. The hooks were sending subagent_stop from PostToolUse, which removed the agent before it started working. Now detects `agentId` in the tool response to treat async agents correctly, letting the native SubagentStop handle completion (#28)
+- **SUBAGENT_START diagnostic logging**: Added guard-failure logging to identify why agents fail to spawn (missing agent_id, MAX_AGENTS exceeded)
 - **Floor view tab hang**: Disabled `reactStrictMode` to avoid `@pixi/react` v8 `<Application>` mount-unmount-mount race that hung the renderer thread on first floor entry. The second mount tried to acquire a WebGL context while the first was still initializing.
 - **Floor switch session**: Entering a floor now auto-switches the active session to the most recent one belonging to that floor when the current selection is from another floor. Tracked per-`floorId` so re-entering the same floor preserves a manual sidebar pick.
 - **N+1 query**: Session listing now uses single GROUP BY query instead of per-session COUNT (QA-002)

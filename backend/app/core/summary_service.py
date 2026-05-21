@@ -14,29 +14,26 @@ logger = logging.getLogger(__name__)
 class SummaryService:
     """Service for generating AI-powered summaries using Claude Haiku."""
 
-    # Subagent_type slugs that have a curated name mapping in
-    # generate_agent_name_fallback. When the Agent tool reports one of these as
-    # the explicit subagent_type, we keep the mapped name and skip the AI namer
-    # (otherwise the AI rewrites e.g. an "explore" agent into "Data Diva").
-    # Keep in sync with the keys of `agent_type_names` below.
-    _MAPPED_AGENT_TYPES: frozenset[str] = frozenset({
-        "general-purpose",
-        "explore",
-        "plan",
-        "audit-architecture",
-        "audit-code-quality",
-        "audit-security",
-        "audit-documentation",
-        "fix-architecture",
-        "fix-code-quality",
-        "fix-security",
-        "fix-documentation",
-        "markdown-docs-writer",
-        "webgl-shader-expert",
-    })
-
-    def _known_agent_types(self) -> frozenset[str]:
-        return self._MAPPED_AGENT_TYPES
+    # Curated name mapping for known subagent_type slugs. When the Agent tool
+    # reports one of these as the explicit subagent_type, we use the mapped name
+    # and skip the AI namer (otherwise the AI rewrites e.g. an "explore" agent
+    # into "Data Diva").
+    _AGENT_TYPE_NAMES: dict[str, list[str]] = {
+        "general-purpose": ["The Intern", "Helper Bot", "Agent X", "Minion"],
+        "explore": ["Explorer X", "The Scout", "Data Digger", "Researcher R"],
+        "plan": ["The Planner", "Strategy Sam", "Blueprint Bob", "Road Mapper"],
+        "audit-architecture": ["The Architect", "Refactor Rex", "Code Ninja"],
+        "audit-code-quality": ["The Critic", "QA Queen", "Inspector G"],
+        "audit-security": ["Security Sam", "Guard Dog", "Sec Spec"],
+        "audit-documentation": ["The Scribe", "Doc Brown", "Word Wizard"],
+        "fix-architecture": ["The Architect", "Refactor Rex", "Code Ninja"],
+        "fix-code-quality": ["Bug Squasher", "Mr. Fixit", "The Fixer"],
+        "fix-security": ["Lock Smith", "Guard Dog", "Security Sam"],
+        "fix-documentation": ["Doc Brown", "The Scribe", "Note Taker"],
+        "markdown-docs-writer": ["The Scribe", "Doc Brown", "Word Wizard"],
+        "webgl-shader-expert": ["Pixel Pete", "Shader Sam", "GPU Guru"],
+    }
+    _MAPPED_AGENT_TYPES: frozenset[str] = frozenset(_AGENT_TYPE_NAMES.keys())
 
     def __init__(self) -> None:
         """Initialize the summary service with OAuth token if available."""
@@ -128,7 +125,7 @@ class SummaryService:
 
         # If the name came from an explicit, curated agent_type mapping, keep it
         # rather than asking the AI to "improve" it.
-        if agent_type and agent_type.strip().lower() in self._known_agent_types():
+        if agent_type and agent_type.strip().lower() in self._MAPPED_AGENT_TYPES:
             return fallback
 
         if not self.enabled or not self.client:
@@ -186,24 +183,9 @@ class SummaryService:
         desc_lower = (description or "").strip().lower()
         type_lower = (agent_type or "").strip().lower()
 
-        # Handle agent_type values (subagent_type from Agent tool)
-        agent_type_names: dict[str, list[str]] = {
-            "general-purpose": ["The Intern", "Helper Bot", "Agent X", "Minion"],
-            "explore": ["Explorer X", "The Scout", "Data Digger", "Researcher R"],
-            "plan": ["The Planner", "Strategy Sam", "Blueprint Bob", "Road Mapper"],
-            "audit-architecture": ["The Architect", "Refactor Rex", "Code Ninja"],
-            "audit-code-quality": ["The Critic", "QA Queen", "Inspector G"],
-            "audit-security": ["Security Sam", "Guard Dog", "Sec Spec"],
-            "audit-documentation": ["The Scribe", "Doc Brown", "Word Wizard"],
-            "fix-architecture": ["The Architect", "Refactor Rex", "Code Ninja"],
-            "fix-code-quality": ["Bug Squasher", "Mr. Fixit", "The Fixer"],
-            "fix-security": ["Lock Smith", "Guard Dog", "Security Sam"],
-            "fix-documentation": ["Doc Brown", "The Scribe", "Note Taker"],
-            "markdown-docs-writer": ["The Scribe", "Doc Brown", "Word Wizard"],
-            "webgl-shader-expert": ["Pixel Pete", "Shader Sam", "GPU Guru"],
-        }
+        agent_type_names = self._AGENT_TYPE_NAMES
+
         # Priority 1: exact match on the explicit subagent_type from the Agent tool.
-        # This is the reliable signal — task descriptions rarely start with the slug.
         if type_lower and type_lower in agent_type_names:
             names = agent_type_names[type_lower]
             available = [n for n in names if n not in taken]

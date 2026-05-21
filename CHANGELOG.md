@@ -2,16 +2,23 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
-## [Unreleased]
+## [0.16.0] - 2026-05-20
 
 ### Fixed
 
-- **Subagent name attribution**: Subagents now use their curated `subagent_type` name (e.g. "The Scout", "The Architect") instead of a random AI-generated name. The explicit `agent_type` from the Agent tool is matched first; the old description-prefix heuristic is kept as fallback (#36)
-- **SUBAGENT_STOP log line**: Stop events no longer show "Subagent None finished with errors" — falls back to `native_agent_id` and defaults `success=True` when the native SubagentStop hook omits them (#36)
+- **Subagent name attribution**: Subagents now use their curated `subagent_type` name (e.g. "The Scout", "The Architect") instead of a random AI-generated name. The explicit `agent_type` from the Agent tool is matched first; the old description-prefix heuristic is kept as fallback (#36, @udzutech24)
+- **SUBAGENT_STOP log line**: Stop events no longer show "Subagent None finished with errors" — falls back to `native_agent_id` and defaults `success=True` when the native SubagentStop hook omits them (#36, @udzutech24)
+- **Hydration mismatch**: Added `suppressHydrationWarning` to `<body>` in layout.tsx to prevent React hydration errors from browser extensions injecting DOM attributes (#31, @siwakorn-c)
 
 ### Changed
 
 - **Agent type name registry**: Promoted `agent_type_names` to a class constant (`_AGENT_TYPE_NAMES`) on `SummaryService`, with `_MAPPED_AGENT_TYPES` derived from its keys — eliminates the sync drift risk between the curated name map and the AI-namer skip set
+
+### Dependencies
+
+- Bumped idna 3.13 → 3.15 (root, backend)
+- Bumped urllib3 2.6.3 → 2.7.0 (root)
+- Bumped next 16.2.5 → 16.2.6 (frontend)
 
 ## [0.15.0] - 2026-05-07
 

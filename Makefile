@@ -4,29 +4,29 @@
 	opencode-install opencode-uninstall opencode-reinstall opencode-build \
 	dev-tmux dev-tmux-kill dev-tmux-backend dev-tmux-frontend \
 	build-static frontend-build-static \
-	docker-build docker-up docker-down docker-logs docker-shell
+	docker-build docker-up docker-down docker-logs docker-shell \
+	pre-commit pre-commit-update depsupdate depsshow uv-lock uv-sync setup resetup remove-venv help
 
 # Detect package manager: prefer bun if available, otherwise use npm
 PKG_MGR := $(shell command -v bun >/dev/null 2>&1 && echo "bun" || echo "npm")
 PKG_INSTALL := $(shell command -v bun >/dev/null 2>&1 && echo "bun install" || echo "npm install")
 
-install:
+install:			# Install all component dependencies
 	cd backend && uv sync
 	cd frontend && $(PKG_INSTALL)
 	cd hooks && uv sync
 	cd opencode-plugin && $(PKG_INSTALL)
 
-install-all: install hooks-install opencode-install
+install-all: install hooks-install opencode-install		# Install everything including hooks and plugins
 	@echo "All components installed including hooks and OpenCode plugin"
 
-dev:
-	@echo "Starting backend and frontend in parallel..."
+dev:			# Start backend and frontend in parallel
 	@make -j 2 backend frontend
 
-backend:
+backend:			# Start backend dev server
 	make -C backend dev
 
-frontend:
+frontend:			# Start frontend dev server
 	make -C frontend dev
 
 # Build static frontend and copy to backend for serving
@@ -35,33 +35,31 @@ build-static frontend-build-static:
 	@echo "Frontend built and copied to backend/static"
 	@echo "Start backend with 'make backend' to serve at http://localhost:8000"
 
-simulate:
+simulate:			# Run event simulation
 	uv run python scripts/simulate_events.py
 
-test-agent:
+test-agent:			# Run single agent test
 	uv run python scripts/test_single_agent.py
 
-lint:
+lint:			# Run ruff lint on all components
 	make -C backend lint
 	make -C frontend lint
 
-fmt:
+fmt:			# Reformat code with ruff
 	make -C backend fmt
 	make -C frontend fmt
 
-test:
+test:			# Run all tests
 	make -C backend test
 	make -C frontend test
 
-typecheck:
+typecheck:			# Run static type checks
 	make -C backend typecheck
 	make -C frontend typecheck
 
-checkall:
-	make -C backend checkall
-	make -C frontend checkall
+checkall: fmt lint typecheck		# Run all checks
 
-gen-types:
+gen-types:			# Regenerate TypeScript types from Pydantic models
 	cd backend && uv run python ../scripts/gen_types.py
 
 # Hook management targets
@@ -144,15 +142,15 @@ dev-tmux-frontend:
 	@tmux send-keys -t $(TMUX_SESSION):frontend "make dev" Enter 2>/dev/null || echo "Session not found"
 
 # Cleanup targets
-clean-db:
+clean-db:			# Remove SQLite database
 	rm -f backend/visualizer.db
 	@echo "Database removed"
 
-clean:
+clean:			# Remove build artifacts
 	rm -rf frontend/.next
 	rm -rf opencode-plugin/dist
 
-clean-all: clean clean-db hooks-logs-clear
+clean-all: clean clean-db hooks-logs-clear		# Remove everything
 	@echo "All build artifacts and data cleaned"
 
 # Docker targets
@@ -171,3 +169,38 @@ docker-logs:
 
 docker-shell:
 	docker compose exec claude-office /bin/bash
+
+# Dependency management
+uv-lock:			# Lock dependencies
+	cd backend && uv lock
+	cd hooks && uv lock
+
+uv-sync:			# Sync dependencies
+	cd backend && uv sync
+	cd hooks && uv sync
+
+setup: uv-sync install		# First-time setup
+
+resetup: remove-venv setup		# Recreate virtual environments from scratch
+
+remove-venv:			# Remove virtual environments
+	rm -rf backend/.venv hooks/.venv
+
+depsupdate:			# Update all dependencies
+	cd backend && uv sync -U
+	cd hooks && uv sync -U
+	cd frontend && $(PKG_MGR) update
+
+depsshow:			# Show dependency tree
+	cd backend && uv tree
+
+# Pre-commit
+pre-commit:			# Run pre-commit on all files
+	pre-commit run --all-files
+
+pre-commit-update:			# Update pre-commit hooks
+	pre-commit autoupdate
+
+# Help
+help:				# Display this help
+	@grep -Eh "^[a-z][-a-z]+:.+# " $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.+# "}; {printf "%-20s %s\n", $$1, $$2}'

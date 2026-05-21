@@ -4,6 +4,15 @@ All notable changes to Claude Office Visualizer are documented here.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Subagent name attribution**: Subagents now use their curated `subagent_type` name (e.g. "The Scout", "The Architect") instead of a random AI-generated name. The explicit `agent_type` from the Agent tool is matched first; the old description-prefix heuristic is kept as fallback (#36)
+- **SUBAGENT_STOP log line**: Stop events no longer show "Subagent None finished with errors" — falls back to `native_agent_id` and defaults `success=True` when the native SubagentStop hook omits them (#36)
+
+### Changed
+
+- **Agent type name registry**: Promoted `agent_type_names` to a class constant (`_AGENT_TYPE_NAMES`) on `SummaryService`, with `_MAPPED_AGENT_TYPES` derived from its keys — eliminates the sync drift risk between the curated name map and the AI-namer skip set
+
 ## [0.15.0] - 2026-05-07
 
 ### Security

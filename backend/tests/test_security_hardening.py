@@ -360,3 +360,17 @@ class TestOpenApiAuthExemption:
             assert resp.status_code == 200
         finally:
             settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_redoc_page_reachable_with_key(self) -> None:
+        from app.config import get_settings
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = "test-secret-key"
+        try:
+            client = TestClient(app)
+            resp = client.get("/redoc")
+            assert resp.status_code == 200
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original

@@ -132,7 +132,7 @@ class TokenTracker:
             logger.warning("Rejected transcript path outside ~/.claude/: %s", translated)
             return None
 
-        path = Path(translated).expanduser()
+        path = Path(translated)
         if not path.exists():
             return None
         if path.stat().st_size > _MAX_TRANSCRIPT_BYTES:

@@ -1,3 +1,4 @@
+import secrets
 from functools import lru_cache
 from pathlib import Path
 
@@ -40,9 +41,25 @@ class Settings(BaseSettings):
     ZOMBIE_SUBAGENT_TIMEOUT_SECONDS: int = 90
 
     # API key for authenticating hook requests. When set, all requests
-    # must include this value in the X-API-Key header. When empty, auth
-    # is skipped (backwards-compatible).
+    # must include this value in the X-API-Key header. When empty, a
+    # per-launch random token is generated for state-changing endpoints
+    # and WebSocket non-browser connections.
     CLAUDE_OFFICE_API_KEY: str = ""
+
+    # Auto-generated per-launch token. Used as the effective API key when
+    # CLAUDE_OFFICE_API_KEY is not explicitly set. This ensures state-changing
+    # endpoints always require an API key even in the default configuration.
+    _auto_api_key: str = secrets.token_hex(32)
+
+    @property
+    def effective_api_key(self) -> str:
+        """Return the configured API key, or the per-launch auto-generated token."""
+        return self.CLAUDE_OFFICE_API_KEY or self._auto_api_key
+
+    @property
+    def has_explicit_key(self) -> bool:
+        """True when the user explicitly set CLAUDE_OFFICE_API_KEY."""
+        return bool(self.CLAUDE_OFFICE_API_KEY)
 
     model_config = SettingsConfigDict(env_file=".env")
 

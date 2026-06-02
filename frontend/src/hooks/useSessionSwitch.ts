@@ -3,6 +3,7 @@
 import { agentMachineService } from "@/machines/agentMachineService";
 import { useGameStore } from "@/stores/gameStore";
 import { useTranslation } from "@/hooks/useTranslation";
+import { apiFetch } from "@/utils/api";
 import type { Session } from "@/hooks/useSessions";
 
 // ============================================================================
@@ -66,7 +67,7 @@ export function useSessionSwitch({
         t("status.deletingSession", { sessionId: id.slice(0, 8) }),
         "info",
       );
-      const res = await fetch(`http://localhost:8000/api/v1/sessions/${id}`, {
+      const res = await apiFetch(`/api/v1/sessions/${id}`, {
         method: "DELETE",
       });
       if (res.ok) {
@@ -90,7 +91,7 @@ export function useSessionSwitch({
   const handleClearDB = async (): Promise<void> => {
     try {
       showStatus(t("status.clearingDatabase"), "info");
-      const res = await fetch("http://localhost:8000/api/v1/sessions", {
+      const res = await apiFetch("/api/v1/sessions", {
         method: "DELETE",
       });
       if (res.ok) {
@@ -111,10 +112,9 @@ export function useSessionSwitch({
   const handleSimulate = async (): Promise<void> => {
     try {
       showStatus(t("status.triggeringSimulation"), "info");
-      const res = await fetch(
-        "http://localhost:8000/api/v1/sessions/simulate",
-        { method: "POST" },
-      );
+      const res = await apiFetch("/api/v1/sessions/simulate", {
+        method: "POST",
+      });
       if (res.ok) {
         showStatus(t("status.simulationStarted"), "success");
       } else {
@@ -140,14 +140,11 @@ export function useSessionSwitch({
     if (!trimmed) return;
 
     try {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/sessions/${sessionId}`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ display_name: trimmed }),
-        },
-      );
+      const res = await apiFetch(`/api/v1/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ display_name: trimmed }),
+      });
       if (res.ok) {
         await fetchSessions();
         showStatus(t("status.sessionRenamed"), "success");

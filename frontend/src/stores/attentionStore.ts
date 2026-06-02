@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import type { EventType } from "@/types";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { apiFetch } from "@/utils/api";
 
 // ============================================================================
 // TYPES
@@ -175,14 +176,11 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
 
   focusAgentTerminal: async (sessionId, _agentId) => {
     try {
-      const res = await fetch(
-        `http://localhost:8000/api/v1/sessions/${sessionId}/focus`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        },
-      );
+      const res = await apiFetch(`/api/v1/sessions/${sessionId}/focus`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      });
       if (!res.ok) {
         console.error("Focus terminal failed:", res.statusText);
       }

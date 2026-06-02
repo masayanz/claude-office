@@ -20,6 +20,7 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
+from app.config import get_settings
 from app.main import app
 
 client = TestClient(app)
@@ -720,5 +721,9 @@ class TestSessionsAPISmoke:
         assert any(s["id"] == sid for s in resp.json())
 
     def test_focus_endpoint_returns_404_for_unknown_session(self) -> None:
-        resp = client.post("/api/v1/sessions/no-such-session-xyz/focus", json={})
+        resp = client.post(
+            "/api/v1/sessions/no-such-session-xyz/focus",
+            json={},
+            headers={"X-API-Key": get_settings().effective_api_key},
+        )
         assert resp.status_code == 404

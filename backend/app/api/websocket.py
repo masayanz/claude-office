@@ -1,4 +1,5 @@
 import asyncio
+import hmac
 import logging
 import re
 from typing import Any
@@ -27,21 +28,21 @@ def validate_websocket_origin(websocket: WebSocket) -> bool:
 
     Browser connections must come from an allowed localhost origin.
     Non-browser connections (no Origin header) must present a valid
-    X-API-Key header when CLAUDE_OFFICE_API_KEY is configured.
-    Returns False for disallowed origins or missing auth.
+    X-API-Key matching the *effective* API key (either user-configured
+    or the per-launch auto-generated token).  This prevents arbitrary
+    local processes from subscribing to the session-state stream when
+    no explicit key is configured.
     """
     origin = websocket.headers.get("origin")
     if origin is not None:
         return origin.rstrip("/") in _ALLOWED_WS_ORIGINS
 
-    # Non-browser clients (no Origin) — require API key when configured
+    # Non-browser clients (no Origin) — always require the effective API key
     from app.config import get_settings
 
-    key = get_settings().CLAUDE_OFFICE_API_KEY
-    if not key:
-        return True
+    key = get_settings().effective_api_key
     provided = websocket.headers.get("x-api-key", "")
-    return provided == key
+    return hmac.compare_digest(provided, key)
 
 
 def validate_session_id(session_id: str) -> bool:

@@ -1,3 +1,4 @@
+import hmac
 import importlib
 import logging
 import os
@@ -60,17 +61,28 @@ class LocalhostOnlyMiddleware(BaseHTTPMiddleware):
 _NO_AUTH_PATHS = frozenset({"/health", "/docs", "/redoc"})
 
 
-class ApiKeyMiddleware(BaseHTTPMiddleware):
-    """Validate X-API-Key header when CLAUDE_OFFICE_API_KEY is configured.
+def _is_state_changing(path: str, method: str) -> bool:
+    """Return True if the request targets a state-changing endpoint."""
+    prefix = settings.API_V1_STR + "/sessions"
+    return (
+        (path == prefix and method == "DELETE")
+        or (path == f"{prefix}/simulate" and method == "POST")
+        or (path.startswith(f"{prefix}/") and path.endswith("/focus") and method == "POST")
+    )
 
-    When the key is empty (default), auth is skipped for backwards compatibility.
+
+class ApiKeyMiddleware(BaseHTTPMiddleware):
+    """Validate X-API-Key header for protected endpoints.
+
+    * When ``CLAUDE_OFFICE_API_KEY`` is explicitly set, ALL non-public paths
+      require the key (existing behaviour).
+    * When the key is empty (default), state-changing endpoints still require
+      the per-launch auto-generated token (``settings.effective_api_key``).
+      Read-only paths remain open for backwards compatibility.
     """
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        key = settings.CLAUDE_OFFICE_API_KEY
-        if not key:
-            return await call_next(request)
-
+        # Skip auth for public paths and WebSocket handshakes
         if (
             request.url.path in _NO_AUTH_PATHS
             or request.url.path == f"{settings.API_V1_STR}/openapi.json"
@@ -78,8 +90,16 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         ):
             return await call_next(request)
 
+        # Determine whether auth is required for this request
+        requires_auth = settings.has_explicit_key or _is_state_changing(
+            request.url.path, request.method
+        )
+
+        if not requires_auth:
+            return await call_next(request)
+
         provided = request.headers.get("X-API-Key", "")
-        if provided != key:
+        if not hmac.compare_digest(provided, settings.effective_api_key):
             return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
 
         return await call_next(request)
@@ -136,6 +156,14 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await _migrate_schema(conn)
 
     await _reap_stale_sessions()
+
+    # Log the effective API key so users can see what protects state-changing
+    # endpoints when CLAUDE_OFFICE_API_KEY is not explicitly configured.
+    if not settings.has_explicit_key:
+        logger.info(
+            "Auto-generated API key for state-changing endpoints: %s",
+            settings.effective_api_key[:8] + "…",
+        )
 
     git_service.start()
 
@@ -196,11 +224,18 @@ async def health_check() -> dict[str, str]:
 
 @app.get("/api/v1/status")
 async def get_status() -> dict[str, bool | str | None]:
-    """Get server status including AI summary availability."""
+    """Get server status including AI summary availability and the effective API key.
+
+    The effective API key is either the user-configured ``CLAUDE_OFFICE_API_KEY``
+    or the per-launch auto-generated token.  The frontend needs this to send
+    authenticated requests to state-changing endpoints.  This route is only
+    reachable from localhost (enforced by ``LocalhostOnlyMiddleware``).
+    """
     summary_service = get_summary_service()
     return {
         "aiSummaryEnabled": summary_service.enabled,
         "aiSummaryModel": summary_service.model if summary_service.enabled else None,
+        "apiKey": settings.effective_api_key,
     }
 
 

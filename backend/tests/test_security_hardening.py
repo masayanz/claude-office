@@ -1,4 +1,4 @@
-"""Tests for security hardening (issue #37)."""
+"""Tests for security hardening (issue #37 + #41)."""
 
 from pathlib import Path
 from typing import Any
@@ -8,6 +8,7 @@ from urllib.parse import urlparse
 from fastapi.testclient import TestClient
 
 from app.api.websocket import validate_websocket_origin
+from app.config import get_settings
 from app.core.path_utils import is_safe_transcript_path
 
 # ---------------------------------------------------------------------------
@@ -214,23 +215,34 @@ class TestWebSocketOriginValidation:
         ws = self._make_ws(origin="https://evil.com")
         assert validate_websocket_origin(ws) is False
 
-    def test_no_origin_no_key_configured_accepted(self) -> None:
-        """No origin + no API key configured = accepted (backwards compat)."""
-        from app.config import get_settings
+    def test_no_origin_no_key_configured_rejected(self) -> None:
+        """No origin + no key = rejected even without explicit CLAUDE_OFFICE_API_KEY.
 
+        The auto-generated per-launch token is always required for non-browser
+        WebSocket clients (issue #41 item 3).
+        """
         settings = get_settings()
         original = settings.CLAUDE_OFFICE_API_KEY
         settings.CLAUDE_OFFICE_API_KEY = ""
         try:
             ws = self._make_ws()
+            assert validate_websocket_origin(ws) is False
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_no_origin_auto_key_accepted(self) -> None:
+        """No origin + valid auto-generated key = accepted."""
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            ws = self._make_ws(api_key=settings.effective_api_key)
             assert validate_websocket_origin(ws) is True
         finally:
             settings.CLAUDE_OFFICE_API_KEY = original
 
     def test_no_origin_valid_key_accepted(self) -> None:
         """No origin + valid API key = accepted."""
-        from app.config import get_settings
-
         settings = get_settings()
         original = settings.CLAUDE_OFFICE_API_KEY
         settings.CLAUDE_OFFICE_API_KEY = "my-secret"
@@ -242,8 +254,6 @@ class TestWebSocketOriginValidation:
 
     def test_no_origin_wrong_key_rejected(self) -> None:
         """No origin + wrong API key = rejected."""
-        from app.config import get_settings
-
         settings = get_settings()
         original = settings.CLAUDE_OFFICE_API_KEY
         settings.CLAUDE_OFFICE_API_KEY = "my-secret"
@@ -255,8 +265,6 @@ class TestWebSocketOriginValidation:
 
     def test_no_origin_no_key_rejected(self) -> None:
         """No origin + no API key when configured = rejected."""
-        from app.config import get_settings
-
         settings = get_settings()
         original = settings.CLAUDE_OFFICE_API_KEY
         settings.CLAUDE_OFFICE_API_KEY = "my-secret"
@@ -372,5 +380,125 @@ class TestOpenApiAuthExemption:
             client = TestClient(app)
             resp = client.get("/redoc")
             assert resp.status_code == 200
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+
+# ---------------------------------------------------------------------------
+# Issue #41 — lower-severity hardening follow-ups
+# ---------------------------------------------------------------------------
+
+
+class TestTimingSafeKeyComparison:
+    """Verify API key comparison uses constant-time hmac.compare_digest."""
+
+    def test_middleware_uses_hmac(self) -> None:
+        """ApiKeyMiddleware should use hmac.compare_digest, not plain ==."""
+        import inspect
+
+        from app.main import ApiKeyMiddleware
+
+        source = inspect.getsource(ApiKeyMiddleware.dispatch)
+        assert "hmac.compare_digest" in source
+        assert "provided != key" not in source
+        assert "provided == key" not in source
+
+    def test_websocket_uses_hmac(self) -> None:
+        """WebSocket validation should use hmac.compare_digest."""
+        import inspect
+
+        source = inspect.getsource(validate_websocket_origin)
+        assert "hmac.compare_digest" in source
+        assert "provided == key" not in source
+
+
+class TestStateChangingEndpointAuth:
+    """State-changing endpoints always require the effective API key (issue #41 item 2)."""
+
+    def test_clear_db_requires_key(self) -> None:
+        """DELETE /sessions should require the effective API key."""
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            # No X-API-Key header — should be rejected
+            resp = client.delete(f"{settings.API_V1_STR}/sessions")
+            assert resp.status_code == 401
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_clear_db_with_effective_key(self) -> None:
+        """DELETE /sessions with the effective key should pass auth."""
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            resp = client.delete(
+                f"{settings.API_V1_STR}/sessions",
+                headers={"X-API-Key": settings.effective_api_key},
+            )
+            # Auth passes — may be 200 or 500 depending on DB state, but not 401
+            assert resp.status_code != 401
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_simulate_requires_key(self) -> None:
+        """POST /sessions/simulate should require the effective API key."""
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            resp = client.post(f"{settings.API_V1_STR}/sessions/simulate")
+            assert resp.status_code == 401
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_read_only_endpoints_open_without_key(self) -> None:
+        """GET endpoints should still work without a key."""
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            resp = client.get(f"{settings.API_V1_STR}/sessions")
+            assert resp.status_code == 200
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+
+class TestEffectiveApiKey:
+    """Verify config.effective_api_key behavior."""
+
+    def test_auto_key_generated(self) -> None:
+        """An auto-generated key should exist when no explicit key is set."""
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            assert settings.effective_api_key
+            assert len(settings.effective_api_key) == 64  # secrets.token_hex(32)
+            assert not settings.has_explicit_key
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_explicit_key_takes_precedence(self) -> None:
+        """When CLAUDE_OFFICE_API_KEY is set, it is the effective key."""
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = "my-explicit-key"
+        try:
+            assert settings.effective_api_key == "my-explicit-key"
+            assert settings.has_explicit_key is True
         finally:
             settings.CLAUDE_OFFICE_API_KEY = original

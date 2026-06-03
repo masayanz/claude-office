@@ -2,6 +2,19 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
+## [0.19.0] - 2026-06-02
+
+### Security
+
+- **Constant-time API key comparison**: Replaced plain `==`/`!=` with `hmac.compare_digest` in both `ApiKeyMiddleware` and WebSocket origin validation to eliminate timing side channels (#41)
+- **State-changing endpoints always require auth**: `DELETE /sessions`, `POST /sessions/simulate`, and `POST /sessions/{id}/focus` now require a valid API key even when `CLAUDE_OFFICE_API_KEY` is not explicitly configured. A per-launch random token (`secrets.token_hex(32)`) is auto-generated and exposed via `/api/v1/status` for frontend discovery (#41)
+- **WebSocket keyless client access closed**: Non-browser WebSocket connections (no `Origin` header) now always require the effective API key, preventing arbitrary local processes from subscribing to the session-state stream (#41)
+- **Summarizer prompt injection hardening**: Added a system prompt that frames the summarizer's task and marks user/tool content as untrusted. Untrusted transcript text is wrapped in `<data>…</data>` delimiters with pre-existing tags stripped, removing the trivial "ignore previous instructions" attack class (#41)
+
+### Changed
+
+- **Frontend authenticated API calls**: Mutating requests (clear DB, simulate, delete session, focus terminal, rename session) now include `X-API-Key` header via a new `apiFetch` helper that reads the key from the status endpoint
+
 ## [0.18.0] - 2026-06-01
 
 ### Security

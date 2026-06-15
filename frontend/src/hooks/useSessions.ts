@@ -81,7 +81,7 @@ export function useSessions(
     return null;
   }, []);
 
-  // Fetch sessions on mount and periodically
+  // Fetch sessions on mount and periodically.
   useEffect(() => {
     fetchSessions();
     const interval = setInterval(fetchSessions, 5000);

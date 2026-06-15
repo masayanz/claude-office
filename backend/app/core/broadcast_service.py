@@ -8,6 +8,7 @@ full EventProcessor class.
 
 from __future__ import annotations
 
+import asyncio
 from typing import TYPE_CHECKING, Any
 
 from app.api.websocket import manager
@@ -22,6 +23,7 @@ __all__ = [
     "broadcast_event",
     "broadcast_error",
     "broadcast_room_state",
+    "broadcast_overview_state",
 ]
 
 
@@ -91,4 +93,39 @@ async def broadcast_room_state(room_id: str, orchestrator: RoomOrchestrator) -> 
             "state": merged_state.model_dump(mode="json", by_alias=True),
         },
         room_id,
+    )
+
+
+async def broadcast_overview_state(
+    sessions: dict[str, StateMachine],
+    sessions_lock: asyncio.Lock | None = None,
+) -> None:
+    """Broadcast the cross-session overview to all ``/ws/overview`` clients.
+
+    Skips building the payload entirely when nobody is watching the Command
+    Center, so the per-event hook stays cheap in the common case.
+
+    ``build_overview`` reads the live session registry and each StateMachine's
+    mutable collections, which concurrent event handlers rewrite (e.g.
+    ``self.sessions[id] = ...`` / ``del sm.agents[id]``). When *sessions_lock*
+    is supplied it is held across the build so the registry can't be resized
+    mid-iteration. Callers must NOT already hold the lock (it is acquired here
+    exactly once, so there is no re-entry / deadlock risk).
+    """
+    if not manager.overview_connections:
+        return
+    # Local import avoids any import-order coupling at module load.
+    from app.core.room_orchestrator import build_overview
+
+    if sessions_lock is not None:
+        async with sessions_lock:
+            overview = build_overview(sessions)
+    else:
+        overview = build_overview(sessions)
+    await manager.broadcast_overview(
+        {
+            "type": "state_update",
+            "timestamp": overview.last_updated.isoformat(),
+            "state": overview.model_dump(mode="json", by_alias=True),
+        }
     )

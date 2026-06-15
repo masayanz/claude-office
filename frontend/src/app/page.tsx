@@ -29,7 +29,7 @@ import { useNavigationStore } from "@/stores/navigationStore";
 import { useTourStore } from "@/stores/tourStore";
 import { useShallow } from "zustand/react/shallow";
 import { setApiKey, apiFetch } from "@/utils/api";
-import { Menu, X } from "lucide-react";
+import { Menu, X, Map } from "lucide-react";
 import { SessionSidebar } from "@/components/layout/SessionSidebar";
 import { MobileDrawer } from "@/components/layout/MobileDrawer";
 import { MobileAgentActivity } from "@/components/layout/MobileAgentActivity";
@@ -45,6 +45,7 @@ import { Breadcrumb } from "@/components/navigation/Breadcrumb";
 import { ViewTransition } from "@/components/navigation/ViewTransition";
 import { BuildingView } from "@/components/views/BuildingView";
 import { FloorView } from "@/components/views/FloorView";
+import { CommandCenterView } from "@/components/command/CommandCenterView";
 import { TourOverlay } from "@/components/tour/TourOverlay";
 import CommandBar from "@/components/attention/CommandBar";
 import AttentionToasts from "@/components/attention/AttentionToasts";
@@ -151,6 +152,22 @@ export default function V2TestPage(): React.ReactNode {
 
   // Navigation store
   const view = useNavigationStore((s) => s.view);
+  const buildingConfig = useNavigationStore((s) => s.buildingConfig);
+
+  // Onboarding tour now lives in the Help modal (rarely used).
+  const startTour = useTourStore((s) => s.startTour);
+  const handleStartTour = (): void => {
+    const hasBuildingConfig =
+      buildingConfig !== null && (buildingConfig.floors.length ?? 0) > 0;
+    const mode = view !== "single" && hasBuildingConfig ? "building" : "single";
+    startTour(mode);
+    setIsHelpModalOpen(false);
+  };
+
+  // Active session count gates the Command Center entry point (>= 2).
+  const activeSessionCount = sessions.filter(
+    (s) => s.status === "active",
+  ).length;
 
   // ------------------------------------------------------------------
   // Floor config + tour initialization
@@ -293,12 +310,21 @@ export default function V2TestPage(): React.ReactNode {
         onClose={() => setIsHelpModalOpen(false)}
         title={t("modal.keyboardShortcuts")}
         footer={
-          <button
-            onClick={() => setIsHelpModalOpen(false)}
-            className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-lg transition-colors"
-          >
-            {t("modal.close")}
-          </button>
+          <>
+            <button
+              onClick={handleStartTour}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 text-sm font-bold rounded-lg transition-colors"
+            >
+              <Map size={16} />
+              {t("help.tour")}
+            </button>
+            <button
+              onClick={() => setIsHelpModalOpen(false)}
+              className="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white text-sm font-bold rounded-lg transition-colors"
+            >
+              {t("modal.close")}
+            </button>
+          </>
         }
       >
         <div className="space-y-3 font-mono text-sm">
@@ -395,7 +421,7 @@ export default function V2TestPage(): React.ReactNode {
             {!isMobile && t("app.title")}
             {!isMobile && (
               <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
-                v0.19.0
+                v0.20.0
               </span>
             )}
           </h1>
@@ -404,16 +430,12 @@ export default function V2TestPage(): React.ReactNode {
           {!isMobile && <Breadcrumb />}
         </div>
 
-        {/* Centered status toast */}
-        <div className="absolute left-1/3 -translate-x-1/2 flex items-center pointer-events-none">
-          <StatusToast message={statusMessage} />
-        </div>
-
         {!isMobile && (
           <HeaderControls
             isConnected={isConnected}
             debugMode={debugMode}
             aiSummaryEnabled={aiSummaryEnabled}
+            activeSessionCount={activeSessionCount}
             onSimulate={handleSimulate}
             onReset={handleReset}
             onClearDB={() => setIsClearModalOpen(true)}
@@ -492,6 +514,22 @@ export default function V2TestPage(): React.ReactNode {
 
           <RightSidebar />
         </div>
+      ) : view === "command" ? (
+        /* ----------------------------------------------------------------
+            Command Center (cross-terminal overview)
+        ---------------------------------------------------------------- */
+        <CommandCenterView
+          sessions={sessions}
+          sessionsLoading={sessionsLoading}
+          sessionId={sessionId}
+          isCollapsed={leftSidebarCollapsed}
+          onToggleCollapsed={() =>
+            setLeftSidebarCollapsed(!leftSidebarCollapsed)
+          }
+          onSessionSelect={handleSessionSelect}
+          onDeleteSession={setSessionPendingDelete}
+          onRenameSession={handleRenameSession}
+        />
       ) : (
         /* ----------------------------------------------------------------
             Building / Floor View (animated transitions)
@@ -527,6 +565,13 @@ export default function V2TestPage(): React.ReactNode {
           Tour Overlay
       ---------------------------------------------------------------- */}
       <TourOverlay />
+
+      {/* ----------------------------------------------------------------
+          Status Toast — pinned bottom-center so it never covers the header
+      ---------------------------------------------------------------- */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center pointer-events-none">
+        <StatusToast message={statusMessage} />
+      </div>
     </main>
   );
 }

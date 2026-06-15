@@ -33,6 +33,10 @@ _SERVE_STATIC = os.environ.get("SERVE_STATIC", "").lower() in ("1", "true", "yes
 
 _LOCALHOST_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
 
+# Upper bound on concurrent /ws/overview (Command Center) watchers. Each one
+# amplifies the per-event overview rebuild cost, so refuse new ones past this.
+_MAX_OVERVIEW_CONNECTIONS = 16
+
 
 class LocalhostOnlyMiddleware(BaseHTTPMiddleware):
     """Reject HTTP requests from non-localhost origins.
@@ -62,15 +66,18 @@ _NO_AUTH_PATHS = frozenset({"/health", "/docs", "/redoc"})
 
 
 def _is_state_changing(path: str, method: str) -> bool:
-    """Return True if the request targets a state-changing endpoint."""
+    """Return True if the request targets a destructive global endpoint.
+
+    When no explicit ``CLAUDE_OFFICE_API_KEY`` is configured, only the
+    destructive *global* operations (clearing all sessions, running a
+    simulation) require the auto-generated token.  Per-session mutations
+    (delete, label, focus) and preferences writes remain open in the default
+    configuration; they are still fully gated whenever an explicit key is set
+    (handled by ``settings.has_explicit_key`` in the middleware).
+    """
     prefix = settings.API_V1_STR + "/sessions"
-    prefs_prefix = settings.API_V1_STR + "/preferences"
-    return (
-        (path == prefix and method == "DELETE")
-        or (path == f"{prefix}/simulate" and method == "POST")
-        or (path.startswith(f"{prefix}/") and path.endswith("/focus") and method == "POST")
-        or (path.startswith(f"{prefix}/") and method in ("DELETE", "PATCH"))
-        or (path.startswith(f"{prefs_prefix}/") and method in ("PUT", "DELETE"))
+    return (path == prefix and method == "DELETE") or (
+        path == f"{prefix}/simulate" and method == "POST"
     )
 
 
@@ -243,6 +250,52 @@ async def get_status() -> dict[str, bool | str | None]:
         "aiSummaryModel": summary_service.model if summary_service.enabled else None,
         "apiKey": settings.effective_api_key,
     }
+
+
+@app.websocket("/ws/overview")
+async def websocket_overview(websocket: WebSocket) -> None:
+    """Overview WebSocket: boss status of every live session (Command Center).
+
+    Declared BEFORE ``/ws/{session_id}`` so the single-segment path ``/ws/overview``
+    isn't captured by the session route (which would treat "overview" as a session
+    id, accept, find no state, and silently idle).
+    """
+    from app.api.websocket import validate_websocket_origin
+
+    if not validate_websocket_origin(websocket):
+        await websocket.close(code=4003, reason="Origin not allowed")
+        return
+
+    # Cap concurrent overview watchers: each connection amplifies the per-event
+    # overview rebuild cost, so refuse beyond the limit instead of letting it
+    # grow unbounded.
+    if len(manager.overview_connections) >= _MAX_OVERVIEW_CONNECTIONS:
+        await websocket.close(code=4013, reason="Too many overview connections")
+        return
+
+    await manager.connect_overview(websocket)
+    try:
+        # Send the current overview snapshot on connect. Built under the same
+        # ``_sessions_lock`` used by the per-event broadcast so it reads a
+        # consistent registry snapshot and can't race a concurrent event handler
+        # resizing ``sessions`` mid-iteration.
+        overview = await event_processor.build_overview_snapshot()
+        await websocket.send_json(
+            {
+                "type": "state_update",
+                "timestamp": overview.last_updated.isoformat(),
+                "state": overview.model_dump(mode="json", by_alias=True),
+            }
+        )
+        # Keep alive -- discard incoming messages
+        while True:
+            await websocket.receive_text()
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        logger.warning("Overview WebSocket error", exc_info=True)
+    finally:
+        await manager.disconnect_overview(websocket)
 
 
 @app.websocket("/ws/{session_id}")

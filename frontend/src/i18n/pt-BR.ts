@@ -20,6 +20,27 @@ const ptBR: Record<TranslationKey, string> = {
   "header.aiOff": "DESLIGADO",
   "header.agents": "agentes",
   "header.tour": "TUR",
+  "header.commandCenter": "COMANDO",
+  "header.more": "MAIS",
+  "header.moreMenu": "Mais ações",
+  "help.tour": "Fazer o tour",
+
+  // Command Center
+  "commandCenter.title": "Central de Comando",
+  "commandCenter.zone.needsYou": "Precisa de você",
+  "commandCenter.zone.working": "Trabalhando",
+  "commandCenter.zone.done": "Concluído",
+  "commandCenter.zone.ended": "Encerrado",
+  "commandCenter.moreCount": "+{count} mais",
+  "commandCenter.popup.todos": "Tarefas",
+  "commandCenter.popup.employees": "Funcionários",
+  "commandCenter.popup.terminal": "Terminal",
+  "commandCenter.popup.drillIn": "Abrir",
+  "commandCenter.initializing": "Inicializando Central de Comando...",
+  "commandCenter.board.allSessions": "TODAS AS SESSÕES",
+  "commandCenter.board.terminals": "Terminais",
+  "commandCenter.board.employees": "Funcionários",
+  "commandCenter.board.todos": "Tarefas",
 
   // Modals
   "modal.confirmDbWipe": "Confirmar Limpeza do Banco",
@@ -76,6 +97,9 @@ const ptBR: Record<TranslationKey, string> = {
     "Adicione andares e mapeie nomes de pastas de projetos para ativar a visualização de edifício",
   "settings.building.unsavedWarning":
     "Você tem alterações não salvas no edifício. Descartá-las?",
+  "settings.building.saveFailed": "Falha ao salvar: {status} {statusText}",
+  "settings.building.saveUnreachable":
+    "Não foi possível conectar ao servidor — ele está em execução?",
 
   // Sessions
   "sessions.title": "Sessões",

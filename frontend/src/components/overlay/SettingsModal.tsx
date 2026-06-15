@@ -79,7 +79,7 @@ export default function SettingsModal({
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [buildingDirty, setBuildingDirty] = useState(false);
 
-  // Sync tab when initialTab changes (e.g. edit-building request)
+  // Sync tab when initialTab changes (e.g. edit-building request).
   useEffect(() => {
     setActiveTab(initialTab);
   }, [initialTab]);

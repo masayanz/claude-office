@@ -39,6 +39,14 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.20.0 (June 2026)
+
+- **Command Center**: New cross-terminal overview that gathers the boss (main agent) of every live session into a single pixel office — see at a glance what's finished, still running, or needs your attention. Reachable from the header (when ≥2 sessions are active) or the Building view's penthouse tile
+- **Scrollable Building View**: The building cross-section now scrolls when the floor list is taller than the viewport
+- **Full-system QA + security hardening**: 41 bug fixes (including a polling deadlock, a Docker blank-page fix, and a CORS preflight fix) plus per-session authorization guards and event-payload validation
+
+For the full release history, see [CHANGELOG.md](CHANGELOG.md).
+
 ### v0.15.0 (May 2026)
 
 - **Multi-Floor Building Navigation**: Browse a multi-story building with floor-level views, each with its own office layout and agents
@@ -67,6 +75,7 @@ For the full release history, see [CHANGELOG.md](CHANGELOG.md).
 - **Thought/Speech Bubbles**: See agent activities and communications
 
 ### Advanced Features
+- **Command Center**: Cross-terminal overview that gathers every live session's boss into one pixel office, with status columns (Needs-you, Working, Done, Ended) and A* pathfinding to free seats
 - **Multi-Mode Whiteboard**: 12 display modes with keyboard shortcuts (0-9, T, B, K) - todo list, remote workers, tool usage pie chart, org chart, stonks, weather, safety board, timeline, news ticker, coffee tracker, heat map, kanban
 - **Background Task Tracking**: Remote Workers display shows background task status in video-call-style tiles
 - **Context Window Tracking**: Animated trashcan fills with paper as context increases

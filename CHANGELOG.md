@@ -2,7 +2,7 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
-## [0.20.0] - 2026-06-11
+## [0.20.0] - 2026-06-15
 
 ### Added
 
@@ -11,6 +11,23 @@ All notable changes to Claude Office Visualizer are documented here.
   - Backend: new `OverviewEntry`/`OverviewState` models, `build_overview()` peer merge in `room_orchestrator`, and a `/ws/overview` WebSocket broadcasting one boss snapshot per live session (rebuilt only when a client is watching)
   - Frontend: `command` view mode, `overviewStore` + `useOverviewWebSocket`, and a sibling PixiJS canvas reusing the office sprites/textures. Clicking an agent opens a cross-session popover to **open that agent's terminal** or **drill in** to its office
 - **Scrollable Building view**: the building cross-section now scrolls when the floor list is taller than the viewport, while still centering when it fits
+
+### Fixed
+
+- **Full-system QA sweep**: 41 confirmed bugs fixed across the backend, frontend, hooks, and OpenCode plugin, including four critical issues:
+  - **`stop_polling` deadlock**: the session lock was held while awaiting a cancelled poll task; the lock is now released before cancellation
+  - **Whiteboard mode cycle**: added Kanban to the cycle (`WHITEBOARD_MODE_COUNT` 11 → 12) so cycling no longer skips it
+  - **Docker deployment blank page**: `SERVE_STATIC=1` is now set on the backend container so the bundled frontend is served
+  - **CORS preflight blocked**: `OPTIONS` requests are now handled before the API-key middleware, restoring cross-origin preflight without weakening auth
+- **GitService multi-session safety**: per-root status baselines under a `threading.Lock`, with no `await` while holding the lock and session removal on WebSocket disconnect (#44)
+- **Conversation history cap** unified into a single `StateMachine.append_capped()` helper (previously duplicated across handlers) (#44)
+- Added a regression test suite covering the polling deadlock, session-creation race, restore-on-unknown-event, divide-by-zero, and multi-session git status (#44)
+- **Compaction / WebSocket hook robustness**: cleared blocking `react-hooks` lint (ref-in-render, set-state-in-effect, ref-in-cleanup) via proper restructure rather than suppressions (#44)
+
+### Security
+
+- **Per-session authorization guards**: `DELETE`/`PATCH` on sessions and `PUT`/`DELETE` on preferences are now scoped per-session under the lock (#44)
+- **Event payload validation**: added a Pydantic `field_validator` on `Event` to reject malformed payloads before processing (#44)
 
 ## [0.19.0] - 2026-06-02
 

@@ -28,7 +28,7 @@ import {
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useTourStore } from "@/stores/tourStore";
 import { useShallow } from "zustand/react/shallow";
-import { setApiKey } from "@/utils/api";
+import { setApiKey, apiFetch } from "@/utils/api";
 import { Menu, X } from "lucide-react";
 import { SessionSidebar } from "@/components/layout/SessionSidebar";
 import { MobileDrawer } from "@/components/layout/MobileDrawer";
@@ -157,17 +157,18 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   useFloorConfig();
 
-  // Watch for edit-building requests from BuildingView
-  const consumeEditBuilding = useNavigationStore((s) => s.consumeEditBuilding);
+  // Watch for edit-building requests from BuildingView. Subscribe to the
+  // store so the modal-opening setState runs in an event callback (the store
+  // notification) rather than in the effect body.
   useEffect(() => {
-    const interval = setInterval(() => {
-      if (consumeEditBuilding()) {
+    return useNavigationStore.subscribe((state) => {
+      if (state.pendingEditBuilding) {
+        state.consumeEditBuilding();
         setSettingsInitialTab("building");
         setIsSettingsModalOpen(true);
       }
-    }, 100);
-    return () => clearInterval(interval);
-  }, [consumeEditBuilding]);
+    });
+  }, []);
 
   const loadTourSeen = useTourStore((s) => s.loadTourSeen);
   useEffect(() => {
@@ -183,7 +184,7 @@ export default function V2TestPage(): React.ReactNode {
   // One-time initialization effects
   // ------------------------------------------------------------------
   useEffect(() => {
-    fetch("http://localhost:8000/api/v1/status")
+    apiFetch("/api/v1/status")
       .then((res) => res.json())
       .then((data: { aiSummaryEnabled: boolean; apiKey?: string }) => {
         setAiSummaryEnabled(data.aiSummaryEnabled);

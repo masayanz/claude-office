@@ -39,6 +39,7 @@ export function useWebSocketEvents({
 }: UseWebSocketEventsOptions): void {
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryCountRef = useRef(0);
   const processedAgentsRef = useRef<Set<string>>(new Set());
 
   // Connection ID to track which connection is current (prevents stale onclose handlers)
@@ -421,6 +422,17 @@ export function useWebSocketEvents({
               }),
             );
             break;
+
+          case "error":
+            useAttentionStore.getState().processEvent({
+              type: "error",
+              agentId: null,
+              agentName: null,
+              taskDescription: null,
+              errorType: null,
+              message: message.message ?? null,
+            });
+            break;
         }
       } catch (error) {
         console.error("[WS] Failed to parse message:", error);
@@ -461,6 +473,7 @@ export function useWebSocketEvents({
         return;
       }
 
+      retryCountRef.current = 0;
       setConnected(true);
       setSessionId(sessionId);
 
@@ -478,12 +491,11 @@ export function useWebSocketEvents({
       handleMessage(event);
     };
 
-    ws.onerror = (error) => {
-      // Check if this connection is still current
+    ws.onerror = () => {
       if (connectionIdRef.current !== thisConnectionId) {
         return;
       }
-      console.error("[WS] Error:", error);
+      console.warn("[WS] Connection error — will retry");
     };
 
     ws.onclose = (event) => {
@@ -495,15 +507,18 @@ export function useWebSocketEvents({
       void event; // Acknowledge parameter
       setConnected(false);
 
-      // Attempt reconnection after 2 seconds if still enabled and same session
       if (enabled && sessionId === currentSessionIdRef.current) {
+        const delay = Math.min(
+          1000 * Math.pow(2, retryCountRef.current),
+          30000,
+        );
+        retryCountRef.current++;
         reconnectTimeoutRef.current = setTimeout(() => {
           reconnectTimeoutRef.current = null;
-          // Double-check we're still on the same session before reconnecting
           if (sessionId === currentSessionIdRef.current) {
             connect();
           }
-        }, 2000);
+        }, delay);
       }
     };
   }, [sessionId, enabled, handleMessage, setConnected, setSessionId]);
@@ -522,6 +537,11 @@ export function useWebSocketEvents({
 
     connect();
 
+    // Capture refs into locals at effect-run time so the cleanup uses stable
+    // values (per react-hooks/exhaustive-deps guidance).
+    const timeouts = typingTimeoutsRef.current;
+    const startTimes = typingStartTimesRef.current;
+
     return () => {
       // Clean up on unmount
       if (wsRef.current) {
@@ -532,6 +552,9 @@ export function useWebSocketEvents({
         clearTimeout(reconnectTimeoutRef.current);
         reconnectTimeoutRef.current = null;
       }
+      timeouts.forEach((t) => clearTimeout(t));
+      timeouts.clear();
+      startTimes.clear();
     };
   }, [sessionId, enabled, connect]);
 }

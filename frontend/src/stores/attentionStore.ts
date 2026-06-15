@@ -142,10 +142,11 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
         const activeSorted = queue
           .filter((t) => !t.dismissed)
           .sort((a, b) => a.urgency - b.urgency);
-        const toDismiss = activeSorted[0];
-        if (toDismiss) {
-          toDismiss.dismissed = true;
-        }
+        const toastId = activeSorted[0]?.id;
+        const finalQueue = queue.map((t) =>
+          t.id === toastId ? { ...t, dismissed: true } : t,
+        );
+        return { toastQueue: finalQueue };
       }
       return { toastQueue: queue };
     });
@@ -182,10 +183,16 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
         body: JSON.stringify({}),
       });
       if (!res.ok) {
-        console.error("Focus terminal failed:", res.statusText);
+        get().processEvent({
+          type: "error",
+          message: `Focus terminal failed: ${res.statusText}`,
+        });
       }
-    } catch (err) {
-      console.error("Focus terminal error:", err);
+    } catch {
+      get().processEvent({
+        type: "error",
+        message: "Cannot reach backend — is the server running?",
+      });
     }
     get().closeFocusPopup();
   },

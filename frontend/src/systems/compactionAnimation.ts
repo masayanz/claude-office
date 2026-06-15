@@ -9,7 +9,7 @@
  * 5. Boss walks back to desk
  */
 
-import { useEffect, useState, useRef, useMemo } from "react";
+import { useEffect, useState, useRef } from "react";
 import {
   useGameStore,
   selectCompactionPhase,
@@ -136,16 +136,15 @@ export function useCompactionAnimation(): CompactionAnimationState {
   const rafIdRef = useRef<number | null>(null);
   const initialContextRef = useRef<number>(0);
   const lastStompJumpRef = useRef<number>(0);
+  const contextUtilizationRef = useRef<number>(contextUtilization);
 
-  // Calculate target positions (memoized to prevent unnecessary recalculations)
+  // Keep contextUtilizationRef in sync (refs must not be mutated during render)
+  useEffect(() => {
+    contextUtilizationRef.current = contextUtilization;
+  }, [contextUtilization]);
+
+  // Boss desk position is used by the animation effect below
   const bossDesk = boss.position;
-  const trashCanPosition = useMemo<Position>(
-    () => ({
-      x: bossDesk.x + TRASH_CAN_OFFSET.x,
-      y: bossDesk.y + TRASH_CAN_OFFSET.y - 30, // Stand above trash can
-    }),
-    [bossDesk.x, bossDesk.y],
-  );
 
   // Store tick function in a ref to avoid circular dependency
   const tickRef = useRef<() => void>(() => {});
@@ -156,19 +155,30 @@ export function useCompactionAnimation(): CompactionAnimationState {
       const now = performance.now();
       const elapsed = now - animationStartRef.current;
 
-      if (phase === "walking_to_trash") {
+      // Read current values from store to avoid stale closures in the RAF loop
+      const storeState = useGameStore.getState();
+      const currentPhase = storeState.compactionPhase;
+      const currentBossDesk = storeState.boss.position;
+      const currentTrashCanPosition: Position = {
+        x: currentBossDesk.x + TRASH_CAN_OFFSET.x,
+        y: currentBossDesk.y + TRASH_CAN_OFFSET.y - 30,
+      };
+
+      if (currentPhase === "walking_to_trash") {
         const progress = Math.min(elapsed / WALK_DURATION, 1);
-        setAnimatedPosition(lerpPosition(bossDesk, trashCanPosition, progress));
+        setAnimatedPosition(
+          lerpPosition(currentBossDesk, currentTrashCanPosition, progress),
+        );
 
         if (progress >= 1) {
           // Transition to jumping
           animationStartRef.current = now;
-          initialContextRef.current = contextUtilization;
+          initialContextRef.current = contextUtilizationRef.current;
           lastStompJumpRef.current = 0;
           setCurrentJump(1);
           setCompactionPhase("jumping");
         }
-      } else if (phase === "jumping") {
+      } else if (currentPhase === "jumping") {
         const overallProgress = Math.min(elapsed / TOTAL_JUMP_DURATION, 1);
 
         // Determine which jump we're on (1-5)
@@ -235,8 +245,8 @@ export function useCompactionAnimation(): CompactionAnimationState {
 
         // Keep position at trash can during jump
         setAnimatedPosition({
-          x: trashCanPosition.x + JUMP_X_OFFSET,
-          y: trashCanPosition.y,
+          x: currentTrashCanPosition.x + JUMP_X_OFFSET,
+          y: currentTrashCanPosition.y,
         });
 
         if (overallProgress >= 1) {
@@ -251,9 +261,11 @@ export function useCompactionAnimation(): CompactionAnimationState {
           setAnimatedContextUtilization(0);
           setCompactionPhase("walking_back");
         }
-      } else if (phase === "walking_back") {
+      } else if (currentPhase === "walking_back") {
         const progress = Math.min(elapsed / WALK_DURATION, 1);
-        setAnimatedPosition(lerpPosition(trashCanPosition, bossDesk, progress));
+        setAnimatedPosition(
+          lerpPosition(currentTrashCanPosition, currentBossDesk, progress),
+        );
 
         if (progress >= 1) {
           // Animation complete - return to idle
@@ -275,18 +287,11 @@ export function useCompactionAnimation(): CompactionAnimationState {
       }
 
       // Continue animation loop
-      if (phase !== "idle") {
+      if (currentPhase !== "idle") {
         rafIdRef.current = requestAnimationFrame(tickRef.current);
       }
     };
-  }, [
-    phase,
-    bossDesk,
-    trashCanPosition,
-    setCompactionPhase,
-    contextUtilization,
-    setContextUtilization,
-  ]);
+  }, [setCompactionPhase, setContextUtilization]);
 
   // Start/stop animation based on phase changes
   useEffect(() => {

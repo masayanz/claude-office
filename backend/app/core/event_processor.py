@@ -358,11 +358,12 @@ class EventProcessor:
 
         await self._persist_event(event, resolved_floor_id, resolved_room_id)
 
-        if event.session_id not in self.sessions:
-            await self._restore_session(event.session_id)
+        async with self._sessions_lock:
+            if event.session_id not in self.sessions:
+                await self._restore_session(event.session_id)
 
-        if event.session_id not in self.sessions:
-            self.sessions[event.session_id] = StateMachine()
+            if event.session_id not in self.sessions:
+                self.sessions[event.session_id] = StateMachine()
 
         sm = self.sessions[event.session_id]
 
@@ -619,7 +620,7 @@ class EventProcessor:
                             "text": evt.data.prompt,
                             "timestamp": evt.timestamp.isoformat(),
                         }
-                        sm.conversation.append(conv_entry)
+                        sm.append_capped(conv_entry)
                     elif evt.event_type == EventType.PRE_TOOL_USE and evt.data:
                         if evt.data.thinking:
                             thinking_entry: ConversationEntry = {
@@ -629,7 +630,7 @@ class EventProcessor:
                                 "text": evt.data.thinking,
                                 "timestamp": evt.timestamp.isoformat(),
                             }
-                            sm.conversation.append(thinking_entry)
+                            sm.append_capped(thinking_entry)
                         if evt.data.tool_name:
                             tool_entry: ConversationEntry = {
                                 "id": f"{evt.timestamp.timestamp()}_tool",
@@ -639,7 +640,7 @@ class EventProcessor:
                                 "timestamp": evt.timestamp.isoformat(),
                                 "toolName": evt.data.tool_name,
                             }
-                            sm.conversation.append(tool_entry)
+                            sm.append_capped(tool_entry)
                     elif evt.event_type == EventType.STOP and evt.data and evt.data.transcript_path:
                         settings = get_settings()
                         translated_path = settings.translate_path(evt.data.transcript_path)
@@ -652,7 +653,7 @@ class EventProcessor:
                                 "text": response,
                                 "timestamp": evt.timestamp.isoformat(),
                             }
-                            sm.conversation.append(assistant_entry)
+                            sm.append_capped(assistant_entry)
                     elif (
                         evt.event_type == EventType.SUBAGENT_INFO
                         and evt.data

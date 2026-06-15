@@ -162,7 +162,7 @@ async function sendEvent(event: BackendEvent): Promise<void> {
     clearTimeout(timer);
 
     if (!resp.ok) {
-      debug("Backend responded", resp.status, await resp.text());
+      debug("Backend responded", resp.status);
     }
   } catch (err: unknown) {
     if (err instanceof Error && err.name === "AbortError") {
@@ -422,6 +422,9 @@ const plugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
                   })
                 );
               }
+              // session.deleted is terminal for this child — drop its marker so
+              // the childStopped Set doesn't grow unbounded over the process
+              // lifetime (the marker only needs to survive the idle→deleted gap).
               childStopped.delete(session.id);
             } else {
               await sendEvent(

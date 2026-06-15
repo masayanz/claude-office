@@ -111,7 +111,6 @@ def _handle_pre_tool_use(
     """Populate *data* for a pre_tool_use event (may remap to subagent_start)."""
     data["tool_name"] = raw_data.get("tool_name")
     data["tool_input"] = raw_data.get("tool_input")
-    data["tool_use_id"] = raw_data.get("tool_use_id")
 
     if data["tool_name"] in ("Task", "Agent"):
         payload["event_type"] = "subagent_start"
@@ -129,8 +128,9 @@ def _handle_pre_tool_use(
                 data["agent_type"] = agent_type
         else:
             data["task_description"] = str(tool_input_raw) if tool_input_raw else ""
-        # Remove raw tool_input — we've extracted what we need
-        del data["tool_input"]
+        # Drop the raw tool_input — we've extracted what we need. pop() is used
+        # instead of del so this is safe even if tool_input was never set.
+        data.pop("tool_input", None)
     else:
         data["agent_id"] = "main"
 
@@ -145,7 +145,6 @@ def _handle_post_tool_use(
     data["tool_name"] = raw_data.get("tool_name")
     data["tool_input"] = raw_data.get("tool_input")  # Needed for heat map tracking
     data["success"] = True  # PostToolUse only fires on success
-    data["tool_use_id"] = raw_data.get("tool_use_id")
 
     if data["tool_name"] in ("Task", "Agent"):
         tool_input_raw = raw_data.get("tool_input", {})
@@ -294,7 +293,6 @@ def _handle_permission_request(raw_data: dict[str, Any], data: dict[str, Any]) -
     """Populate *data* for a permission_request event."""
     data["tool_name"] = raw_data.get("tool_name")
     data["tool_input"] = raw_data.get("tool_input")
-    data["tool_use_id"] = raw_data.get("tool_use_id")
     data["agent_id"] = "main"
 
 
@@ -350,6 +348,13 @@ def map_event(
         "transcript_path": transcript_path,
     }
 
+    # tool_use_id is only present on tool-related hooks (pre/post tool use and
+    # permission requests). Pass it through whenever raw_data carries one so the
+    # backend Event.tool_use_id field stays populated regardless of which
+    # handler runs below.
+    if "tool_use_id" in raw_data:
+        data["tool_use_id"] = raw_data["tool_use_id"]
+
     task_list_id = os.environ.get("CLAUDE_CODE_TASK_LIST_ID")
     if task_list_id:
         data["task_list_id"] = task_list_id
@@ -360,9 +365,6 @@ def map_event(
         "timestamp": get_iso_timestamp(),
         "data": data,
     }
-
-    if "tool_use_id" in raw_data:
-        data["tool_use_id"] = raw_data["tool_use_id"]
 
     # ------------------------------------------------------------------
     # Event-specific mapping
@@ -403,5 +405,8 @@ def map_event(
 
     elif event_type == "session_end":
         _handle_session_end(raw_data, data)
+
+    else:
+        return None
 
     return payload

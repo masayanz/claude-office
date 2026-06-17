@@ -33,7 +33,7 @@ try:
     from claude_office_hooks.debug_logger import debug_log
     from claude_office_hooks.event_mapper import map_event
 
-    __version__ = "0.20.0"
+    __version__ = "0.21.0"
 
     # Load config at module init so DEBUG flag is available immediately
     _config = load_config()
@@ -53,7 +53,10 @@ try:
             req = urllib.request.Request(API_URL, data=json_data, headers=headers)
             with urllib.request.urlopen(req, timeout=TIMEOUT) as response:
                 if response.status >= 300:
-                    debug_log(f"send_event: backend returned HTTP {response.status}")
+                    log_error(
+                        RuntimeError(f"backend returned HTTP {response.status}"),
+                        "send_event",
+                    )
         except Exception as exc:
             # Record the failure but never disrupt the user (always swallow).
             log_error(exc, "send_event failed")

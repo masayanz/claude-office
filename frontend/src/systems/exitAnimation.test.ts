@@ -17,7 +17,9 @@ describe("exitAnimation registerEnded", () => {
     expect(t0).toBe(0);
 
     // Exit completes.
-    expect(exitProgress(id, EXIT_DURATION, useExitStore.getState().startTimes)).toBe(1);
+    expect(
+      exitProgress(id, EXIT_DURATION, useExitStore.getState().startTimes),
+    ).toBe(1);
 
     // Peer still lingers in the Ended zone, so the effect calls registerEnded
     // again with a fresh clock. The start time must NOT reset — otherwise the

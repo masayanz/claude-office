@@ -2,6 +2,19 @@
 
 All notable changes to Claude Office Visualizer are documented here.
 
+## [0.21.0] - 2026-06-17
+
+### Changed
+
+- **Dependency refresh across all components**: backend (FastAPI 0.136→0.137, Starlette 1.0.1→1.3.1, Uvicorn 0.46→0.49, SQLAlchemy 2.0.49→2.0.51, Anthropic SDK 0.100→0.109), frontend (Next 16.2.6→16.2.9, React 19.2.6→19.2.7, pixi.js 8.18→8.19, xstate 5.31→5.32), hooks, OpenCode plugin (`@opencode-ai/plugin` 1.14.39→1.17.7), and root — plus pytest/vitest/ruff/pyright tooling. Supersedes dependabot PRs #47 and #50. `eslint` held at 9.x because ESLint 10 is not yet supported by `eslint-plugin-react` (transitive via `eslint-config-next`).
+
+### Fixed
+
+- **Starlette 1.3 type-check regression**: Starlette 1.3's `TestClient` is typed against `httpx2`, which surfaced 126 strict-`pyright` `reportUnknown*` errors in the backend test suite; added `httpx2` to the backend dev dependencies so the types resolve, also clearing Starlette's httpx-deprecation warning
+- **Hooks `send_event` logging bug**: the HTTP-error branch called the structured `debug_log` with a bare message (would have raised `TypeError`, swallowed by the error handler); now uses `log_error`
+- **Command Center exit loop**: an ended peer no longer re-walks out of the elevator on an infinite loop after its exit animation completes (#49)
+- **Hooks lint**: renamed mixedCase test methods to snake_case (N802) and fixed import sort/formatting
+
 ## [0.20.0] - 2026-06-15
 
 ### Added

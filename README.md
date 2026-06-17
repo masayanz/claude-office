@@ -43,6 +43,13 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 
 ## What's New
 
+### v0.21.0 (June 2026)
+
+- **Dependency refresh**: All packages across backend, frontend, hooks, and the OpenCode plugin bumped to latest (FastAPI 0.137, Starlette 1.3, Next 16.2.9, React 19.2.7, pixi.js 8.19, and tooling) — supersedes dependabot PRs #47/#50
+- **Bug fixes**: Command Center exit-loop (#49), a Starlette 1.3 type-check regression (added `httpx2`), and a latent hooks logging bug
+
+For the full release history, see [CHANGELOG.md](CHANGELOG.md).
+
 ### v0.20.0 (June 2026)
 
 - **Command Center**: New cross-terminal overview that gathers the boss (main agent) of every live session into a single pixel office — see at a glance what's finished, still running, or needs your attention. Reachable from the header (when ≥2 sessions are active) or the Building view's penthouse tile

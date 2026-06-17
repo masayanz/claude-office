@@ -2,7 +2,6 @@
 
 from claude_office_hooks.event_mapper import map_event
 
-
 SESSION_ID = "test-session-001"
 TRANSCRIPT = "/home/user/.claude/projects/myproject/session.jsonl"
 
@@ -84,29 +83,27 @@ class TestPreToolUseSubagentStart:
 class TestPostToolUseAgentAsync:
     """PostToolUse for Agent tool with agentId in response (async, v2.1+)."""
 
-    def test_agent_with_agentId_does_not_send_subagent_stop(self) -> None:
+    def test_agent_with_agent_id_does_not_send_subagent_stop(self) -> None:
         """Agent tool with agentId in response means agent is still running async."""
         result = map_event("post_tool_use", _post_tool_use_agent(), SESSION_ID)
         assert result is not None
         assert result["event_type"] == "post_tool_use"
         assert result["data"]["agent_id"] == "main"
 
-    def test_agent_with_agentId_preserves_native_id(self) -> None:
+    def test_agent_with_agent_id_preserves_native_id(self) -> None:
         result = map_event("post_tool_use", _post_tool_use_agent(), SESSION_ID)
         assert result is not None
         assert result["data"]["native_agent_id"] == "a5a60c7"
 
-    def test_agent_with_agentId_preserves_transcript_path(self) -> None:
+    def test_agent_with_agent_id_preserves_transcript_path(self) -> None:
         result = map_event("post_tool_use", _post_tool_use_agent(), SESSION_ID)
         assert result is not None
         assert result["data"]["agent_transcript_path"] is not None
         assert "subagents/agent-a5a60c7" in result["data"]["agent_transcript_path"]
 
-    def test_agent_without_agentId_sends_subagent_stop(self) -> None:
+    def test_agent_without_agent_id_sends_subagent_stop(self) -> None:
         """Agent tool without agentId in response means sync completion (legacy)."""
-        result = map_event(
-            "post_tool_use", _post_tool_use_agent(agent_id=None), SESSION_ID
-        )
+        result = map_event("post_tool_use", _post_tool_use_agent(agent_id=None), SESSION_ID)
         assert result is not None
         assert result["event_type"] == "subagent_stop"
         assert result["data"]["agent_id"] == "subagent_tu_123"

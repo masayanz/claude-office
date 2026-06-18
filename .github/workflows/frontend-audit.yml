@@ -1,0 +1,58 @@
+name: Frontend Dependency Audit
+
+# GitHub's dependency graph does not parse bun.lock, so Dependabot cannot see
+# npm vulnerabilities for this repo (bun is the package manager). This workflow
+# is the CI source of truth for frontend npm vulnerabilities.
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Weekly — Mondays 09:17 UTC (off the :00/:30 marks to spread load).
+    - cron: '17 9 * * 1'
+  push:
+    branches: [main]
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/bun.lock'
+      - '.github/workflows/frontend-audit.yml'
+  pull_request:
+    paths:
+      - 'frontend/package.json'
+      - 'frontend/bun.lock'
+      - '.github/workflows/frontend-audit.yml'
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: oven-sh/setup-bun@v2
+
+      - name: Full vulnerability report
+        # Always informational — surfaces every advisory in the run summary.
+        # Does not block, because the known findings are dev/transitive-only
+        # (rollup, picomatch, js-yaml via vitest / eslint / typescript-eslint).
+        continue-on-error: true
+        run: |
+          cd frontend
+          {
+            echo '## Frontend npm audit (`bun audit`)'
+            echo
+            echo 'GitHub Dependabot is blind to npm vulnerabilities here because the repo uses `bun.lock` (unsupported by the dependency graph). This job is the source of truth.'
+            echo
+            echo '<details><summary>Full report</summary>'
+            echo
+            echo '```'
+            bun audit 2>&1 || true
+            echo '```'
+            echo
+            echo '</details>'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Block on critical vulnerabilities
+        # Exit non-zero only when CRITICAL advisories are present. Raise
+        # --audit-level to 'high' once the dev/transitive advisories above are
+        # resolved or explicitly ignored via --ignore.
+        run: cd frontend && bun audit --audit-level=critical

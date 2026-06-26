@@ -98,7 +98,7 @@ function ToastItem({
         className="text-xs opacity-50 hover:opacity-100 shrink-0"
         aria-label="Dismiss"
       >
-        \u2715
+        {"\u2715"}
       </button>
     </div>
   );

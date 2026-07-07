@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 import { ptBR as dateFnsPtBR, es as dateFnsEs } from "date-fns/locale";
-import { GitStatusPanel } from "@/components/game/GitStatusPanel";
+import { GitStatusPanel } from "@/components/layout/GitStatusPanel";
 import type { Session } from "@/hooks/useSessions";
 import { useDragResize } from "@/hooks/useDragResize";
 import { useTranslation } from "@/hooks/useTranslation";

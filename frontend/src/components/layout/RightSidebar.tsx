@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { AgentStatus } from "@/components/game/AgentStatus";
-import { EventLog } from "@/components/game/EventLog";
-import { ConversationHistory } from "@/components/game/ConversationHistory";
+import { EventLog } from "@/components/layout/EventLog";
+import { ConversationHistory } from "@/components/layout/ConversationHistory";
 import { useDragResize } from "@/hooks/useDragResize";
 import { useTranslation } from "@/hooks/useTranslation";
 

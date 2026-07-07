@@ -476,7 +476,9 @@ async def trigger_simulation() -> dict[str, str]:
     global _simulation_process
 
     if _simulation_process is not None and _simulation_process.poll() is None:
-        kill_simulation()
+        # Offload the blocking terminate()+wait(timeout=5) to a worker thread
+        # so the event loop is not stalled for up to 5 seconds (ARC-003).
+        await asyncio.to_thread(kill_simulation)
 
     try:
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../../../"))
@@ -499,7 +501,9 @@ async def trigger_simulation() -> dict[str, str]:
 async def clear_database(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, str]:
     """Clear all sessions and events from the database."""
     try:
-        simulation_killed = kill_simulation()
+        # Offload the blocking terminate()+wait(timeout=5) to a worker thread
+        # so the event loop is not stalled for up to 5 seconds (ARC-003).
+        simulation_killed = await asyncio.to_thread(kill_simulation)
 
         # Preserve building/floor configuration while clearing everything else.
         await db.execute(delete(UserPreference).where(UserPreference.key != "building_config"))

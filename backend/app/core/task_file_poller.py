@@ -55,6 +55,30 @@ def _extract_metadata(data: Any) -> dict[str, Any] | None:
     return result
 
 
+def _scan_task_dir_sync(task_dir: Path) -> list[tuple[Path, float]]:
+    """Sync helper: glob *.json and stat each file for its mtime.
+
+    Offloaded via ``asyncio.to_thread`` from ``_check_for_changes`` so the
+    synchronous glob/stat calls do not block the event loop (ARC-003).
+    """
+    return [(p, p.stat().st_mtime) for p in task_dir.glob("*.json")]
+
+
+def _load_json_sync(path: Path) -> dict[str, Any] | None:
+    """Sync helper: load a task file as JSON.
+
+    Returns the parsed dict, or ``None`` on JSON decode / IO error (logged
+    at WARNING). Offloaded via ``asyncio.to_thread`` from ``_read_task_files``
+    so synchronous file reads do not block the event loop (ARC-003).
+    """
+    try:
+        with open(path, encoding="utf-8") as f:
+            return cast(dict[str, Any], json.load(f))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning(f"Error reading task file {path}: {e}")
+        return None
+
+
 POLL_INTERVAL_SECONDS = 1.0
 INACTIVITY_TIMEOUT = timedelta(minutes=30)
 CLAUDE_TASKS_DIR = Path.home() / ".claude" / "tasks"
@@ -200,18 +224,18 @@ class TaskFilePoller:
             return
 
         try:
-            # Get current task files
-            task_files = list(state.task_dir.glob("*.json"))
-            if not task_files:
+            # Get current task files + mtimes off the event loop (ARC-003).
+            scanned = await asyncio.to_thread(_scan_task_dir_sync, state.task_dir)
+            if not scanned:
                 return
+            task_files = [p for p, _ in scanned]
 
             # Check for modifications
             current_mtime: dict[str, float] = {}
             has_changes = False
 
-            for task_file in task_files:
+            for task_file, mtime in scanned:
                 file_key = task_file.name
-                mtime = task_file.stat().st_mtime
                 current_mtime[file_key] = mtime
 
                 if file_key not in state.last_modified or state.last_modified[file_key] != mtime:
@@ -243,13 +267,11 @@ class TaskFilePoller:
         tasks: list[dict[str, Any]] = []
 
         for task_file in task_files:
-            try:
-                with open(task_file, encoding="utf-8") as f:
-                    task_data = json.load(f)
-                    tasks.append(task_data)
-            except (json.JSONDecodeError, OSError) as e:
-                logger.warning(f"Error reading task file {task_file}: {e}")
-                continue
+            # Offload the synchronous open()+json.load to a worker thread so a
+            # large or slow-to-read task file cannot stall the event loop.
+            task_data = await asyncio.to_thread(_load_json_sync, task_file)
+            if task_data is not None:
+                tasks.append(task_data)
 
         # Sort by ID (numeric if possible)
         def sort_key(task: dict[str, Any]) -> tuple[int, str]:

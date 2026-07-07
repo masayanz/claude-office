@@ -7,6 +7,7 @@ Responsibilities:
 - Detecting report requests on STOP.
 """
 
+import asyncio
 import logging
 
 from app.core.broadcast_service import broadcast_state
@@ -136,7 +137,7 @@ async def extract_and_set_boss_speech(
         logger.warning(f"Rejected transcript path outside ~/.claude/: {translated_path}")
         return None
 
-    response = get_last_assistant_response(translated_path)
+    response = await asyncio.to_thread(get_last_assistant_response, translated_path)
     if not response:
         return None
 

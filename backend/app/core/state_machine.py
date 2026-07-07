@@ -358,14 +358,11 @@ def _handle_subagent_stop(sm: "StateMachine", event: Event) -> None:
             if not sm.agents:
                 sm.phase = OfficePhase.WORKING
 
-            if event.data.agent_transcript_path:
-                tool_count = sm.token_tracker.count_tool_uses_from_jsonl(
-                    event.data.agent_transcript_path
-                )
-                if tool_count > 0:
-                    sm.tool_uses_since_compaction += tool_count
-                    logger.debug(f"Credited {tool_count} subagent tool uses to safety counter")
-
+            # Subagent tool-use crediting (formerly a full-file transcript read
+            # here) moved to the async handler `handle_subagent_stop` in
+            # agent_handler.py — see ARC-003. Replay (which only calls
+            # transition()) no longer credits the safety-sign counter; cosmetic
+            # only, the counter is not persisted.
             sm.whiteboard.record_agent_stop(agent_id)
 
             agent_name = stopping_agent.name or f"Agent-{agent_id[-4:]}"
@@ -799,6 +796,10 @@ class StateMachine:
         callers that need full rollback should wrap this in a higher-level
         transaction.
         """
+        # Invariant: token reads inside update_from_event are tail-bounded
+        # (_TOKEN_READ_SIZE = 20_000, see token_tracker.py); offloading them to
+        # a thread would break replay token accounting, which relies on this
+        # call being synchronous and deterministic.
         self.token_tracker.update_from_event(event)
 
         handler = _DISPATCH_TABLE.get(event.event_type)

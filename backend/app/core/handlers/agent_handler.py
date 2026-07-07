@@ -10,6 +10,7 @@ Responsibilities:
 - Removing agents from the StateMachine on SUBAGENT_STOP.
 """
 
+import asyncio
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -221,6 +222,22 @@ async def handle_subagent_stop(
 
     resolved_agent_id = resolved.agent_id
 
+    # Credit subagent tool uses to the safety-sign counter. Offloaded via
+    # asyncio.to_thread because count_tool_uses_from_jsonl may read up to
+    # _MAX_TRANSCRIPT_BYTES (50 MB) synchronously — doing this inline would
+    # stall the event loop under busy-session load. Replay (sessions.py
+    # get_session_replay, which only calls sm.transition) does not run this
+    # path and so no longer credits the counter; cosmetic only, the counter
+    # is not persisted. (ARC-003)
+    if event.data.agent_transcript_path:
+        tool_count = await asyncio.to_thread(
+            sm.token_tracker.count_tool_uses_from_jsonl,
+            event.data.agent_transcript_path,
+        )
+        if tool_count > 0:
+            sm.tool_uses_since_compaction += tool_count
+            logger.debug(f"Credited {tool_count} subagent tool uses to safety counter")
+
     poller = get_transcript_poller()
     if poller:
         await poller.stop_polling(resolved_agent_id)
@@ -316,7 +333,7 @@ async def enrich_agent_from_transcript(
 
     settings = get_settings()
     translated_path = settings.translate_path(transcript_path)
-    task_text = get_first_user_prompt(translated_path)
+    task_text = await asyncio.to_thread(get_first_user_prompt, translated_path)
     if not task_text:
         logger.debug(f"No user prompt found in transcript for agent {agent.id}")
         return
@@ -354,7 +371,7 @@ async def extract_and_set_agent_speech(
     settings = get_settings()
     translated_path = settings.translate_path(transcript_path)
 
-    response = get_last_assistant_response(translated_path)
+    response = await asyncio.to_thread(get_last_assistant_response, translated_path)
     if not response:
         return
 

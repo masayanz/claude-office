@@ -727,7 +727,9 @@ class EventProcessor:
                     elif evt.event_type == EventType.STOP and evt.data and evt.data.transcript_path:
                         settings = get_settings()
                         translated_path = settings.translate_path(evt.data.transcript_path)
-                        response = get_last_assistant_response(translated_path)
+                        response = await asyncio.to_thread(
+                            get_last_assistant_response, translated_path
+                        )
                         if response:
                             assistant_entry: ConversationEntry = {
                                 "id": str(evt.timestamp.timestamp()),

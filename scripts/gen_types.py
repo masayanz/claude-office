@@ -25,7 +25,18 @@ from app.models.common import (  # noqa: E402  # type: ignore[import]
     SpeechContent,
     TodoItem,
 )
-from app.models.events import Event, EventData  # noqa: E402  # type: ignore[import]
+from app.models.events import (  # noqa: E402  # type: ignore[import]
+    AgentEventData,
+    BackgroundTaskEventData,
+    Event,
+    EventData,
+    EventDataBase,
+    LifecycleEventData,
+    PromptEventData,
+    SessionEventData,
+    TaskEventData,
+    ToolEventData,
+)
 from app.models.git import (  # noqa: E402  # type: ignore[import]
     ChangedFile,
     Commit,
@@ -54,8 +65,24 @@ MODELS = [
     BubbleContent,
     SpeechContent,
     TodoItem,
+    # Legacy event models (kept for compatibility; producers still emit the
+    # flat wire format that the union below parses). The frontend consumes
+    # ``Event`` / ``EventData`` / ``EventType`` from these — the family event
+    # models (SessionEvent, ToolEvent, ...) are intentionally NOT emitted
+    # because their ``event_type: Literal[...]`` fields collide with the
+    # ``EventType`` StrEnum and would shrink the frontend's union.
     Event,
     EventData,
+    # ARC-014 family payload classes (base + per-family). Emitted for
+    # downstream type discovery; the wire format itself is unchanged.
+    EventDataBase,
+    SessionEventData,
+    ToolEventData,
+    PromptEventData,
+    AgentEventData,
+    LifecycleEventData,
+    TaskEventData,
+    BackgroundTaskEventData,
     AgentLifespan,
     BackgroundTask,
     FileEdit,

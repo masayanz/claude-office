@@ -353,40 +353,41 @@ def _handle_subagent_start(sm: "StateMachine", event: AnyEvent) -> None:
 
 def _handle_subagent_stop(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle SUBAGENT_STOP: resolve agent, add to departure queue, credit tool uses."""
-    if event.data:
-        resolved = resolve_agent_for_stop(
-            agents=sm.agents,
-            arrival_queue=sm.arrival_queue,
-            agent_id=event.data.agent_id,
-            native_agent_id=event.data.native_agent_id,
-        )
+    assert isinstance(event, AgentEvent)
+    resolved = resolve_agent_for_stop(
+        agents=sm.agents,
+        arrival_queue=sm.arrival_queue,
+        agent_id=event.data.agent_id,
+        native_agent_id=event.data.native_agent_id,
+    )
 
-        if resolved:
-            agent_id = resolved.agent_id
-            stopping_agent = resolved.agent
-            stopping_agent.state = AgentState.WAITING
-            if agent_id not in sm.handin_queue:
-                sm.handin_queue.append(agent_id)
+    if resolved:
+        agent_id = resolved.agent_id
+        stopping_agent = resolved.agent
+        stopping_agent.state = AgentState.WAITING
+        if agent_id not in sm.handin_queue:
+            sm.handin_queue.append(agent_id)
 
-            sm.boss_state = BossState.IDLE
+        sm.boss_state = BossState.IDLE
 
-            if not sm.agents:
-                sm.phase = OfficePhase.WORKING
+        if not sm.agents:
+            sm.phase = OfficePhase.WORKING
 
-            # Subagent tool-use crediting (formerly a full-file transcript read
-            # here) moved to the async handler `handle_subagent_stop` in
-            # agent_handler.py — see ARC-003. Replay (which only calls
-            # transition()) no longer credits the safety-sign counter; cosmetic
-            # only, the counter is not persisted.
-            sm.whiteboard.record_agent_stop(agent_id)
+        # Subagent tool-use crediting (formerly a full-file transcript read
+        # here) moved to the async handler `handle_subagent_stop` in
+        # agent_handler.py — see ARC-003. Replay (which only calls
+        # transition()) no longer credits the safety-sign counter; cosmetic
+        # only, the counter is not persisted.
+        sm.whiteboard.record_agent_stop(agent_id)
 
-            agent_name = stopping_agent.name or f"Agent-{agent_id[-4:]}"
-            sm.whiteboard.add_news_item("agent", f"{agent_name} completed their task!")
+        agent_name = stopping_agent.name or f"Agent-{agent_id[-4:]}"
+        sm.whiteboard.add_news_item("agent", f"{agent_name} completed their task!")
 
 
 def _handle_cleanup(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle CLEANUP: remove a departed agent from all state."""
-    if event.data and event.data.agent_id:
+    assert isinstance(event, AgentEvent)
+    if event.data.agent_id:
         sm.remove_agent(event.data.agent_id)
 
 

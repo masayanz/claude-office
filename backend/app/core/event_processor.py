@@ -358,7 +358,7 @@ class EventProcessor:
         logger.info(
             f"Processing event: {event.event_type} "
             f"Session: {event.session_id} "
-            f"Agent: {event.data.agent_id if event.data else 'N/A'}"
+            f"Agent: {event.data.agent_id or 'N/A'}"
         )
 
         try:
@@ -461,9 +461,9 @@ class EventProcessor:
         building_config = get_cached_building_config()
         if building_config.floors:
             mapper = get_product_mapper(building_config)
-            project_name = event.data.project_name if event.data else None
-            project_dir = event.data.project_dir if event.data else None
-            working_dir = event.data.working_dir if event.data else None
+            project_name = event.data.project_name
+            project_dir = event.data.project_dir
+            working_dir = event.data.working_dir
             assignment = mapper.resolve(
                 project_name=project_name,
                 project_dir=project_dir,
@@ -502,32 +502,33 @@ class EventProcessor:
             sm.room_id = resolved_room_id
 
         # Sync team fields from event data.
-        if event.data:
-            if event.data.team_name is not None:
-                sm.team_name = event.data.team_name
-            if event.data.teammate_name is not None:
-                sm.teammate_name = event.data.teammate_name
-                sm.is_lead = False
+        if event.data.team_name is not None:
+            sm.team_name = event.data.team_name
+        if event.data.teammate_name is not None:
+            sm.teammate_name = event.data.teammate_name
+            sm.is_lead = False
 
-        agent_id = event.data.agent_id if event.data and event.data.agent_id else "main"
+        agent_id = event.data.agent_id or "main"
 
         # Build detail dict from event data fields for frontend inspection.
+        # Family-specific fields are read via getattr because event.data is the
+        # union of all payload classes; only the family matching event.event_type
+        # actually carries each field.
         detail: dict[str, Any] = {}
-        if event.data:
-            for src, dst in [
-                ("tool_name", "toolName"),
-                ("tool_input", "toolInput"),
-                ("result_summary", "resultSummary"),
-                ("message", "message"),
-                ("thinking", "thinking"),
-                ("error_type", "errorType"),
-                ("task_description", "taskDescription"),
-                ("agent_name", "agentName"),
-                ("prompt", "prompt"),
-            ]:
-                val = getattr(event.data, src, None)
-                if val is not None:
-                    detail[dst] = val
+        for src, dst in [
+            ("tool_name", "toolName"),
+            ("tool_input", "toolInput"),
+            ("result_summary", "resultSummary"),
+            ("message", "message"),
+            ("thinking", "thinking"),
+            ("error_type", "errorType"),
+            ("task_description", "taskDescription"),
+            ("agent_name", "agentName"),
+            ("prompt", "prompt"),
+        ]:
+            val = getattr(event.data, src, None)
+            if val is not None:
+                detail[dst] = val
 
         event_dict: HistoryEntry = {
             "id": str(event.timestamp.timestamp()),
@@ -752,7 +753,7 @@ class EventProcessor:
                         continue
                     sm.transition(evt)
 
-                    agent_id = evt.data.agent_id if evt.data and evt.data.agent_id else "main"
+                    agent_id = evt.data.agent_id or "main"
                     history_entry: HistoryEntry = {
                         "id": str(evt.timestamp.timestamp()),
                         "type": str(evt.event_type),
@@ -763,22 +764,22 @@ class EventProcessor:
                     }
                     sm.history.append(history_entry)
 
-                    # Rebuild conversation from stored events.
-                    if (
-                        evt.event_type == EventType.USER_PROMPT_SUBMIT
-                        and evt.data
-                        and evt.data.prompt
-                        and "<task-notification>" not in evt.data.prompt
-                    ):
-                        conv_entry: ConversationEntry = {
-                            "id": str(evt.timestamp.timestamp()),
-                            "role": "user",
-                            "agentId": agent_id,
-                            "text": evt.data.prompt,
-                            "timestamp": evt.timestamp.isoformat(),
-                        }
-                        sm.append_capped(conv_entry)
-                    elif evt.event_type == EventType.PRE_TOOL_USE and evt.data:
+                    # Rebuild conversation from stored events. Each branch
+                    # narrows evt to its family variant so family-specific
+                    # fields (prompt, thinking, tool_name, ...) typecheck.
+                    if evt.event_type == EventType.USER_PROMPT_SUBMIT:
+                        assert isinstance(evt, PromptEvent)
+                        if evt.data.prompt and "<task-notification>" not in evt.data.prompt:
+                            conv_entry: ConversationEntry = {
+                                "id": str(evt.timestamp.timestamp()),
+                                "role": "user",
+                                "agentId": agent_id,
+                                "text": evt.data.prompt,
+                                "timestamp": evt.timestamp.isoformat(),
+                            }
+                            sm.append_capped(conv_entry)
+                    elif evt.event_type == EventType.PRE_TOOL_USE:
+                        assert isinstance(evt, ToolEvent)
                         if evt.data.thinking:
                             thinking_entry: ConversationEntry = {
                                 "id": f"{evt.timestamp.timestamp()}_thinking",
@@ -798,40 +799,40 @@ class EventProcessor:
                                 "toolName": evt.data.tool_name,
                             }
                             sm.append_capped(tool_entry)
-                    elif evt.event_type == EventType.STOP and evt.data and evt.data.transcript_path:
-                        settings = get_settings()
-                        translated_path = settings.translate_path(evt.data.transcript_path)
-                        response = await asyncio.to_thread(
-                            get_last_assistant_response, translated_path
-                        )
-                        if response:
-                            assistant_entry: ConversationEntry = {
-                                "id": str(evt.timestamp.timestamp()),
-                                "role": "assistant",
-                                "agentId": agent_id,
-                                "text": response,
-                                "timestamp": evt.timestamp.isoformat(),
-                            }
-                            sm.append_capped(assistant_entry)
-                    elif (
-                        evt.event_type == EventType.SUBAGENT_INFO
-                        and evt.data
-                        and evt.data.agent_transcript_path
-                    ):
-                        native_agent_id = evt.data.native_agent_id
-                        transcript_path = evt.data.agent_transcript_path
-                        for agent in sm.agents.values():
-                            if agent.native_id == native_agent_id or agent.native_id is None:
-                                if native_agent_id and agent.native_id is None:
-                                    agent.native_id = native_agent_id
-                                if (
-                                    not agent.current_task
-                                    or agent.current_task == "Resumed mid-session"
-                                ):
-                                    await enrich_agent_from_transcript(
-                                        agent, transcript_path, evt.data.agent_type
-                                    )
-                                break
+                    elif evt.event_type == EventType.STOP:
+                        assert isinstance(evt, LifecycleEvent)
+                        if evt.data.transcript_path:
+                            settings = get_settings()
+                            translated_path = settings.translate_path(evt.data.transcript_path)
+                            response = await asyncio.to_thread(
+                                get_last_assistant_response, translated_path
+                            )
+                            if response:
+                                assistant_entry: ConversationEntry = {
+                                    "id": str(evt.timestamp.timestamp()),
+                                    "role": "assistant",
+                                    "agentId": agent_id,
+                                    "text": response,
+                                    "timestamp": evt.timestamp.isoformat(),
+                                }
+                                sm.append_capped(assistant_entry)
+                    elif evt.event_type == EventType.SUBAGENT_INFO:
+                        assert isinstance(evt, AgentEvent)
+                        if evt.data.agent_transcript_path:
+                            native_agent_id = evt.data.native_agent_id
+                            transcript_path = evt.data.agent_transcript_path
+                            for agent in sm.agents.values():
+                                if agent.native_id == native_agent_id or agent.native_id is None:
+                                    if native_agent_id and agent.native_id is None:
+                                        agent.native_id = native_agent_id
+                                    if (
+                                        not agent.current_task
+                                        or agent.current_task == "Resumed mid-session"
+                                    ):
+                                        await enrich_agent_from_transcript(
+                                            agent, transcript_path, evt.data.agent_type
+                                        )
+                                    break
                 except Exception as e:
                     skipped_count += 1
                     logger.warning(
@@ -876,11 +877,11 @@ class EventProcessor:
         been deleted by a concurrent clear-DB operation.
         """
         async with AsyncSessionLocal() as db:
-            project_name = event.data.project_name if event.data else None
-            project_dir = event.data.project_dir if event.data else None
-            working_dir = event.data.working_dir if event.data else None
-            team_name = event.data.team_name if event.data else None
-            teammate_name = event.data.teammate_name if event.data else None
+            project_name = event.data.project_name
+            project_dir = event.data.project_dir
+            working_dir = event.data.working_dir
+            team_name = event.data.team_name
+            teammate_name = event.data.teammate_name
 
             source_dir = project_dir or working_dir
             project_root = derive_git_root(source_dir) if source_dir else None
@@ -974,7 +975,7 @@ class EventProcessor:
                 session_id=event.session_id,
                 timestamp=event.timestamp,
                 event_type=event.event_type,
-                data=event.data.model_dump() if event.data else {},
+                data=event.data.model_dump(),
             )
             db.add(event_rec)
             await db.commit()

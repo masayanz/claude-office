@@ -69,7 +69,14 @@ class EventType(StrEnum):
 
 
 class EventData(BaseModel):
-    """Data payload for events from Claude Code hooks."""
+    """Data payload for events from Claude Code hooks.
+
+    Deprecated (ARC-014): retained only because external producers (hooks,
+    opencode-plugin, simulation) emit the flat wire format that the
+    discriminated union parses. Internal code should use the family payload
+    classes (``EventDataBase`` and its subclasses) instead. Deletion is
+    follow-up QA work once no remaining production path constructs this.
+    """
 
     project_name: str | None = None
     project_dir: str | None = None
@@ -118,7 +125,15 @@ class EventData(BaseModel):
 
 
 class Event(BaseModel):
-    """An event from Claude Code hooks."""
+    """An event from Claude Code hooks.
+
+    Deprecated (ARC-014): the backend's ingestion route, replay, dispatch
+    table, and handlers all operate on the ``AnyEvent`` discriminated union
+    defined below. This legacy god-model class is kept exported so external
+    callers (and the family-event union itself, via wire-format parity) keep
+    parsing; it will be removed once any remaining test/construction sites
+    are migrated. Do not add new production usages.
+    """
 
     event_type: EventType
     session_id: str

@@ -66,18 +66,19 @@ _NO_AUTH_PATHS = frozenset({"/health", "/docs", "/redoc"})
 
 
 def _is_state_changing(path: str, method: str) -> bool:
-    """Return True if the request targets a destructive global endpoint.
+    """Return True if the request targets a destructive or side-effecting endpoint.
 
-    When no explicit ``CLAUDE_OFFICE_API_KEY`` is configured, only the
-    destructive *global* operations (clearing all sessions, running a
-    simulation) require the auto-generated token.  Per-session mutations
-    (delete, label, focus) and preferences writes remain open in the default
-    configuration; they are still fully gated whenever an explicit key is set
-    (handled by ``settings.has_explicit_key`` in the middleware).
+    Covers global destructive operations (clearing all sessions, running a
+    simulation) and per-session OS side effects (terminal activation + clipboard
+    write via ``/focus``). Other per-session mutations remain open in the default
+    configuration and are fully gated when an explicit key is set (handled by
+    ``settings.has_explicit_key`` in the middleware).
     """
     prefix = settings.API_V1_STR + "/sessions"
-    return (path == prefix and method == "DELETE") or (
-        path == f"{prefix}/simulate" and method == "POST"
+    return (
+        (path == prefix and method == "DELETE")
+        or (path == f"{prefix}/simulate" and method == "POST")
+        or (path.startswith(f"{prefix}/") and path.endswith("/focus") and method == "POST")
     )
 
 
@@ -118,12 +119,14 @@ class ApiKeyMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 
+settings = get_settings()
+
 logging.basicConfig(
-    level=logging.INFO, format="%(message)s", handlers=[RichHandler(rich_tracebacks=True)]
+    level=logging.INFO,
+    format="%(message)s",
+    handlers=[RichHandler(rich_tracebacks=settings.LOG_RICH_TRACEBACKS)],
 )
 logger = logging.getLogger(__name__)
-
-settings = get_settings()
 
 
 async def _migrate_schema(conn: AsyncConnection) -> None:
@@ -170,12 +173,20 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     await _reap_stale_sessions()
 
-    # Log the effective API key so users can see what protects state-changing
-    # endpoints when CLAUDE_OFFICE_API_KEY is not explicitly configured.
+    # Deliver the auto-generated key via the launch console (the trust boundary:
+    # only the launching user sees the terminal). Never echo an explicitly
+    # configured key (SEC-001).
     if not settings.has_explicit_key:
         logger.info(
             "Auto-generated API key for state-changing endpoints: %s",
-            settings.effective_api_key[:8] + "…",
+            settings.effective_api_key,
+        )
+        logger.info(
+            "Open the UI with this URL to authorize destructive actions: "
+            "http://localhost:3000/?token=%s (dev) or "
+            "http://localhost:8000/?token=%s (static)",
+            settings.effective_api_key,
+            settings.effective_api_key,
         )
 
     git_service.start()
@@ -239,18 +250,16 @@ async def health_check() -> dict[str, str]:
 
 @app.get("/api/v1/status")
 async def get_status() -> dict[str, bool | str | None]:
-    """Get server status including AI summary availability and the effective API key.
+    """Get server status including AI summary availability.
 
-    The effective API key is either the user-configured ``CLAUDE_OFFICE_API_KEY``
-    or the per-launch auto-generated token.  The frontend needs this to send
-    authenticated requests to state-changing endpoints.  This route is only
-    reachable from localhost (enforced by ``LocalhostOnlyMiddleware``).
+    The API key is no longer returned over HTTP (SEC-001). The frontend receives
+    it out-of-band via the ``?token=`` launch URL printed to the server console;
+    see ``initApiKeyFromBrowser`` on the frontend side.
     """
     summary_service = get_summary_service()
     return {
         "aiSummaryEnabled": summary_service.enabled,
         "aiSummaryModel": summary_service.model if summary_service.enabled else None,
-        "apiKey": settings.effective_api_key,
     }
 
 

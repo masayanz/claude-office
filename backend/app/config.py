@@ -51,6 +51,10 @@ class Settings(BaseSettings):
     # endpoints always require an API key even in the default configuration.
     _auto_api_key: str = secrets.token_hex(32)
 
+    # Rich tracebacks render local variables and full filesystem paths into logs.
+    # Useful in development; disable for shared/production deployments (SEC-006).
+    LOG_RICH_TRACEBACKS: bool = True
+
     @property
     def effective_api_key(self) -> str:
         """Return the configured API key, or the per-launch auto-generated token."""

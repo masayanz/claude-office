@@ -3,6 +3,7 @@
 import asyncio
 import contextlib
 import logging
+import os
 import subprocess
 import threading
 from datetime import UTC, datetime
@@ -13,6 +14,18 @@ from app.config import get_settings
 from app.models.git import ChangedFile, Commit, FileStatus, GitStatus
 
 logger = logging.getLogger(__name__)
+
+# Harden every git invocation against hostile repo config: project_root
+# originates from unauthenticated event data (SEC-003), so a malicious
+# .git/config could otherwise inject executables via fsmonitor/hooks/pager.
+_GIT_HARDENING: list[str] = [
+    "-c",
+    "core.fsmonitor=false",
+    "-c",
+    "core.hooksPath=/dev/null",
+    "-c",
+    "core.pager=cat",
+]
 
 
 class GitService:
@@ -34,14 +47,25 @@ class GitService:
             self._sessions[session_id] = project_root
 
     def _run_git(self, args: list[str], cwd: Path) -> str:
-        """Run a git command and return stdout."""
+        """Run a git command and return stdout.
+
+        Hardened: repo-local config cannot inject executables (fsmonitor/hooks/
+        pager) and global/system config is ignored — project_root originates from
+        unauthenticated event data (SEC-003).
+        """
         try:
             result = subprocess.run(
-                ["git", *args],
+                ["git", *_GIT_HARDENING, *args],
                 cwd=cwd,
                 capture_output=True,
                 text=True,
                 timeout=10,
+                env={
+                    **os.environ,
+                    "GIT_CONFIG_GLOBAL": "/dev/null",
+                    "GIT_CONFIG_SYSTEM": "/dev/null",
+                    "GIT_OPTIONAL_LOCKS": "0",
+                },
             )
             return result.stdout.strip()
         except (subprocess.TimeoutExpired, FileNotFoundError) as e:
@@ -274,7 +298,22 @@ class GitService:
             logger.debug(f"Broadcast git status: {status.branch}, {len(status.commits)} commits")
 
     def configure(self, session_id: str | None = None, project_root: str | None = None) -> None:
-        """Add or update a session and its project root."""
+        """Add or update a session and its project root.
+
+        Validates ``project_root`` (must be an absolute directory containing a
+        ``.git`` entry) before storing — the value originates from unauthenticated
+        event data (SEC-003).
+        """
+        if project_root is not None:
+            root = Path(project_root)
+            if not (root.is_absolute() and root.is_dir() and (root / ".git").exists()):
+                logger.warning(
+                    "Rejecting invalid project_root for session %s: %r",
+                    session_id,
+                    project_root,
+                )
+                return
+            project_root = str(root.resolve())
         with self._lock:
             if session_id is not None:
                 self._sessions[session_id] = project_root

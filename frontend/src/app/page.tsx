@@ -28,7 +28,7 @@ import {
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useTourStore } from "@/stores/tourStore";
 import { useShallow } from "zustand/react/shallow";
-import { setApiKey, apiFetch } from "@/utils/api";
+import { apiFetch, initApiKeyFromBrowser } from "@/utils/api";
 import { Menu, X, Map } from "lucide-react";
 import { SessionSidebar } from "@/components/layout/SessionSidebar";
 import { MobileDrawer } from "@/components/layout/MobileDrawer";
@@ -201,11 +201,11 @@ export default function V2TestPage(): React.ReactNode {
   // One-time initialization effects
   // ------------------------------------------------------------------
   useEffect(() => {
+    initApiKeyFromBrowser();
     apiFetch("/api/v1/status")
       .then((res) => res.json())
-      .then((data: { aiSummaryEnabled: boolean; apiKey?: string }) => {
+      .then((data: { aiSummaryEnabled: boolean }) => {
         setAiSummaryEnabled(data.aiSummaryEnabled);
-        if (data.apiKey) setApiKey(data.apiKey);
       })
       .catch(() => setAiSummaryEnabled(false));
   }, []);

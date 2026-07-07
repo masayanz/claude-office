@@ -502,3 +502,118 @@ class TestEffectiveApiKey:
             assert settings.has_explicit_key is True
         finally:
             settings.CLAUDE_OFFICE_API_KEY = original
+
+
+# ---------------------------------------------------------------------------
+# SEC-001 — /api/v1/status must not disclose the effective API key
+# ---------------------------------------------------------------------------
+
+
+class TestStatusEndpointKeyDisclosure:
+    """GET /api/v1/status must not return the effective API key (SEC-001)."""
+
+    def test_status_does_not_disclose_api_key(self) -> None:
+        from app.main import app
+
+        client = TestClient(app)
+        resp = client.get("/api/v1/status")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert "apiKey" not in body
+        assert get_settings().effective_api_key not in resp.text
+
+
+# ---------------------------------------------------------------------------
+# SEC-002 — focus/clipboard endpoint must require the effective API key
+# ---------------------------------------------------------------------------
+
+
+class TestFocusEndpointAuth:
+    """POST /sessions/{id}/focus must require the effective API key (SEC-002)."""
+
+    def test_focus_requires_key(self) -> None:
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            resp = client.post(f"{settings.API_V1_STR}/sessions/some-session/focus")
+            assert resp.status_code == 401
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_focus_with_effective_key_passes_auth(self) -> None:
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                f"{settings.API_V1_STR}/sessions/does-not-exist/focus",
+                headers={"X-API-Key": settings.effective_api_key},
+            )
+            # Past auth; session lookup fails → 404 (or 500 if DB unavailable).
+            assert resp.status_code in (404, 500)
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+
+# ---------------------------------------------------------------------------
+# SEC-005 — /events auth behavior regression (backend: no code change;
+# plugin key support deferred, blocked by QA-002)
+# ---------------------------------------------------------------------------
+
+
+class TestEventsEndpointAuthRegression:
+    """Lock in /events auth behavior (SEC-005 backend decision).
+
+    Default config: /events stays open because hooks/plugin have no discovery
+    channel for the auto-key after SEC-001 (gating it would silently break all
+    event producers). Explicit key set: /events requires that key.
+    """
+
+    def test_events_open_in_default_config(self) -> None:
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = ""
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                f"{settings.API_V1_STR}/events",
+                json={
+                    "event_type": "session_start",
+                    "session_id": "sec005-default",
+                    "timestamp": "2026-01-01T00:00:00",
+                    "data": {},
+                },
+            )
+            assert resp.status_code == 200
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original
+
+    def test_events_require_explicit_key_when_set(self) -> None:
+        from app.main import app
+
+        settings = get_settings()
+        original = settings.CLAUDE_OFFICE_API_KEY
+        settings.CLAUDE_OFFICE_API_KEY = "explicit-test-key"
+        try:
+            client = TestClient(app)
+            resp = client.post(
+                f"{settings.API_V1_STR}/events",
+                json={
+                    "event_type": "session_start",
+                    "session_id": "sec005-explicit",
+                    "timestamp": "2026-01-01T00:00:00",
+                    "data": {},
+                },
+            )
+            assert resp.status_code == 401
+        finally:
+            settings.CLAUDE_OFFICE_API_KEY = original

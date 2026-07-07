@@ -1,17 +1,19 @@
 /**
  * Minimal API helper for authenticated requests to the backend.
  *
- * The backend exposes an auto-generated API key via /api/v1/status
- * that must be included as X-API-Key on state-changing endpoints.
- * This module caches that key after the first status fetch.
+ * The backend no longer returns the API key over HTTP (SEC-001). Instead the
+ * key is delivered out-of-band via a ?token= launch URL printed to the server
+ * console; initApiKeyFromBrowser captures it into sessionStorage.
  */
 
 export const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+const KEY_STORAGE = "claude-office-api-key";
+
 let _apiKey: string | null = null;
 
-/** Store the API key (called once from the status fetch in page.tsx). */
+/** Store the API key (called from the token intake in page.tsx). */
 export function setApiKey(key: string): void {
   _apiKey = key;
 }
@@ -19,6 +21,35 @@ export function setApiKey(key: string): void {
 /** Retrieve the cached API key. */
 export function getApiKey(): string | null {
   return _apiKey;
+}
+
+/** Read ?token= from the URL (stripping it from history) or sessionStorage. */
+export function initApiKeyFromBrowser(): void {
+  if (typeof window === "undefined") return;
+  const params = new URLSearchParams(window.location.search);
+  const token = params.get("token");
+  if (token) {
+    setApiKey(token);
+    try {
+      sessionStorage.setItem(KEY_STORAGE, token);
+    } catch {
+      // sessionStorage may be unavailable (private mode); key stays in-memory.
+    }
+    params.delete("token");
+    const qs = params.toString();
+    window.history.replaceState(
+      {},
+      "",
+      window.location.pathname + (qs ? `?${qs}` : ""),
+    );
+    return;
+  }
+  try {
+    const stored = sessionStorage.getItem(KEY_STORAGE);
+    if (stored) setApiKey(stored);
+  } catch {
+    // sessionStorage unavailable; key remains unset until next ?token= intake.
+  }
 }
 
 /** Fetch wrapper that attaches X-API-Key when available. */

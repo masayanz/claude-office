@@ -10,6 +10,7 @@ FastAPI backend service that processes Claude Code hook events and broadcasts re
 - [Installation](#installation)
 - [Running the Server](#running-the-server)
 - [Configuration](#configuration)
+- [Authentication](#authentication)
 - [API Endpoints](#api-endpoints)
 - [Project Structure](#project-structure)
 - [Testing](#testing)
@@ -126,15 +127,20 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 ### With Static Frontend
 
-When a built frontend exists in `backend/static/`, the server automatically serves it:
+To serve a built frontend from `backend/static/`, two conditions must hold: the
+frontend must be built into `backend/static/` (via `make build-static` from the
+project root), and the `SERVE_STATIC` environment variable must be truthy
+(`1`, `true`, or `yes`).
 
 ```bash
 # Build frontend and copy to backend/static (from project root)
 make build-static
 
 # Run backend (serves both API and frontend)
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+SERVE_STATIC=1 uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 ```
+
+Without `SERVE_STATIC=1` the API still runs, but the root URL serves no frontend.
 
 ## Configuration
 
@@ -144,7 +150,7 @@ Configuration is managed via environment variables or a `.env` file in the backe
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///visualizer.db` | Database connection string |
+| `DATABASE_URL` | `sqlite+aiosqlite:///<backend dir>/visualizer.db` | Database connection string (absolute path; `docker-compose` overrides to `/app/data/visualizer.db`) |
 | `GIT_POLL_INTERVAL` | `5` | Git status polling interval (seconds) |
 | `CLAUDE_CODE_OAUTH_TOKEN` | (empty) | OAuth token for AI summaries |
 | `SUMMARY_ENABLED` | `True` | Enable/disable AI summaries |
@@ -152,6 +158,12 @@ Configuration is managed via environment variables or a `.env` file in the backe
 | `SUMMARY_MAX_TOKENS` | `1000` | Max tokens for summary responses |
 | `CLAUDE_PATH_HOST` | (empty) | Host path prefix for Docker translation |
 | `CLAUDE_PATH_CONTAINER` | (empty) | Container path prefix for Docker translation |
+| `BEADS_POLL_INTERVAL` | `3.0` | Beads issue tracker polling interval (seconds) |
+| `EVENT_RATE_LIMIT` | `300` | Max event POSTs accepted per 60 s window |
+| `ZOMBIE_SUBAGENT_TIMEOUT_SECONDS` | `90` | Seconds of inactivity before a subagent is assumed crashed and reaped |
+| `CLAUDE_OFFICE_API_KEY` | (empty — auto-generated per launch) | Explicit API key; gates all state-changing endpoints when set (see [Authentication](#authentication)) |
+| `SERVE_STATIC` | (unset) | Set to `1`/`true`/`yes` to serve the built frontend from `backend/static/` |
+| `BACKEND_CORS_ORIGINS` | localhost origins | Allowed CORS origins (localhost only by default) |
 
 ### Docker Path Translation
 
@@ -161,6 +173,29 @@ When running in Docker, the backend needs to translate file paths from host to c
 CLAUDE_PATH_HOST=/Users/username/.claude
 CLAUDE_PATH_CONTAINER=/claude-data
 ```
+
+## Authentication
+
+State-changing endpoints are protected by an API key sent in the `X-API-Key` header.
+Keys are compared in constant time (`hmac.compare_digest`).
+
+| Mode | How the key is set | What requires the key |
+|------|--------------------|-----------------------|
+| Auto-generated (default) | A random token is generated on every launch | State-changing operations: `DELETE /api/v1/sessions`, `POST /api/v1/sessions/simulate`, and `POST /api/v1/sessions/{id}/focus` (terminal activation + clipboard write) |
+| Explicit | `CLAUDE_OFFICE_API_KEY` env var or `backend/.env` | All endpoints except `/health`, `/docs`, `/redoc`, the OpenAPI schema, and CORS preflight |
+
+Example:
+
+```bash
+curl -X DELETE http://localhost:8000/api/v1/sessions \
+  -H "X-API-Key: $CLAUDE_OFFICE_API_KEY"
+```
+
+**Discovery**: The auto-generated key is never sent over HTTP. At startup the server logs it to the console (visible only to the launching user) alongside a `?token=<key>` launch URL; the frontend reads `?token=` once on first load (stripped from the address bar via `replaceState`) and persists it to `sessionStorage` for reloads. An explicitly configured `CLAUDE_OFFICE_API_KEY` is never echoed. `GET /api/v1/status` reports AI-summary availability but does **not** return the key.
+
+**Clients**: the Claude Code hooks send `X-API-Key` automatically when `CLAUDE_OFFICE_API_KEY` is set (env var or `~/.claude/claude-office-config.env`, with the env var taking precedence). The OpenCode plugin does not yet send a key — see its Known Limitations.
+
+**WebSockets**: browser connections must come from an allowed localhost origin; non-browser clients (no `Origin` header) must present `X-API-Key` with the effective key, or the handshake is closed with code 4003.
 
 ## API Endpoints
 
@@ -215,6 +250,7 @@ Preferences are stored as key-value pairs and persist across sessions. Current p
 - `clock_type`: `"analog"` or `"digital"`
 - `clock_format`: `"12h"` or `"24h"` (for digital clock)
 - `auto_follow_new_sessions`: `"true"` or `"false"` (auto-follow new sessions in current project)
+- `language`: `"en"`, `"es"`, or `"pt-BR"` (UI language)
 
 ### WebSocket
 
@@ -222,6 +258,7 @@ Preferences are stored as key-value pairs and persist across sessions. Current p
 |------|-------------|
 | `/ws/{session_id}` | Real-time state updates for a session |
 | `/ws/room/{room_id}` | Real-time state updates for all sessions in a room (team view) |
+| `/ws/overview` | Cross-session Command Center feed (`OverviewState`, max 16 clients) |
 
 ## Supported Event Types
 
@@ -242,6 +279,16 @@ The backend processes the following event types from Claude Code hooks:
 | `subagent_stop` | Task agent completes | Agent returns work, departs |
 | `context_compaction` | Context window compacted | Coffee break animation |
 | `background_task_notification` | Background task completed | Update remote workers display |
+| `agent_update` | Token-usage update emitted by transcript poller | Refresh agent token/thinking display (synthetic, not from hooks) |
+| `reporting` | Agent reporting to boss | Show reporting animation (synthetic, persisted for replay) |
+| `walking_to_desk` | Agent walking to desk | Animate agent walking to desk (synthetic, persisted for replay) |
+| `waiting` | Agent waiting for work | Show waiting state (synthetic, persisted for replay) |
+| `leaving` | Agent leaving office | Trigger departure animation (synthetic, persisted for replay) |
+| `cleanup` | Logical removal of agent after departure | Remove agent from office; persisted so replay removes it correctly (synthetic) |
+| `error` | Error event | Logged and persisted for replay (synthetic) |
+| `task_created` | Agent Teams: new task assigned to the team | Create `KanbanTask` entry on the whiteboard |
+| `task_completed` | Agent Teams: team task completed | Update `KanbanTask` status to `completed` |
+| `teammate_idle` | Agent Teams: teammate session went idle | Set the teammate's boss state to `IDLE` |
 
 ## Project Structure
 
@@ -262,6 +309,7 @@ backend/
 │   │   │   ├── session_handler.py     # Session start/end events
 │   │   │   ├── team_handler.py        # Agent Teams events (task_created/completed, teammate_idle)
 │   │   │   └── tool_handler.py        # Tool use events
+│   │   ├── beads_poller.py     # Beads issue tracker polling
 │   │   ├── broadcast_service.py   # State broadcast orchestration
 │   │   ├── constants.py       # Shared constants
 │   │   ├── event_processor.py # Event validation and processing
@@ -270,12 +318,14 @@ backend/
 │   │   ├── logging.py         # Logging configuration
 │   │   ├── office_layout.py   # Office layout constants and zones
 │   │   ├── path_utils.py      # File path utilities
+│   │   ├── product_mapper.py  # Session-to-floor/room project mapping
 │   │   ├── quotes.py          # Loading screen quotes
 │   │   ├── room_orchestrator.py # Multi-session merge for team views
 │   │   ├── state_machine.py   # Office state management
 │   │   ├── summary_service.py # AI-powered summaries
 │   │   ├── task_file_poller.py # Claude task file monitoring
 │   │   ├── task_persistence.py # Task database persistence
+│   │   ├── token_tracker.py   # Token usage and tool-use tracking
 │   │   ├── transcript_poller.py # Token usage extraction
 │   │   └── whiteboard_tracker.py # Whiteboard state tracking
 │   ├── db/
@@ -286,23 +336,14 @@ backend/
 │   │   ├── common.py          # Shared Pydantic models
 │   │   ├── events.py          # Event type models
 │   │   ├── git.py             # Git status models
+│   │   ├── overview.py        # Command Center overview models
 │   │   ├── sessions.py        # Session state models
 │   │   └── ui.py              # UI-specific models
 │   ├── services/
 │   │   └── git_service.py     # Git status polling service
 │   ├── config.py              # Settings management
 │   └── main.py                # FastAPI application entry point
-├── tests/
-│   ├── conftest.py            # Test fixtures
-│   ├── test_api.py            # API endpoint tests
-│   ├── test_jsonl_parser.py   # JSONL parser tests
-│   ├── test_path_utils.py     # Path utility tests
-│   ├── test_quotes.py         # Quotes module tests
-│   ├── test_state_machine.py  # State machine tests
-│   ├── test_summary_service.py # Summary service tests
-│   ├── test_task_file_poller.py # Task file polling tests
-│   ├── test_task_persistence.py # Task database persistence tests
-│   └── test_transcript_poller.py # Transcript polling tests
+├── tests/                     # 21 test files + conftest.py (state machine, pollers, security, regression suites)
 ├── pyproject.toml             # Project dependencies
 ├── Makefile                   # Development commands
 └── README.md                  # This file

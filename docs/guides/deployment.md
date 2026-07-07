@@ -92,6 +92,8 @@ graph TD
 
 ## Configuration
 
+For production or shared-host deployments, set an explicit `CLAUDE_OFFICE_API_KEY`. Once set, every state-changing endpoint (including `POST /api/v1/events` from the hooks) must send the key in the `X-API-Key` header. With the default auto-generated key, only the destructive global operations (`DELETE /api/v1/sessions`, `POST /api/v1/sessions/simulate`) require it. See the [backend README](../../backend/README.md#authentication) for the full model.
+
 ### Environment Variables
 
 | Variable | Required | Default | Description |
@@ -102,6 +104,8 @@ graph TD
 | `CLAUDE_CODE_OAUTH_TOKEN` | No | - | OAuth token for AI-powered summaries |
 | `SUMMARY_ENABLED` | No | `true` | Enable/disable AI summaries |
 | `DATABASE_URL` | No | `sqlite+aiosqlite:////app/data/visualizer.db` | Database connection string |
+| `SERVE_STATIC` | No | `1` (in `docker-compose.yml`) | Set to `1`/`true`/`yes` to serve the built frontend from `backend/static/`. The compose file sets this; a raw `docker run` must set it explicitly or the root URL serves no frontend. |
+| `CLAUDE_OFFICE_API_KEY` | No | (auto-generated per launch) | Explicit API key; when set, all state-changing endpoints require the `X-API-Key` header |
 
 > **Note:** Additional backend settings like `SUMMARY_MODEL`, `SUMMARY_MAX_TOKENS`, and `GIT_POLL_INTERVAL` can be configured in the backend's `config.py` defaults or by extending the docker-compose environment section. See `backend/app/config.py` for all available settings.
 
@@ -252,6 +256,8 @@ docker run -d \
   -v claude-office-db:/app/data \
   -e CLAUDE_PATH_HOST=/Users/yourusername/.claude \
   -e CLAUDE_PATH_CONTAINER=/claude-data \
+  -e SERVE_STATIC=1 \
+  -e DATABASE_URL=sqlite+aiosqlite:////app/data/visualizer.db \
   claude-office:latest
 ```
 

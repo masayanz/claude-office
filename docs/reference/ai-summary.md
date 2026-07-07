@@ -17,31 +17,7 @@ The `SummaryService` (`backend/app/core/summary_service.py`) provides AI-powered
 
 ## API Methods
 
-### 1. `summarize_tool_call(tool_name, tool_input)`
-
-Generates a short summary of what a tool call does.
-
-**Prompt:**
-```
-In 10 words or less, what does this {tool_name} tool call do?
-{input_json}
-```
-
-**Input Truncation:** 500 characters max
-
-**Fallback Logic:**
-- `Read/Glob/Grep/Write/Edit`: Returns compressed file path (home → `~`, truncate from start)
-- `Bash`: Returns first line of command (max 40 chars)
-- `Task/Agent`: Returns first sentence of `prompt` or `description` field (max 40 chars)
-- `WebSearch`: Returns `"Search: {query}"` (max 35 chars)
-- `WebFetch`: Returns `"Fetch: {domain}"`
-- Other: Returns tool name
-
-**Status:** Defined but not currently called in production code.
-
----
-
-### 2. `summarize_agent_task(task_description)`
+### 1. `summarize_agent_task(task_description)`
 
 Generates a short summary of a subagent's task.
 
@@ -59,7 +35,7 @@ In 10 words or less, summarize this task:
 
 ---
 
-### 3. `summarize_user_prompt(prompt)`
+### 2. `summarize_user_prompt(prompt)`
 
 Generates a summary of the user's prompt for display in the scrolling marquee.
 
@@ -79,7 +55,7 @@ In one sentence, summarize what this request asks for:
 
 ---
 
-### 4. `generate_agent_name(description, existing_names=None)`
+### 3. `generate_agent_name(description, existing_names=None, agent_type=None)`
 
 Generates a fun, creative nickname for an agent based on its task. Deduplicates against already-assigned names.
 
@@ -160,7 +136,7 @@ Names are randomly selected from each category, excluding those in `existing_nam
 
 ---
 
-### 5. `summarize_response(response_text)`
+### 4. `summarize_response(response_text)`
 
 Generates a short summary of Claude's response for speech bubbles.
 
@@ -180,7 +156,7 @@ In 15 words or less, summarize this response:
 
 ---
 
-### 6. `detect_report_request(prompt)`
+### 5. `detect_report_request(prompt)`
 
 Detects if the user's prompt requests a report or document to be created.
 
@@ -319,5 +295,5 @@ graph TD
 
 ## Related Documentation
 
-- [Architecture](ARCHITECTURE.md) - System design and component overview
-- [PRD](../PRD.md) - Full product requirements including AI summary integration
+- [Architecture](../architecture/ARCHITECTURE.md) - System design and component overview
+- [PRD](../../PRD.md) - Full product requirements including AI summary integration (historical snapshot)

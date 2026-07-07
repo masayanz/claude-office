@@ -108,7 +108,23 @@ CLAUDE_OFFICE_STRIP_PREFIXES="-Users-probello-Repos-,-Users-probello-"
 
 # Set to 1 to enable debug logging
 CLAUDE_OFFICE_DEBUG=0
+
+# Backend API endpoint. Non-localhost values are currently ignored and reset
+# to the default below (loopback-only clamp).
+# CLAUDE_OFFICE_API_URL=http://localhost:8000/api/v1/events
+
+# Optional: API key for a backend started with CLAUDE_OFFICE_API_KEY. When set
+# (here or as an environment variable — env wins), the hook sends it as
+# X-API-Key on every event POST.
+# CLAUDE_OFFICE_API_KEY=
 ```
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `CLAUDE_OFFICE_STRIP_PREFIXES` | `-Users-probello-Repos-,-Users-probello-` | Comma-separated path prefixes stripped from project names |
+| `CLAUDE_OFFICE_DEBUG` | `0` | Set to `1` to write debug logs to `~/.claude/claude-office-hooks.log` |
+| `CLAUDE_OFFICE_API_URL` | `http://localhost:8000/api/v1/events` | Backend event endpoint. Non-localhost values are currently ignored and reset to the default. |
+| `CLAUDE_OFFICE_API_KEY` | (empty) | API key sent as `X-API-Key`. Required when the backend sets an explicit `CLAUDE_OFFICE_API_KEY`; env var takes precedence over the config file. |
 
 ### Strip Prefixes
 
@@ -273,4 +289,4 @@ This removes hooks from Claude Code settings but preserves the config file.
 - [Project README](../README.md) - Project overview
 - [Quick Start](../docs/guides/quickstart.md) - Getting started guide
 - [Architecture](../docs/architecture/ARCHITECTURE.md) - System design details
-- [PRD Section 7](../PRD.md#7-claude-code-hook-integration) - Hook integration details
+- [PRD Section 7](../PRD.md#7-claude-code-hook-integration) - Hook integration details (historical snapshot)

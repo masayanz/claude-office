@@ -1,5 +1,7 @@
 # Claude Office Visualizer
 
+![CI](https://github.com/paulrobello/claude-office/actions/workflows/ci.yml/badge.svg)
+![GitHub Release](https://img.shields.io/github/v/release/paulrobello/claude-office)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 ![GitHub](https://img.shields.io/badge/github-paulrobello%2Fclaude--office-blue?logo=github)
 ![Runs on Linux | MacOS | Windows](https://img.shields.io/badge/runs%20on-Linux%20%7C%20MacOS%20%7C%20Windows-blue)
@@ -48,22 +50,16 @@ The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://
 - **Schedule editor cron helpers**: New pure `src/utils/cron.ts` utilities that round-trip between a friendly schedule editor and 5-field cron expressions (`timesToCron`, `intervalToCron`, `cronToEditor`)
 - **Bug fixes**: Attention toast dismiss glyph rendered as raw source text instead of ✕ (#54), a Windows hook crash caused by a conflicting system OpenSSL, and dropped proxy/redirect support for remote `http://` backends (#53)
 
-For the full release history, see [CHANGELOG.md](CHANGELOG.md).
-
 ### v0.21.0 (June 2026)
 
 - **Dependency refresh**: All packages across backend, frontend, hooks, and the OpenCode plugin bumped to latest (FastAPI 0.137, Starlette 1.3, Next 16.2.9, React 19.2.7, pixi.js 8.19, and tooling) — supersedes dependabot PRs #47/#50
 - **Bug fixes**: Command Center exit-loop (#49), a Starlette 1.3 type-check regression (added `httpx2`), and a latent hooks logging bug
-
-For the full release history, see [CHANGELOG.md](CHANGELOG.md).
 
 ### v0.20.0 (June 2026)
 
 - **Command Center**: New cross-terminal overview that gathers the boss (main agent) of every live session into a single pixel office — see at a glance what's finished, still running, or needs your attention. Reachable from the header (when ≥2 sessions are active) or the Building view's penthouse tile
 - **Scrollable Building View**: The building cross-section now scrolls when the floor list is taller than the viewport
 - **Full-system QA + security hardening**: 41 bug fixes (including a polling deadlock, a Docker blank-page fix, and a CORS preflight fix) plus per-session authorization guards and event-payload validation
-
-For the full release history, see [CHANGELOG.md](CHANGELOG.md).
 
 ### v0.15.0 (May 2026)
 

@@ -8,6 +8,7 @@ An [OpenCode](https://opencode.ai) plugin that sends lifecycle events to the Cla
 - [Prerequisites](#prerequisites)
 - [Installation](#installation)
 - [Configuration](#configuration)
+- [Known Limitations](#known-limitations)
 - [Event Mapping](#event-mapping)
 - [Commands](#commands)
 - [Development](#development)
@@ -44,6 +45,10 @@ Configuration is via environment variables.
 | `CLAUDE_OFFICE_API_URL` | `http://localhost:8000/api/v1/events` | Backend API endpoint |
 | `CLAUDE_OFFICE_TIMEOUT_MS` | `1500` | HTTP request timeout in milliseconds |
 | `CLAUDE_OFFICE_DEBUG` | `0` | Set to `1` to log events to stderr |
+
+## Known Limitations
+
+- **No API-key support.** The plugin does not send the `X-API-Key` header. If the backend is started with an explicit `CLAUDE_OFFICE_API_KEY`, every event the plugin sends is rejected with HTTP 401 and silently dropped (the plugin deliberately never surfaces transport errors). Workaround: run the backend without an explicit key when using OpenCode — the default auto-generated-key mode leaves `POST /api/v1/events` open. Key support is tracked as audit finding SEC-005.
 
 ## Event Mapping
 

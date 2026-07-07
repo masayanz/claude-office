@@ -24,6 +24,7 @@ System architecture and design documentation for Claude Office Visualizer.
 - [Internationalization](#internationalization)
 - [PixiJS Rendering](#pixijs-rendering)
 - [Multi-Floor / Agent Teams](#multi-floor--agent-teams)
+- [Command Center](#command-center)
 - [Configuration Reference](#configuration-reference)
 - [Related Documentation](#related-documentation)
 
@@ -611,7 +612,9 @@ When enabled (default), the frontend automatically detects new Claude Code sessi
 
 **API Endpoints:**
 - `GET /api/v1/preferences` - Get all preferences
+- `GET /api/v1/preferences/{key}` - Read a single preference
 - `PUT /api/v1/preferences/{key}` - Set a preference
+- `DELETE /api/v1/preferences/{key}` - Remove a stored preference
 
 **Frontend:** The `preferencesStore.ts` Zustand store manages preference state and syncs with the backend.
 
@@ -764,13 +767,93 @@ repo_name = "my-application"
 
 The room WebSocket broadcasts the merged `GameState` from the `RoomOrchestrator`. Frontend clients connect to this endpoint instead of the session-level `/ws/{session_id}` when viewing a team session.
 
+## Command Center
+
+The Command Center is a cross-session overview: a single pixel office that gathers the boss (main agent) of every live session into one room, so you can see at a glance which terminals need you, which are working, and which are done. It is reachable from the header (when two or more sessions are active) or from the Building view's penthouse tile.
+
+### Components
+
+| File | Purpose |
+|------|---------|
+| `backend/app/models/overview.py` | `OverviewBucket = Literal["needs_you", "working", "done"]`, `OverviewEntry` (per-session: `session_id`, `bucket`, `state`, `current_task`, `todo_done`, `todo_total`, `subagent_count`), and `OverviewState` (`entries`, `last_updated`). The "ended" bucket is derived frontend-side, not sent by the backend. |
+| `backend/app/core/room_orchestrator.py` | `build_overview(sessions) -> OverviewState` buckets each live session into `needs_you` / `working` / `done`. |
+| `backend/app/core/event_processor.py` | Async `build_overview_snapshot` collects the per-session `StateMachine`s and calls `build_overview()`; `_schedule_overview_broadcast` debounces the broadcast (~50 ms) and is scheduled last in event processing. |
+| `frontend/src/stores/overviewStore.ts` | Zustand store holding the raw per-session boss snapshots, connection state, and last-update timestamp from `/ws/overview`. |
+| `frontend/src/hooks/useOverviewWebSocket.ts` | Connects to `/ws/overview` only while the Command Center is visible; tears down on unmount. Separate from the session-bound `useWebSocketEvents`. |
+| `frontend/src/components/command/CommandCenterView.tsx` | Top-level Command Center view component. |
+| `frontend/src/components/command/CommandCenterCanvas.tsx` | PixiJS canvas for the Command Center room. |
+| `frontend/src/components/command/layout.ts` | Open-plan layout: four status columns (Needs-you, Working, Done, Ended) each holding a 2×4 grid of slots. |
+| `frontend/src/components/command/CommandCenterBackground.tsx` | Floor and walls, mirroring the office theme. |
+| `frontend/src/components/command/CommandCenterDecor.tsx` | Open-plan decor — framed posters on the top wall and a furniture row (plants, printer, water cooler, coffee machine) along the bottom. |
+| `frontend/src/components/command/CommandCenterFurniture.tsx` | Desk workstations composed from office sprites for the Needs-you and Working columns. |
+| `frontend/src/components/command/CommandCenterZones.tsx` | Renders the status-column zones. |
+| `frontend/src/components/command/CommandCenterBoard.tsx` | Top-wall whiteboard showing combined stats across every session: terminal count, per-status counts, total subagents, aggregate todo progress. |
+| `frontend/src/components/command/CommandCenterPeer.tsx` | A single session's boss rendered as a peer (body geometry compact relative to the office `BossSprite`). |
+| `frontend/src/components/command/ExitingPeer.tsx` | Exit animation body for sessions entering the Ended column (walks to the elevator doorway at the top-centre of the Ended column). |
+| `frontend/src/components/command/PeerPopup.tsx` | Popover showing focused-session details. |
+| `frontend/src/components/command/sessionMatchesFloor.ts` | Returns whether a session belongs to a configured floor (repo-name match). |
+| `frontend/src/components/command/useCommandCenterPeers.ts` | Derives render-ready peers from the overview store, including the linger duration for sessions that end. |
+| `frontend/src/systems/commandCenterGrid.ts` | Navigation grid marking static furniture (desks, lounge couches, exit elevator, top wall) as obstacles for A*. |
+| `frontend/src/systems/commandCenterMotion.ts` | Walks Command Center agents to their fixed slot positions via the shared A*, self-gating the RAF loop while anything is moving. |
+| `frontend/src/systems/exitAnimation.ts` | Lightweight per-frame clock for the Ended column: a finished session's agent walks to the elevator, the doors open, and it fades out. |
+
+### Data Flow
+
+```mermaid
+graph TD
+    CC[Claude Code Sessions]
+    EP[EventProcessor]
+    SM1[StateMachine Session 1]
+    SM2[StateMachine Session 2]
+    BO[build_overview_snapshot]
+    OV[OverviewState]
+    WS[WebSocket /ws/overview]
+    OS[overviewStore]
+    UI[command/ components]
+
+    CC -->|Events| EP
+    EP --> SM1
+    EP --> SM2
+    SM1 --> BO
+    SM2 --> BO
+    BO --> OV
+    OV -->|debounced ~50 ms| WS
+    WS --> OS
+    OS --> UI
+
+    style CC fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+    style EP fill:#e65100,stroke:#ff9800,stroke-width:3px,color:#ffffff
+    style SM1 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    style SM2 fill:#1b5e20,stroke:#4caf50,stroke-width:2px,color:#ffffff
+    style BO fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style OV fill:#1a237e,stroke:#3f51b5,stroke-width:2px,color:#ffffff
+    style WS fill:#880e4f,stroke:#c2185b,stroke-width:2px,color:#ffffff
+    style OS fill:#0d47a1,stroke:#2196f3,stroke-width:2px,color:#ffffff
+    style UI fill:#4a148c,stroke:#9c27b0,stroke-width:2px,color:#ffffff
+```
+
+**Flow sequence:**
+
+1. Any processed event schedules an overview broadcast via `_schedule_overview_broadcast`, debounced at roughly 50 ms (a no-op when there are zero watchers).
+2. `build_overview_snapshot` collects the per-session `StateMachine`s and calls `build_overview()` to bucket each live session into `needs_you`, `working`, or `done`.
+3. The `OverviewState` fans out to at most 16 `/ws/overview` clients.
+4. `useOverviewWebSocket` feeds `overviewStore`; the `command/` components render each session as a peer in the Command Center room. The "ended" bucket is derived frontend-side so a session can linger briefly before walking to the elevator.
+
+### WebSocket
+
+| Path | Description |
+|------|-------------|
+| `/ws/overview` | Cross-session Command Center feed carrying one `OverviewState` per debounced update (max 16 clients) |
+
+The `/ws/overview` endpoint is declared before `/ws/{session_id}` so "overview" is not captured as a session id. On connect the client receives an initial `state_update` snapshot. New connections are refused (close code 4013) once the 16-client cap is reached; disallowed origins close with 4003.
+
 ## Configuration Reference
 
 All configuration is managed via environment variables or a `.env` file in the `backend/` directory.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sqlite+aiosqlite:///visualizer.db` | Database connection string |
+| `DATABASE_URL` | `sqlite+aiosqlite:///<backend dir>/visualizer.db` | Database connection string (absolute path; `docker-compose` overrides to `/app/data/visualizer.db`) |
 | `GIT_POLL_INTERVAL` | `5` | Git status polling interval in seconds |
 | `CLAUDE_CODE_OAUTH_TOKEN` | (empty) | OAuth token for AI summaries via Claude API |
 | `SUMMARY_ENABLED` | `True` | Enable or disable AI-powered summaries |
@@ -779,12 +862,21 @@ All configuration is managed via environment variables or a `.env` file in the `
 | `CLAUDE_PATH_HOST` | (empty) | Host path prefix for Docker volume translation |
 | `CLAUDE_PATH_CONTAINER` | (empty) | Container path prefix for Docker volume translation |
 | `BEADS_POLL_INTERVAL` | `3.0` | Beads issue tracker polling interval in seconds |
+| `EVENT_RATE_LIMIT` | `300` | Max event POSTs accepted per 60 s window (global, shared across all sessions) |
+| `ZOMBIE_SUBAGENT_TIMEOUT_SECONDS` | `90` | Seconds of transcript inactivity before a subagent is assumed crashed and a synthetic `SubagentStop` is emitted to clean it up |
+| `CLAUDE_OFFICE_API_KEY` | (empty — auto-generated per launch) | Explicit API key; when set, gates all state-changing endpoints via `X-API-Key` (see [Authentication](#authentication)) |
+| `SERVE_STATIC` | (unset) | Set to `1`/`true`/`yes` to serve the built frontend from `backend/static/` |
+| `BACKEND_CORS_ORIGINS` | localhost origins | Allowed CORS origins (localhost only by default) |
 
 **Docker path translation:** When running in Docker, set both `CLAUDE_PATH_HOST` and `CLAUDE_PATH_CONTAINER` so the backend can translate transcript file paths from the host to the container filesystem. For example, `CLAUDE_PATH_HOST=/Users/username/.claude` and `CLAUDE_PATH_CONTAINER=/claude-data`.
 
+### Authentication
+
+The backend has a two-mode API-key model. When `CLAUDE_OFFICE_API_KEY` is unset (the default), a random token is generated per launch and only the destructive global operations (`DELETE /api/v1/sessions`, `POST /api/v1/sessions/simulate`) require it. When `CLAUDE_OFFICE_API_KEY` is set explicitly, every endpoint except `/health`, `/docs`, `/redoc`, the OpenAPI schema, and CORS preflight requires the key in the `X-API-Key` header (compared with `hmac.compare_digest`). Browser WebSocket connections must originate from an allowed localhost origin; non-browser clients must send `X-API-Key` or the handshake closes with code 4003. See the [backend README](../../backend/README.md#authentication) for the full key sources, gated endpoints, and discovery flow.
+
 ## Related Documentation
 
-- [README.md](../README.md) - Project overview and quick start
-- [CLAUDE.md](../CLAUDE.md) - AI assistant instructions and commands
-- [WHITEBOARD.md](WHITEBOARD.md) - Whiteboard multi-mode display documentation _(not yet created)_
-- [Claude Code JSONL Format](research/claude-code-jsonl-format.md) - Transcript file format research _(not yet created)_
+- [README.md](../../README.md) - Project overview and quick start
+- [CLAUDE.md](../../CLAUDE.md) - AI assistant instructions and commands
+- [Whiteboard Modes](../reference/whiteboard-modes.md) - Whiteboard multi-mode display documentation
+- [Claude Code JSONL Format](../research/claude-code-jsonl-format.md) - Transcript file format research

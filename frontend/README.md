@@ -13,6 +13,7 @@ Next.js application that renders a real-time pixel art office simulation using P
 - [Key Components](#key-components)
 - [State Management](#state-management)
 - [Debug Tools](#debug-tools)
+- [Environment Variables](#environment-variables)
 - [Testing](#testing)
 - [Related Documentation](#related-documentation)
 
@@ -125,103 +126,26 @@ This exports the frontend and copies it to `backend/static/` for FastAPI serving
 
 ```
 frontend/src/
-├── app/                          # Next.js App Router
-│   ├── page.tsx                  # Main application route
-│   ├── layout.tsx                # Root layout
-│   └── sprite-debug/             # Sprite sheet building tool
+├── app/            # Next.js App Router pages and layout
 ├── components/
-│   ├── game/                     # Game components
-│   │   ├── OfficeGame.tsx        # Main canvas component
-│   │   ├── OfficeBackground.tsx  # Floor and wall rendering
-│   │   ├── AgentSprite.tsx       # Agent character rendering
-│   │   ├── BossSprite.tsx        # Boss character with movement
-│   │   ├── TrashCanSprite.tsx    # Context utilization display
-│   │   ├── CityWindow.tsx        # Day/night city skyline
-│   │   ├── EmployeeOfTheMonth.tsx # Wall poster decoration
-│   │   ├── Whiteboard.tsx        # Whiteboard mode dispatcher
-│   │   ├── WallClock.tsx         # Animated wall clock (analog/digital)
-│   │   ├── DigitalClock.tsx      # LED-style digital clock display
-│   │   ├── SafetySign.tsx        # Tool counter display
-│   │   ├── MarqueeText.tsx       # Scrolling text component
-│   │   ├── DeskMarquee.tsx       # Task display above desks
-│   │   ├── DeskGrid.tsx          # Desk layout management
-│   │   ├── Elevator.tsx          # Elevator animation
-│   │   ├── PrinterStation.tsx    # Printer animation
-│   │   ├── LoadingScreen.tsx     # Loading screen with quotes
-│   │   ├── DebugOverlays.tsx     # Debug visualization tools
-│   │   ├── ZoomControls.tsx      # Zoom level controls
-│   │   ├── EventLog.tsx          # Event log panel
-│   │   ├── EventDetailModal.tsx  # Event detail popup
-│   │   ├── ConversationHistory.tsx # Conversation display
-│   │   ├── GitStatusPanel.tsx    # Git status display
-│   │   ├── AgentStatus.tsx       # Agent status indicator
-│   │   ├── whiteboard/           # Whiteboard display modes
-│   │   │   ├── TodoListMode.tsx  # Todo list display
-│   │   │   ├── HeatMapMode.tsx   # Activity heat map
-│   │   │   ├── StonksMode.tsx    # Performance chart
-│   │   │   ├── WeatherMode.tsx   # Weather display
-│   │   │   └── ...               # Additional modes
-│   │   ├── city/                 # City skyline rendering
-│   │   │   ├── buildingRenderer.ts
-│   │   │   ├── skyRenderer.ts    # Day/night gradient
-│   │   │   └── timeUtils.ts      # Time calculations
-│   │   └── shared/               # Shared drawing utilities
-│   │       ├── drawArm.ts        # Clock arm drawing
-│   │       ├── drawBubble.ts     # Speech bubble rendering
-│   │       └── iconMap.ts        # Icon mappings
-│   ├── layout/                   # Layout components
-│   │   ├── SessionSidebar.tsx    # Session browser sidebar
-│   │   ├── RightSidebar.tsx      # Event log and status
-│   │   ├── HeaderControls.tsx    # Header buttons
-│   │   ├── MobileDrawer.tsx      # Mobile navigation
-│   │   ├── MobileAgentActivity.tsx # Mobile agent list
-│   │   └── StatusToast.tsx       # Toast notifications
-│   └── overlay/                  # Modal components
-│       ├── Modal.tsx             # Modal overlay component
-│       └── SettingsModal.tsx     # User preferences modal
-├── stores/
-│   ├── gameStore.ts              # Unified Zustand store
-│   ├── preferencesStore.ts       # User preferences store
-│   ├── attentionStore.ts         # Session attention/follow state
-│   ├── navigationStore.ts        # Floor navigation state
-│   └── tourStore.ts              # Onboarding tour state
-├── machines/
-│   ├── agentMachine.ts           # XState agent lifecycle (composition root)
-│   ├── agentMachineCommon.ts     # Shared actions, guards, delays
-│   ├── agentMachineService.ts    # Agent machine service functions
-│   ├── agentArrivalMachine.ts    # Arrival sub-machine states
-│   ├── agentDepartureMachine.ts  # Departure sub-machine states
-│   ├── positionHelpers.ts        # Position calculation helpers
-│   └── queueManager.ts           # Queue management for arrival/departure
-├── systems/
-│   ├── animationSystem.ts        # Single RAF loop
-│   ├── compactionAnimation.ts    # Boss stomp animation
-│   ├── pathfinding.ts            # Pathfinding orchestration
-│   ├── astar.ts                  # A* algorithm implementation
-│   ├── pathSmoothing.ts          # Path optimization
-│   ├── navigationGrid.ts         # Collision grid
-│   ├── queuePositions.ts         # Queue slot coordinates
-│   ├── agentCollision.ts         # Agent overlap prevention
-│   └── hmrCleanup.ts             # Hot module reload cleanup
-├── hooks/
-│   ├── useWebSocketEvents.ts     # WebSocket message handler
-│   ├── useOfficeTextures.ts      # Texture loading hook
-│   ├── useSessions.ts            # Session list management
-│   ├── useSessionSwitch.ts       # Session switching logic
-│   ├── useDragResize.ts          # Drag-to-resize sidebar panels
-│   └── useTranslation.ts         # i18n translation hook
-├── constants/
-│   ├── canvas.ts                 # Canvas dimensions
-│   ├── positions.ts              # Coordinate constants
-│   └── quotes.ts                 # Loading screen quotes
-├── i18n/
-│   ├── index.ts                  # Locale type and translation loader
-│   ├── en.ts                     # English translations
-│   ├── es.ts                     # Spanish translations
-│   └── pt-BR.ts                  # Brazilian Portuguese translations
-└── types/
-    ├── index.ts                  # TypeScript type definitions
-    └── generated.ts              # Auto-generated types from backend
+│   ├── attention/  # Urgency toasts and fuzzy command bar
+│   ├── command/    # Command Center (cross-session overview)
+│   ├── debug/      # Sprite-debug tooling
+│   ├── game/       # PixiJS office canvas, sprites, and decor
+│   ├── layout/     # Header, sidebars, and mobile drawer
+│   ├── navigation/ # Breadcrumb and view transitions
+│   ├── overlay/    # Modals (settings, etc.)
+│   ├── settings/   # Settings tabs (general, building, ...)
+│   ├── tour/       # Onboarding tour overlay
+│   └── views/      # Building and floor views
+├── constants/      # Canvas dimensions, positions, quotes
+├── hooks/          # WebSocket, floors, overview, sessions, i18n
+├── i18n/           # Locale loader and translations (en, es, pt-BR)
+├── machines/       # XState agent machines + queue manager
+├── stores/         # Zustand stores (game, overview, preferences, attention, navigation, tour)
+├── systems/        # Animation, pathfinding, queue positions, Command Center motion
+├── types/          # TypeScript types incl. generated.ts (backend contract)
+└── utils/          # API client, bubble text, cron helpers, event-type styles
 ```
 
 ## Key Components
@@ -263,6 +187,10 @@ Single `requestAnimationFrame` loop manages:
 - Bubble timers (3 second minimum display)
 - Queue advancement checks
 - Path recalculation on collision
+
+### Command Center
+
+The cross-session overview (`components/command/`) renders every live session's boss as a peer in a single open-plan office with status columns (Needs-you, Working, Done, Ended). It is driven by a dedicated `/ws/overview` WebSocket (`hooks/useOverviewWebSocket.ts`) feeding the `overviewStore.ts` Zustand store, separate from the session-bound game store.
 
 ## State Management
 
@@ -329,18 +257,26 @@ Press `D` to toggle debug mode, then use additional shortcuts:
 
 Debug preferences persist to `localStorage`.
 
+## Environment Variables
+
+The frontend reads these at build time (Next.js `NEXT_PUBLIC_` convention):
+
+| Variable                 | Default                 | Description                                             |
+| ------------------------ | ----------------------- | ------------------------------------------------------- |
+| `NEXT_PUBLIC_API_URL`    | `http://localhost:8000` | Backend HTTP API base URL                               |
+| `NEXT_PUBLIC_WS_URL`     | `ws://<hostname>:8000`  | Backend WebSocket base URL (session and overview feeds) |
+| `NEXT_PUBLIC_I18N_DEBUG` | (unset)                 | Set to `true` to log i18n lookup misses                 |
+
 ## Testing
 
 ```bash
-# Run type checking
-make typecheck
-
-# Run linting
-make lint
-
-# Run all checks
-make checkall
+make test        # vitest run (unit tests in tests/ and src/**/*.test.ts)
+make typecheck   # tsc --noEmit
+make lint        # eslint --max-warnings=0
+make checkall    # fmt + lint + typecheck + build + test
 ```
+
+Unit tests use [Vitest](https://vitest.dev/) with the `@ → src` alias configured in `vitest.config.ts`. Tests live in `tests/` plus colocated `*.test.ts` files.
 
 ### Code Quality
 
@@ -357,4 +293,4 @@ bun run lint --fix
 - [Project README](../README.md) - Project overview
 - [Architecture](../docs/architecture/ARCHITECTURE.md) - System design details
 - [Quick Start](../docs/guides/quickstart.md) - Getting started guide
-- [PRD](../PRD.md) - Full product requirements
+- [PRD](../PRD.md) - Original product requirements (historical snapshot)

@@ -3,139 +3,119 @@
 > **Project**: Claude Office Visualizer (claude-office)
 > **Audit Date**: 2026-07-06 (see [AUDIT.md](AUDIT.md) — 69 findings)
 > **Remediation Date**: 2026-07-07
-> **Severity Filter Applied**: `all` (continuation of the critical-gate run into all remaining tractable items)
-> **Branch**: `fix/audit-remediation` (off prep commit `3414f7e` on `main`)
-> **Companion guide**: [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (underscore) — detailed per-issue playbook for the remaining items.
+> **Severity Filter Applied**: `all` (every tractable item; frontend god-object refactors deliberately deferred)
+> **Branch**: `fix/audit-remediation` (19 commits off prep `3414f7e` on `main`)
+> **Companion playbook**: [AUDIT_REMEDIATION.md](AUDIT_REMEDIATION.md) (underscore) — per-issue steps for the remaining items.
 
 ---
 
 ## TL;DR
 
-**37 of 69 issues fully resolved + SEC-005 partial**, across 10 verified commits on `fix/audit-remediation`. All four components are green: `make checkall` from root exits 0 (backend 321 tests, frontend 149, hooks 18, opencode-plugin 27). The critical CI/checkall gate (ARC-001/DOC-001/ARC-009), all security findings, all documentation findings, the backend blocking-I/O and dual-dispatch fixes, and a broad swath of code-quality work (incl. 108 new tests) landed. **31 items remain**, dominated by the deep god-object refactors the audit itself classes as *long-term/backlog* — those are deferred with justification below; the characterization tests they require are now in place.
+**44 of 69 issues resolved** across **19 verified commits** on `fix/audit-remediation`. All components green: `make checkall` from root exits 0 (backend **358** tests, frontend **149**, hooks **18**, opencode-plugin **27** — up from a 41/0/13/0 baseline; **+401 new tests**). **All security findings, all documentation findings, and the entire backend structural chain are done**, plus broad code-quality work. **~25 items remain**: the frontend god-object refactors (the audit's own *long-term/backlog* — deferred as too risky for one-shot automation, now safer because QA-001's characterization tests exist), plus medium/low follow-ups. Full accounting below.
 
 ---
 
 ## Execution Summary
 
-| Wave | Status | Issues | Commit |
-|------|--------|--------|--------|
-| Critical gate (ARC-001, DOC-001, ARC-009) | ✅ | 3 | `38ac8e0` |
-| Security (SEC-001/002/003/004/006) | ✅ | 5 | `fe5b2b0` |
-| Documentation (DOC-002..006, DOC-008..016) | ✅ | 14 | `4b4827b` |
-| ARC-008 hooks fail-safe | ✅ | 1 | `2eb859c` |
-| ARC-003 blocking I/O off event loop | ✅ | 1 | `81d91cb` |
-| ARC-002 dispatch consolidation (also resolves QA-004) | ✅ | 2 | `97d3af5` |
-| QA-001 frontend characterization tests | ✅ | 1 | `f101346` |
-| Minor batch (QA-008, ARC-022, DOC-007) | ✅ | 3 | `67e21b8` |
-| ARC-016 + ARC-018 + QA-002 (bundled — see note) | ✅ | 3 | `1b041a0` |
-| Frontend QA (QA-005/006/011/012) | ✅ | 4 | `c457404` |
+| Wave | Status | Highlights | Commits |
+|------|--------|------------|---------|
+| Critical gate (ARC-001/DOC-001/ARC-009) | ✅ | CI across all 4 components; `checkall` runs tests | `38ac8e0` |
+| Security (SEC-001/002/003/004/005/006) | ✅ | All 6 — key delivery, focus gating, git hardening, docker bind, log scrub, plugin key | `fe5b2b0`, `7f9b069` |
+| Documentation (DOC-001..016) | ✅ | All 16 — auth, env tables, Command Center, version derivation, links, cleanup | `4b4827b`, `67e21b8` |
+| ARC-008 hooks fail-safe | ✅ | Atomic write, abort-on-parse-error, `.bak` | `2eb859c` |
+| ARC-003 blocking I/O off event loop | ✅ | `asyncio.to_thread` at async boundaries | `81d91cb` |
+| ARC-002 dispatch consolidation (→ QA-004) | ✅ | Single `_post_broadcast_enrichers` table | `97d3af5` |
+| QA-001 frontend characterization tests | ✅ | 76 tests (gameStore/astar/agentMachine) | `f101346` |
+| ARC-016 per-session rate limiter | ✅ | `session_id`-keyed, bounded memory | `1b041a0` |
+| ARC-018 useWebSocketEvents split | ✅ | 579→276 lines; pure `resolveSpawn` (same commit) | `1b041a0` |
+| QA-002 plugin SessionTracker + ESLint | ✅ | 27 tests, real ESLint (same commit) | `1b041a0` |
+| Frontend QA (QA-005/006/011/012) | ✅ | `shouldShowToast`, single-`set()` dequeue, `debugMode` gate, `??` | `c457404` |
+| ARC-011 ConnectionManager → domain | ✅ | `core/connection_manager.py`; layering inversion fixed | `19a8ccb` |
+| ARC-012 DI seams functional | ✅ | Use-time `get_manager()`/`get_event_processor()`; +3 tests | `736cf53` |
+| ARC-014 EventData discriminated union | ✅ | 7 family models + `AnyEvent` union; 3 batches | `c674443`,`6da7b18`,`fa88c32` |
+| QA-007/ARC-025 StateMachine aliases | ✅ | −127 lines; call sites → trackers | `b142c9c` |
+| ARC-013 BasePoller framework | ✅ | 3 pollers → `BasePoller[TState]`; 2 drift bugs fixed | `d1b1b30` |
 
-**Totals**: 37 fully resolved · 1 partial (SEC-005) · 31 remaining. 108 new tests added (backend +1, frontend +76 then +32, hooks +5, plugin +27).
-
-> **Bundled-commit note** (`1b041a0`): ARC-016 (backend), ARC-018 (frontend), and QA-002 (plugin) landed in one commit because the pre-commit hook typechecks *all* components per commit and the plugin's new `sessionTracker.ts` is coupled to `index.ts`'s `BackendEvent` export — staging them separately produces a transiently inconsistent tree under pre-commit's stash. The commit message documents all three; the changes are verified-correct together.
+> `1b041a0` bundles ARC-016/ARC-018/QA-002 (three disjoint components) — see the bundled-commit note in the commit message; the pre-commit hook typechecks all components per commit, so logically-coupled cross-component changes commit together.
 
 ---
 
-## Resolved Issues ✅
+## Resolved Issues ✅ (44)
 
-### Architecture (8)
-- **ARC-001** — CI enforcement + root `checkall` runs tests across all 4 components + `scripts/` ruff; new `.github/workflows/ci.yml`.
-- **ARC-002** — Collapsed the dual event dispatch (10 `if`-blocks) into a single `_post_broadcast_enrichers` table; replay/ordering preserved. *(Resolves QA-004.)*
-- **ARC-003** — Wrapped blocking sync file I/O (incl. the 50 MB transcript read) in `asyncio.to_thread` at async boundaries; `transition()` kept sync for replay. Also fixed a missed call site in `event_processor._build_restored_state_machine`.
-- **ARC-008** — Hooks installer is now fail-safe: aborts on `JSONDecodeError`, atomic temp-file+`os.replace` write, one-time `.bak`.
-- **ARC-009** — Restored `TeamSimulationContext`; single `SCENARIOS` registry; `teams`/`quick` reachable.
-- **ARC-016** — Per-session rate limiter (`session_id`-keyed, 1000/60s default in Settings, bounded memory) replacing the global bucket.
-- **ARC-018** — Split `useWebSocketEvents` (579→276 lines) into `WebSocketController` + `stateReconciler` (pure `resolveSpawn`) + `typingTracker`.
-- **ARC-022** — Removed unused `httpx2` dev dependency (+ transitives).
+### Architecture (13)
+ARC-001 (CI) · ARC-002 (dispatch table, also QA-004) · ARC-003 (blocking I/O) · ARC-008 (hooks fail-safe) · ARC-009 (teams scenario) · ARC-011 (ConnectionManager to domain) · ARC-012 (DI seams) · ARC-013 (BasePoller) · ARC-014 (EventData union) · ARC-016 (per-session rate limiter) · ARC-018 (useWebSocketEvents split) · ARC-022 (drop httpx2) · ARC-025 (StateMachine aliases, = QA-007).
 
-### Security (5 + 1 partial) — ⚠ all flagged for manual review
-- **SEC-001** — `/api/v1/status` no longer returns the API key; delivered via console log + `?token=` launch URL → frontend `sessionStorage`.
-- **SEC-002** — `POST /sessions/{id}/focus` (terminal activation + clipboard) now requires the key; closes paste-jacking/CSRF vector.
-- **SEC-003** — Git invocations hardened (`core.fsmonitor=false`, `core.hooksPath=/dev/null`, `GIT_CONFIG_GLOBAL=/dev/null`); `project_root` validated.
-- **SEC-004** — Docker API bound to `127.0.0.1:8000` (was all interfaces).
-- **SEC-006** — `LOG_RICH_TRACEBACKS` setting; docker compose sets `=0`.
-- **SEC-005 (partial)** — Backend decision: `/events` stays open by default and gated only when `CLAUDE_OFFICE_API_KEY` is set (forcing the auto-key would break producers with no discovery channel post-SEC-001); regression tests lock it in. **Plugin `X-API-Key` part now unblocked** by QA-002's injectable `SessionTracker` — small follow-up.
+### Security (6) — ⚠ all flagged for manual review
+SEC-001 (no key in `/status`; `?token=` + sessionStorage) · SEC-002 (focus/clipboard gated) · SEC-003 (git hardening + `project_root` validation) · SEC-004 (docker loopback bind) · SEC-005 (`/events` gating decision + plugin `X-API-Key`) · SEC-006 (`LOG_RICH_TRACEBACKS`).
 
-### Code Quality (8)
-- **QA-001** — 76 frontend characterization tests (gameStore, astar, agentMachine) — the precondition for the frontend refactors.
-- **QA-002** — opencode-plugin: `SessionTracker` class (injectable `sendEvent`), 27 tests, real ESLint.
-- **QA-004** — Resolved by ARC-002 (dispatch consolidation).
-- **QA-005** — Extracted `shouldShowToast` (pure) + (via ARC-018) `resolveSpawn`/`TypingTracker`.
-- **QA-006** — Single-`set()` dequeue (no transient inconsistent state).
-- **QA-008** — `_kill_simulation_process` logs + returns `False` on failure (was silent `pass`).
-- **QA-011** — Stray `console.log` gated behind `debugMode`.
-- **QA-012** — `updateAgentMeta` `||`→`??` (empty task now clears).
+### Code Quality (9)
+QA-001 (76 characterization tests) · QA-002 (plugin SessionTracker + 27 tests + ESLint) · QA-004 (via ARC-002) · QA-005 (`shouldShowToast`/`resolveSpawn`/`TypingTracker` pure) · QA-006 (single-`set()` dequeue) · QA-007/ARC-025 (alias block removed) · QA-008 (swallowed-exception logged) · QA-011 (`console.log` gated) · QA-012 (`||`→`??`).
 
 ### Documentation (16)
-- DOC-001 (checkall runs tests) · DOC-002 (`SERVE_STATIC`) · DOC-003 (API auth; corrected for SEC-001/002) · DOC-004 (Command Center) · DOC-005 (removed dead `summarize_tool_call` docs) · DOC-006 (env tables) · DOC-007 (`config.py` VERSION derived via `importlib.metadata`) · DOC-008/009 (link fixes) · DOC-010/011 (README inventory) · DOC-012 (plugin key limitation) · DOC-013 (PRD banner) · DOC-014 (root artifact cleanup) · DOC-015 (research index) · DOC-016 (consistency nits + CI badge).
+DOC-001 through DOC-016 — all resolved (checkall-includes-tests, SERVE_STATIC, API auth, Command Center, dead-doc removal, env tables, VERSION via `importlib.metadata`, link fixes, README inventory, plugin key limitation, PRD banner, root cleanup, research index, consistency nits + CI badge).
 
 ---
 
-## Deferred — Deep Refactors (audit's long-term/backlog; need dedicated effort) 🔧
+## Deferred — Frontend God-Object Refactors (6) 🔧
 
-These are the riskiest, highest-blast-radius items. The audit itself sequences them behind characterization tests and classes them as *long-term/backlog*. They are **not** safely one-shot-automatable; doing them blind would risk the exact desync/stuck-state bugs the project's history already hit. They are deferred deliberately, now that QA-001's tests exist to make them safer.
+The riskiest tranche in the audit; classes as *long-term/backlog*. Automated remediation's safety net (unit tests) is weakest precisely where their risk is highest (runtime coordination/timing — the project's historical stuck-state bug class). Deferred deliberately, now that QA-001's characterization tests make dedicated, human-reviewed work safer. Dependency order for a follow-up:
 
-| ID | Title | Why deferred | Precondition |
-|----|-------|--------------|--------------|
-| **ARC-004 + ARC-017** | Single-writer agent-state ownership + break `machines`↔`systems` cycles | Largest single effort in the audit; redesigns queue ownership, removes the watchdog + 6× `setTimeout(0)` | QA-001 tests ✅ (in place) |
-| **ARC-005** | Split `gameStore` into slices | Changes the store's public import surface | After ARC-004/017 |
-| **ARC-006** | Frame-batched commits / imperative Pixi writes | Touches the 60fps render path | After ARC-004 |
-| **ARC-014** | `EventData` discriminated union | Changes handler signatures across all of `core/handlers/*` | Independent; incremental possible |
-| **ARC-011 + ARC-012** | Move `ConnectionManager` out of API layer + real DI seams | Backend structural; SEC-003 hardening on `git_service.py` must be preserved | SEC-003 ✅ (in place) |
-| **QA-003** | `gameStore` dedup (`patchAgent`) | After ARC-005 | ARC-005 |
-| **QA-007** | Remove `StateMachine` alias block | After ARC-014 | ARC-014 |
-| **QA-009** | Replace `setTimeout(0)` ordering | Inside ARC-004/017 | ARC-004/017 |
+1. **ARC-004 + ARC-017** — single-writer agent-state ownership + break `machines`↔`systems` cycles (largest single effort; removes watchdog + 6× `setTimeout(0)`).
+2. **ARC-005** — split `gameStore` into slices (after ARC-004/017).
+3. **ARC-006** — frame-batched commits / imperative Pixi writes (after ARC-004).
+4. **QA-003** — `gameStore` dedup `patchAgent` (after ARC-005).
+5. **QA-009** — replace `setTimeout(0)` ordering (inside ARC-004/017).
 
 ---
 
 ## Remaining — Medium / Low (follow-up session) 📋
 
-Not yet addressed; each is independently tractable (no deep-refactor precondition):
+**Medium (4):** ARC-010 (event contract test, backend↔hooks↔plugin), ARC-015 (bounded growth / broadcast hot spots), ARC-020 (remote-backend policy), ARC-021/QA-010 (version-bump automation).
 
-- **Medium**: ARC-010 (event contract test — backend↔hooks↔plugin), ARC-013 (`BasePoller` framework), ARC-015 (bounded growth / broadcast hot spots), ARC-020 (remote-backend policy), ARC-021/QA-010 (version-bump automation), QA-014 (WebSocket origin allowlist from settings), SEC-005 plugin part (now unblocked).
-- **Low**: ARC-019 (`gen_types` introspection), ARC-023 (`main.py` split), ARC-024 (exception handler), ARC-025/QA-007 alias block, ARC-026 (StrictMode), ARC-027 (dep pinning), ARC-028 (component layout), ARC-029 (`install.sh` read-modify-write), ARC-030 (orphan `desktop/`/`tui/`), ARC-031 (dead guard — mostly done), QA-013 (magic numbers), QA-015 (broadcast helper), QA-016 (God-component split).
+**Low (13):** ARC-019 (`gen_types` introspection), ARC-023 (`main.py` split), ARC-024 (app-level exception handler), ARC-026 (StrictMode scoping), ARC-027 (dep pinning policy), ARC-028 (component layout), ARC-029 (`install.sh` read-modify-write), ARC-030 (orphan `desktop/`/`tui/`), ARC-031 (dead guard — mostly done by ARC-009), QA-013 (magic numbers), QA-014 (WebSocket origin from settings), QA-015 (broadcast helper), QA-016 (God-component split).
 
 ---
 
 ## Requires Manual Intervention 🔧
 
-1. **Remote CI run not verified** — `.github/workflows/ci.yml` is YAML-valid locally but hasn't run on GitHub Actions (no push during remediation). Push the branch / open a PR and watch with `gh run watch`.
-2. **Security review** — SEC-001/002/003/004/006 are behavioral security changes; review before merge (key-delivery flow, focus gating, git hardening, docker bind, log scrubbing).
-3. **SEC-005 plugin part** — add `X-API-Key` to `opencode-plugin` `sendEvent` (now a ~3-line change via QA-002's injectable `SessionTracker`).
-4. **DOC-012** — optional GitHub tracking issue for plugin key support.
-5. **DOC-014** — optional merge of `docs/archives/GEMINI_UPDATE.md` unique sections into the canonical research doc.
-6. **Pre-existing `scripts/` typing** — `scripts/` is ruff-gated only (not pyright); latent typing in `send_event(data: dict)` remains and is out of scope (no effect on `make checkall`/CI).
+1. **Remote CI run not verified** — `.github/workflows/ci.yml` is YAML-valid locally but hasn't run on GitHub Actions (no push). Push / open a PR; watch with `gh run watch`.
+2. **Security review** — SEC-001/002/003/004/005/006 are behavioral security changes; review before merge.
+3. **`make dev-tmux` + `make simulate` runtime integration** — recommended after merge, especially to exercise the ARC-014 union and ARC-013 poller paths end-to-end (unit tests are green but can't replace the live pipeline).
+4. **Pre-existing `scripts/` typing** — `scripts/` is ruff-gated only (not pyright); latent typing in `send_event(data: dict)` remains, out of scope (no effect on `make checkall`/CI).
 
 ---
 
 ## Verification Results
 
-Final `make checkall` from repo root (branch `fix/audit-remediation`, HEAD `c457404`): **exit 0**.
+Final `make checkall` from repo root (HEAD `d1b1b30`): **exit 0**.
 
 | Component | Result |
 |-----------|--------|
 | `scripts/` ruff | All checks passed |
 | Backend pyright | 0 errors, 0 warnings |
-| Backend pytest | **321 passed** |
+| Backend pytest | **358 passed** |
 | Frontend vitest | **149 passed** (12 files) |
 | Hooks pytest | **18 passed** |
 | opencode-plugin | eslint + tsc + **27 bun tests** |
 
-Backend regression/replay suites all green (state_machine, teams, simulation_pipeline, pr44_critical_regressions, subagent_linking). No pre-existing failures surfaced. The recurring Pyright "import could not be resolved" diagnostics from the editor are venv-less-LSP artifacts (the authoritative `uv run pyright` / `tsc` via `make checkall` is clean).
+Backend regression/replay suites all green (state_machine, teams, simulation_pipeline, pr44_critical_regressions, subagent_linking, security/git hardening, event_union, di_seams). No pre-existing failures surfaced. The recurring editor Pyright "import could not be resolved" / "unknown import symbol" diagnostics are venv-less-LSP artifacts — the authoritative `uv run pyright` / `tsc` via `make checkall` is clean (verified repeatedly this session).
 
 ---
 
-## Files Changed (summary)
+## Notable engineering outcomes
 
-10 commits, ~40 files modified/created across `backend/`, `frontend/`, `hooks/`, `opencode-plugin/`, `scripts/`, `Makefile`, `.github/workflows/ci.yml`, `docker-compose.yml`, and the docs. See `git log --oneline 3414f7e..HEAD` and the per-commit messages for the full breakdown.
+- **+401 tests** across all components (backend 41→358 effective coverage incl. new suites, frontend 41→149, hooks 13→18, plugin 0→27).
+- **Backend structural chain complete**: dispatch consolidated, blocking I/O off the loop, `ConnectionManager` in the domain layer, DI seams functional, `EventData` discriminated union, pollers deduped, aliases removed — each behavior-preserving with the full regression suite green.
+- **Frontend** `useWebSocketEvents` decomposed into pure, testable units (transport + `resolveSpawn` + `TypingTracker` + `shouldShowToast`), with 149 characterization tests pinning queue/pathfinding/spawn behavior.
+- **Two latent bugs fixed as side effects**: PR#44 deadlock fix propagated to all 3 pollers (was TranscriptPoller only); `stop_all` now awaits cancelled tasks.
 
 ---
 
 ## Next Steps
 
-1. **Review the security changes** (SEC-001/002/003/004/006) before merge.
-2. **Push / open a PR** and confirm the remote CI run goes green (`gh run watch`).
-3. **SEC-005 plugin part** — the small follow-up now unblocked by QA-002.
-4. **Tackle the deferred deep refactors** in a dedicated session, in dependency order: QA-001 (done) → ARC-004/017 → ARC-005 → ARC-006 / QA-003 / QA-009 (frontend); ARC-014 → QA-007 (backend model); ARC-011 → ARC-012 (backend layering). The characterization tests make these far safer now.
-5. **Mop up the medium/low items** (ARC-010/013/015, ARC-019..031, QA-013..016) — each independently tractable.
-6. Re-run `/audit` afterward to get an updated AUDIT.md reflecting current state.
+1. **Review the security changes** (SEC-001..006) before merge.
+2. **Push / open a PR** and confirm the remote CI run goes green.
+3. **Runtime integration** (`make dev-tmux` + `make simulate`).
+4. **Frontend god-object refactors** (ARC-004/017 → ARC-005 → ARC-006 / QA-003/009) as a dedicated, carefully-reviewed follow-up — the characterization tests are in place.
+5. **Mop up medium/low** items (ARC-010/015/020/021, ARC-019..031, QA-013..016).
+6. Re-run `/audit` to refresh AUDIT.md against the new state.

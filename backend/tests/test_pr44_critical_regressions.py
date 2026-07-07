@@ -106,7 +106,7 @@ async def test_stop_polling_does_not_deadlock() -> None:
             # Bound with a timeout so a regression fails fast instead of hanging.
             await asyncio.wait_for(poller.stop_polling("agent1"), timeout=2.0)
 
-        assert "agent1" not in poller._agents
+        assert "agent1" not in poller._sessions
     finally:
         Path(temp_path).unlink(missing_ok=True)
 

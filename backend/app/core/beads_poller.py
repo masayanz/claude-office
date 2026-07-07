@@ -17,11 +17,9 @@ Configuration:
 """
 
 import asyncio
-import contextlib
 import hashlib
 import json
 import logging
-import os
 import subprocess
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -29,22 +27,13 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
+from app.config import get_settings
+from app.core.base_poller import BasePoller
 from app.models.common import TodoItem, TodoStatus
 
 logger = logging.getLogger(__name__)
 
-# Configurable via environment variable
-DEFAULT_POLL_INTERVAL_SECONDS = 3.0
 INACTIVITY_TIMEOUT = timedelta(minutes=60)
-
-
-def _get_poll_interval() -> float:
-    """Get polling interval from environment or use default."""
-    try:
-        val = os.environ.get("BEADS_POLL_INTERVAL", str(DEFAULT_POLL_INTERVAL_SECONDS))
-        return float(val)
-    except ValueError:
-        return DEFAULT_POLL_INTERVAL_SECONDS
 
 
 _BEADS_STATUS_MAP: dict[str, TodoStatus] = {
@@ -164,77 +153,42 @@ class BeadsState:
     project_root: str
     last_hash: str = ""
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
-    poll_task: asyncio.Task[None] | None = None
     has_seen_success: bool = False  # Track if we've ever had a successful query
 
 
-class BeadsPoller:
+class BeadsPoller(BasePoller[BeadsState]):
     """Polls beads issue tracker and converts issues to TodoItems."""
+
+    def _get_poll_interval(self) -> float:
+        # Read interval from Settings so the knob is validated centrally and
+        # discoverable in one place (ARC-013: previously read raw os.environ).
+        return get_settings().BEADS_POLL_INTERVAL
 
     def __init__(
         self,
         todo_callback: Callable[[str, list[TodoItem]], Coroutine[Any, Any, None]],
     ) -> None:
-        self._sessions: dict[str, BeadsState] = {}
-        self._lock = asyncio.Lock()
+        super().__init__()
         self._todo_callback = todo_callback
 
     async def start_polling(self, session_id: str, project_root: str) -> None:
         """Start polling beads for a session."""
-        async with self._lock:
-            if session_id in self._sessions:
-                return
+        state = BeadsState(session_id=session_id, project_root=project_root)
+        await self._register_polling(session_id, state, task_name=f"beads_poll_{session_id}")
+        logger.info(f"Started beads polling for session {session_id} at {project_root}")
 
-            state = BeadsState(session_id=session_id, project_root=project_root)
-            self._sessions[session_id] = state
-            state.poll_task = asyncio.create_task(
-                self._poll_loop(session_id), name=f"beads_poll_{session_id}"
-            )
-            logger.info(f"Started beads polling for session {session_id} at {project_root}")
+    async def _check(self, key: str, state: BeadsState) -> None:
+        """Run bd query and dispatch todos on change.
 
-    async def is_polling(self, session_id: str) -> bool:
-        async with self._lock:
-            return session_id in self._sessions
-
-    async def stop_polling(self, session_id: str) -> None:
-        async with self._lock:
-            state = self._sessions.pop(session_id, None)
-            if state and state.poll_task:
-                state.poll_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await state.poll_task
-                logger.info(f"Stopped beads polling for session {session_id}")
-
-    async def stop_all(self) -> None:
-        async with self._lock:
-            for state in list(self._sessions.values()):
-                if state.poll_task:
-                    state.poll_task.cancel()
-            self._sessions.clear()
-
-    async def _poll_loop(self, session_id: str) -> None:
-        try:
-            await self._check_for_changes(session_id)
-            while True:
-                async with self._lock:
-                    state = self._sessions.get(session_id)
-                    if not state:
-                        return
-                    if datetime.now(UTC) - state.last_activity > INACTIVITY_TIMEOUT:
-                        logger.debug(f"Beads polling for {session_id} timed out")
-                        return
-                await asyncio.sleep(_get_poll_interval())
-                await self._check_for_changes(session_id)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:
-            logger.exception(f"Error in beads poll loop for {session_id}: {e}")
-
-    async def _check_for_changes(self, session_id: str) -> None:
-        async with self._lock:
-            state = self._sessions.get(session_id)
-            if not state:
-                return
+        On inactivity timeout, removes the state from the registry so the
+        loop exits cleanly.
+        """
+        # Check for inactivity timeout (was in the hand-rolled loop pre-ARC-013).
+        if datetime.now(UTC) - state.last_activity > INACTIVITY_TIMEOUT:
+            logger.debug(f"Beads polling for {key} timed out")
+            async with self._lock:
+                self._sessions.pop(key, None)
+            return
 
         # Run bd query in a thread to avoid blocking the event loop
         loop = asyncio.get_event_loop()
@@ -244,11 +198,11 @@ class BeadsPoller:
         if not result.success:
             if not state.has_seen_success:
                 logger.warning(
-                    f"Beads query failed for session {session_id}: {result.error} "
+                    f"Beads query failed for session {key}: {result.error} "
                     f"(subsequent failures will be logged at DEBUG level)"
                 )
             else:
-                logger.debug(f"Beads query failed for session {session_id}: {result.error}")
+                logger.debug(f"Beads query failed for session {key}: {result.error}")
             return
 
         state.has_seen_success = True
@@ -262,14 +216,12 @@ class BeadsPoller:
         state.last_activity = datetime.now(UTC)
 
         todos = [_convert_issue_to_todo(issue) for issue in result.issues if issue.get("title")]
-        logger.debug(
-            f"Beads update for {session_id}: {len(result.issues)} issues → {len(todos)} todos"
-        )
+        logger.debug(f"Beads update for {key}: {len(result.issues)} issues → {len(todos)} todos")
 
         try:
-            await self._todo_callback(session_id, todos)
+            await self._todo_callback(key, todos)
         except Exception as e:
-            logger.warning(f"Error in beads callback for {session_id}: {e}")
+            logger.warning(f"Error in beads callback for {key}: {e}")
 
 
 _beads_poller: BeadsPoller | None = None

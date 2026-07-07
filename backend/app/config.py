@@ -37,6 +37,12 @@ class Settings(BaseSettings):
     DATABASE_URL: str = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
     GIT_POLL_INTERVAL: int = 5
 
+    # Beads issue-tracker poll interval (ARC-013). Reads from the same
+    # BEADS_POLL_INTERVAL env var the previous os.environ-based helper did,
+    # so existing deployments keep working — now routed through Settings for
+    # consistent validation/discovery.
+    BEADS_POLL_INTERVAL: float = 3.0
+
     # Max events accepted per session_id per 60s sliding window (ARC-016).
     # Keyed per-session so one busy Claude Code session cannot starve another;
     # the previous global 300/60s default throttled the wrong dimension.

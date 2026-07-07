@@ -248,7 +248,7 @@ class TestTranscriptPoller:
                 await poller.stop_all()
 
             # Both should be stopped - check internal state is empty
-            assert len(poller._agents) == 0
+            assert len(poller._sessions) == 0
         finally:
             Path(path1).unlink(missing_ok=True)
             Path(path2).unlink(missing_ok=True)

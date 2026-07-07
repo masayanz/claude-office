@@ -1,7 +1,6 @@
 """Poll subagent transcript files for tool use events in real-time."""
 
 import asyncio
-import contextlib
 import json
 import logging
 from dataclasses import dataclass, field
@@ -10,6 +9,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.config import get_settings
+from app.core.base_poller import BasePoller
 from app.core.path_utils import is_safe_transcript_path
 from app.models.common import BubbleContent, BubbleType
 from app.models.events import (
@@ -45,143 +45,103 @@ class PolledAgent:
     file_position: int = 0
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
     active_tool_ids: set[str] = field(default_factory=lambda: set[str]())
-    poll_task: asyncio.Task[None] | None = None
     last_thinking_hash: int = 0
     last_text_hash: int = 0
 
 
-class TranscriptPoller:
-    """Polls subagent transcript files for tool use events."""
+class TranscriptPoller(BasePoller[PolledAgent]):
+    """Polls subagent transcript files for tool use events.
+
+    Registry key is ``agent_id`` (one poll task per subagent transcript);
+    the owning session id lives on :class:`PolledAgent`.
+    """
+
+    def _get_poll_interval(self) -> float:
+        # Read live so test patches to POLL_INTERVAL_SECONDS apply.
+        return POLL_INTERVAL_SECONDS
 
     def __init__(self, event_callback: Any) -> None:
         """Initialize the poller with an event callback function."""
-        self._agents: dict[str, PolledAgent] = {}
-        self._lock = asyncio.Lock()
+        super().__init__()
         self._event_callback = event_callback
 
     async def start_polling(self, agent_id: str, session_id: str, transcript_path: str) -> None:
         """Start polling a subagent's transcript file."""
         settings = get_settings()
         translated_path = settings.translate_path(transcript_path)
-        path = Path(translated_path).expanduser()
+        path = Path(transcript_path).expanduser()
 
         if not is_safe_transcript_path(path):
             logger.warning(f"Rejected transcript path outside ~/.claude/: {translated_path}")
             return
 
-        async with self._lock:
-            if agent_id in self._agents:
-                logger.debug(f"Already polling agent {agent_id}")
-                return
+        # Start at end of file if it exists
+        agent = PolledAgent(
+            agent_id=agent_id,
+            session_id=session_id,
+            transcript_path=path,
+        )
+        if path.exists():
+            agent.file_position = path.stat().st_size
 
-            agent = PolledAgent(
-                agent_id=agent_id,
-                session_id=session_id,
-                transcript_path=path,
+        await self._register_polling(agent_id, agent, task_name=f"poll_{agent_id}")
+        logger.info(f"Started polling agent {agent_id} at {transcript_path}")
+
+    async def _check(self, key: str, state: PolledAgent) -> None:
+        """Poll one iteration: zombie check, inactivity check, content read.
+
+        On zombie detection, emits a synthetic SUBAGENT_STOP and removes the
+        state so the loop terminates — guaranteeing the synthetic event is
+        dispatched exactly once even if the state machine's cleanup path
+        never calls ``stop_polling``.
+
+        On hard inactivity timeout, removes the state so the loop terminates.
+        """
+        inactivity = datetime.now(UTC) - state.last_activity
+        zombie_timeout = _zombie_timeout()
+
+        # Zombie detection: emit a synthetic SubagentStop so the
+        # state machine can clean up the orphaned agent. This
+        # covers cases where Claude Code never sends SubagentStop
+        # itself (rate-limit, crash, user interrupt, ...).
+        if inactivity > zombie_timeout:
+            zombie_event = self._build_zombie_stop_event(state)
+            logger.warning(
+                f"Agent {key} appears to be a zombie "
+                f"(no transcript activity for "
+                f"{inactivity.total_seconds():.0f}s, "
+                f"threshold {zombie_timeout.total_seconds():.0f}s) "
+                f"— emitting synthetic SubagentStop on session {state.session_id}"
             )
-
-            # Start at end of file if it exists
-            if path.exists():
-                agent.file_position = path.stat().st_size
-
-            self._agents[agent_id] = agent
-
-            agent.poll_task = asyncio.create_task(
-                self._poll_loop(agent_id), name=f"poll_{agent_id}"
-            )
-
-            logger.info(f"Started polling agent {agent_id} at {transcript_path}")
-
-    async def is_polling(self, agent_id: str) -> bool:
-        """Check if polling is active for an agent."""
-        async with self._lock:
-            return agent_id in self._agents
-
-    async def stop_polling(self, agent_id: str) -> None:
-        """Stop polling a subagent's transcript file."""
-        async with self._lock:
-            agent = self._agents.pop(agent_id, None)
-        if agent and agent.poll_task:
-            agent.poll_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await agent.poll_task
-            logger.info(f"Stopped polling agent {agent_id}")
-
-    async def stop_all(self) -> None:
-        """Stop all polling tasks."""
-        async with self._lock:
-            for agent in list(self._agents.values()):
-                if agent.poll_task:
-                    agent.poll_task.cancel()
-            self._agents.clear()
-
-    async def _poll_loop(self, agent_id: str) -> None:
-        """Background task that polls a single agent's transcript."""
-        try:
-            while True:
-                async with self._lock:
-                    agent = self._agents.get(agent_id)
-                    if not agent:
-                        return
-
-                    inactivity = datetime.now(UTC) - agent.last_activity
-                    zombie_timeout = _zombie_timeout()
-
-                    # Zombie detection: emit a synthetic SubagentStop so the
-                    # state machine can clean up the orphaned agent. This
-                    # covers cases where Claude Code never sends SubagentStop
-                    # itself (rate-limit, crash, user interrupt, ...).
-                    if inactivity > zombie_timeout:
-                        zombie_event = self._build_zombie_stop_event(agent)
-                        session_id = agent.session_id
-                        logger.warning(
-                            f"Agent {agent_id} appears to be a zombie "
-                            f"(no transcript activity for "
-                            f"{inactivity.total_seconds():.0f}s, "
-                            f"threshold {zombie_timeout.total_seconds():.0f}s) "
-                            f"— emitting synthetic SubagentStop on session {session_id}"
-                        )
-                        # Release the lock before invoking the callback to
-                        # avoid holding it across an arbitrarily long await.
-                        break
-
-                    # Hard fallback: if the zombie callback also failed for
-                    # any reason, eventually stop the loop so we do not poll
-                    # forever.
-                    if inactivity > INACTIVITY_TIMEOUT:
-                        logger.debug(f"Agent {agent_id} timed out due to inactivity")
-                        return
-
-                await asyncio.sleep(POLL_INTERVAL_SECONDS)
-
-                async with self._lock:
-                    agent = self._agents.get(agent_id)
-                    if not agent:
-                        return
-
-                events = await self._read_new_content(agent)
-
-                for event in events:
-                    try:
-                        await self._event_callback(event)
-                    except Exception as e:
-                        logger.warning(f"Error processing polled event: {e}")
-                continue
-
-            # Reached only when zombie_event was built above.
             try:
                 await self._event_callback(zombie_event)
             except Exception as e:
                 logger.warning(f"Error dispatching synthetic SubagentStop: {e}")
+            # Remove state so the loop exits and we do not keep emitting
+            # zombie events every tick. The state machine's SUBAGENT_STOP
+            # handler normally calls stop_polling(key); popping here
+            # guarantees termination even if that path fails.
+            async with self._lock:
+                self._sessions.pop(key, None)
             return
 
-        except asyncio.CancelledError:
-            logger.debug(f"Poll loop for agent {agent_id} cancelled")
-            raise
-        except Exception as e:
-            logger.exception(f"Error in poll loop for agent {agent_id}: {e}")
+        # Hard fallback: if the zombie callback also failed for
+        # any reason, eventually stop the loop so we do not poll
+        # forever.
+        if inactivity > INACTIVITY_TIMEOUT:
+            logger.debug(f"Agent {key} timed out due to inactivity")
+            async with self._lock:
+                self._sessions.pop(key, None)
+            return
 
-    def _build_zombie_stop_event(self, agent: "PolledAgent") -> AgentEvent:
+        events = await self._read_new_content(state)
+        for event in events:
+            try:
+                await self._event_callback(event)
+            except Exception as e:
+                logger.warning(f"Error processing polled event: {e}")
+
+    def _build_zombie_stop_event(self, agent: PolledAgent) -> AgentEvent:
         """Build a synthetic SUBAGENT_STOP for an agent we believe has crashed."""
         return AgentEvent(
             event_type=EventType.SUBAGENT_STOP,

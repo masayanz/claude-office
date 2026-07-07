@@ -18,7 +18,6 @@ This module polls those files and converts them to TodoItem format for display.
 """
 
 import asyncio
-import contextlib
 import json
 import logging
 from collections.abc import Callable, Coroutine
@@ -28,6 +27,7 @@ from pathlib import Path
 from typing import Any, cast
 
 from app.config import get_settings
+from app.core.base_poller import BasePoller
 from app.models.common import TodoItem, TodoStatus
 
 logger = logging.getLogger(__name__)
@@ -58,7 +58,7 @@ def _extract_metadata(data: Any) -> dict[str, Any] | None:
 def _scan_task_dir_sync(task_dir: Path) -> list[tuple[Path, float]]:
     """Sync helper: glob *.json and stat each file for its mtime.
 
-    Offloaded via ``asyncio.to_thread`` from ``_check_for_changes`` so the
+    Offloaded via ``asyncio.to_thread`` from ``_check`` so the
     synchronous glob/stat calls do not block the event loop (ARC-003).
     """
     return [(p, p.stat().st_mtime) for p in task_dir.glob("*.json")]
@@ -92,11 +92,13 @@ class TaskFileState:
     task_dir: Path
     last_modified: dict[str, float] = field(default_factory=lambda: {})
     last_activity: datetime = field(default_factory=lambda: datetime.now(UTC))
-    poll_task: asyncio.Task[None] | None = None
 
 
-class TaskFilePoller:
+class TaskFilePoller(BasePoller[TaskFileState]):
     """Polls task files for changes and converts them to TodoItems."""
+
+    def _get_poll_interval(self) -> float:
+        return POLL_INTERVAL_SECONDS
 
     def __init__(
         self,
@@ -107,8 +109,7 @@ class TaskFilePoller:
         Args:
             todo_callback: Async function called with (session_id, todos) when tasks change
         """
-        self._sessions: dict[str, TaskFileState] = {}
-        self._lock = asyncio.Lock()
+        super().__init__()
         self._todo_callback = todo_callback
 
     def _get_task_dir(self, session_id: str) -> Path:
@@ -140,85 +141,29 @@ class TaskFilePoller:
         effective_id = task_list_id or session_id
         task_dir = self._get_task_dir(effective_id)
 
-        async with self._lock:
-            if session_id in self._sessions:
-                logger.debug(f"Already polling tasks for session {session_id}")
-                return
+        state = TaskFileState(session_id=session_id, task_dir=task_dir)
+        await self._register_polling(session_id, state, task_name=f"task_poll_{session_id}")
 
-            state = TaskFileState(
-                session_id=session_id,
-                task_dir=task_dir,
+        if task_list_id:
+            logger.info(
+                f"Started task file polling for session {session_id} "
+                f"using task_list_id '{task_list_id}' at {task_dir}"
             )
+        else:
+            logger.info(f"Started task file polling for session {session_id} at {task_dir}")
 
-            self._sessions[session_id] = state
+    async def _check(self, key: str, state: TaskFileState) -> None:
+        """Check for task file changes and notify if updated.
 
-            state.poll_task = asyncio.create_task(
-                self._poll_loop(session_id), name=f"task_poll_{session_id}"
-            )
-
-            if task_list_id:
-                logger.info(
-                    f"Started task file polling for session {session_id} "
-                    f"using task_list_id '{task_list_id}' at {task_dir}"
-                )
-            else:
-                logger.info(f"Started task file polling for session {session_id} at {task_dir}")
-
-    async def is_polling(self, session_id: str) -> bool:
-        """Check if polling is active for a session."""
-        async with self._lock:
-            return session_id in self._sessions
-
-    async def stop_polling(self, session_id: str) -> None:
-        """Stop polling task files for a session."""
-        async with self._lock:
-            state = self._sessions.pop(session_id, None)
-            if state and state.poll_task:
-                state.poll_task.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await state.poll_task
-                logger.info(f"Stopped task file polling for session {session_id}")
-
-    async def stop_all(self) -> None:
-        """Stop all polling tasks."""
-        async with self._lock:
-            for state in list(self._sessions.values()):
-                if state.poll_task:
-                    state.poll_task.cancel()
-            self._sessions.clear()
-
-    async def _poll_loop(self, session_id: str) -> None:
-        """Background task that polls a session's task files."""
-        try:
-            # Initial read
-            await self._check_for_changes(session_id)
-
-            while True:
-                async with self._lock:
-                    state = self._sessions.get(session_id)
-                    if not state:
-                        return
-
-                    # Check for inactivity timeout
-                    if datetime.now(UTC) - state.last_activity > INACTIVITY_TIMEOUT:
-                        logger.debug(f"Task polling for {session_id} timed out due to inactivity")
-                        return
-
-                await asyncio.sleep(POLL_INTERVAL_SECONDS)
-                await self._check_for_changes(session_id)
-
-        except asyncio.CancelledError:
-            logger.debug(f"Task poll loop for session {session_id} cancelled")
-            raise
-        except Exception as e:
-            logger.exception(f"Error in task poll loop for session {session_id}: {e}")
-
-    async def _check_for_changes(self, session_id: str) -> None:
-        """Check for task file changes and notify if updated."""
-        async with self._lock:
-            state = self._sessions.get(session_id)
-            if not state:
-                return
+        On inactivity timeout, removes the state from the registry so the
+        loop exits cleanly.
+        """
+        # Check for inactivity timeout (was in the hand-rolled loop pre-ARC-013).
+        if datetime.now(UTC) - state.last_activity > INACTIVITY_TIMEOUT:
+            logger.debug(f"Task polling for {key} timed out due to inactivity")
+            async with self._lock:
+                self._sessions.pop(key, None)
+            return
 
         if not state.task_dir.exists():
             return
@@ -254,12 +199,12 @@ class TaskFilePoller:
 
                 # Notify callback
                 try:
-                    await self._todo_callback(session_id, todos)
+                    await self._todo_callback(key, todos)
                 except Exception as e:
-                    logger.warning(f"Error in task callback for {session_id}: {e}")
+                    logger.warning(f"Error in task callback for {key}: {e}")
 
         except OSError as e:
-            logger.warning(f"Error reading task files for {session_id}: {e}")
+            logger.warning(f"Error reading task files for {key}: {e}")
 
     async def _read_task_files(self, task_files: list[Path]) -> list[TodoItem]:
         """Read task files and convert to TodoItems."""

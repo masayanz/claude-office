@@ -13,7 +13,6 @@ from app.core.beads_poller import (
     BeadsQueryResult,
     _compute_issues_hash,  # pyright: ignore[reportPrivateUsage]
     _convert_issue_to_todo,  # pyright: ignore[reportPrivateUsage]
-    _get_poll_interval,  # pyright: ignore[reportPrivateUsage]
     has_beads,
 )
 from app.models.common import TodoItem, TodoStatus
@@ -207,31 +206,6 @@ class TestComputeIssuesHash:
         hash_val = _compute_issues_hash(issues)
         assert isinstance(hash_val, str)
         assert len(hash_val) == 64  # SHA-256 produces 64 hex chars
-
-
-class TestGetPollInterval:
-    """Tests for _get_poll_interval function."""
-
-    def test_returns_default_when_not_set(self) -> None:
-        """Test that default interval is returned when env var not set."""
-        with patch.dict("os.environ", {}, clear=True):
-            # Remove BEADS_POLL_INTERVAL if present
-            if "BEADS_POLL_INTERVAL" in __import__("os").environ:
-                del __import__("os").environ["BEADS_POLL_INTERVAL"]
-            interval = _get_poll_interval()
-            assert interval == 3.0
-
-    def test_returns_custom_value(self) -> None:
-        """Test that custom interval is returned from env var."""
-        with patch.dict("os.environ", {"BEADS_POLL_INTERVAL": "5.0"}):
-            interval = _get_poll_interval()
-            assert interval == 5.0
-
-    def test_handles_invalid_value(self) -> None:
-        """Test that invalid value falls back to default."""
-        with patch.dict("os.environ", {"BEADS_POLL_INTERVAL": "invalid"}):
-            interval = _get_poll_interval()
-            assert interval == 3.0
 
 
 class TestBeadsPoller:

@@ -39,6 +39,14 @@ const TIMEOUT_MS = Number(process.env.CLAUDE_OFFICE_TIMEOUT_MS ?? "1500");
 /** Enable debug logging to stderr (never stdout — that would interfere). */
 const DEBUG = process.env.CLAUDE_OFFICE_DEBUG === "1";
 
+/**
+ * Optional API key. When non-empty, every event POST is sent with
+ * `X-API-Key: <key>` so the backend's `ApiKeyMiddleware` accepts it
+ * (SEC-005). Empty by default — deployments that don't set an explicit
+ * backend key keep sending events exactly as before, with no header.
+ */
+const API_KEY = process.env.CLAUDE_OFFICE_API_KEY ?? "";
+
 // ---------------------------------------------------------------------------
 // Types — mirrors the backend Event model
 // ---------------------------------------------------------------------------
@@ -143,6 +151,20 @@ function truncate(s: string, max: number): string {
 }
 
 /**
+ * Build the request headers for an event POST. Attaches `X-API-Key` only
+ * when a non-empty API key is configured, so the default (no
+ * `CLAUDE_OFFICE_API_KEY`) sends exactly the pre-SEC-005 headers.
+ *
+ * Exported (and kept pure) so tests can pin the with-key / without-key
+ * behavior without touching the real fetch path.
+ */
+export function buildEventHeaders(apiKey: string = API_KEY): Record<string, string> {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (apiKey) headers["X-API-Key"] = apiKey;
+  return headers;
+}
+
+/**
  * Fire-and-forget POST to the claude-office backend.
  * Never throws — errors are swallowed (logged in DEBUG mode).
  */
@@ -155,7 +177,7 @@ async function sendEvent(event: BackendEvent): Promise<void> {
 
     const resp = await fetch(API_URL, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: buildEventHeaders(),
       body: JSON.stringify(event),
       signal: controller.signal,
     });

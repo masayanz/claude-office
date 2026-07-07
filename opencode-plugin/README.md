@@ -45,10 +45,11 @@ Configuration is via environment variables.
 | `CLAUDE_OFFICE_API_URL` | `http://localhost:8000/api/v1/events` | Backend API endpoint |
 | `CLAUDE_OFFICE_TIMEOUT_MS` | `1500` | HTTP request timeout in milliseconds |
 | `CLAUDE_OFFICE_DEBUG` | `0` | Set to `1` to log events to stderr |
+| `CLAUDE_OFFICE_API_KEY` | _(unset)_ | API key sent as `X-API-Key`. Required when the backend is started with an explicit `CLAUDE_OFFICE_API_KEY`; leave unset otherwise. |
 
 ## Known Limitations
 
-- **No API-key support.** The plugin does not send the `X-API-Key` header. If the backend is started with an explicit `CLAUDE_OFFICE_API_KEY`, every event the plugin sends is rejected with HTTP 401 and silently dropped (the plugin deliberately never surfaces transport errors). Workaround: run the backend without an explicit key when using OpenCode — the default auto-generated-key mode leaves `POST /api/v1/events` open. Key support is tracked as audit finding SEC-005.
+- **API-key support.** When `CLAUDE_OFFICE_API_KEY` is set, the plugin sends it as the `X-API-Key` header on every event POST, so deployments that configure an explicit backend key no longer lose events to silent 401s. When unset, the plugin sends no such header and behavior is unchanged (the backend's default auto-generated-key mode leaves `POST /api/v1/events` open). The plugin deliberately never surfaces transport errors — enable `CLAUDE_OFFICE_DEBUG=1` to diagnose lingering 401s.
 
 ## Event Mapping
 

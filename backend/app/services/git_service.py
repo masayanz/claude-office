@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from app.config import get_settings
-from app.core.connection_manager import manager
+from app.core.connection_manager import get_manager
 from app.models.git import ChangedFile, Commit, FileStatus, GitStatus
 
 logger = logging.getLogger(__name__)
@@ -288,13 +288,13 @@ class GitService:
                 active_ids = list(self._sessions.keys())
         if active_ids:
             for sid in active_ids:
-                await manager.broadcast(message, sid)
+                await get_manager().broadcast(message, sid)
             logger.debug(
                 f"Broadcast git status to sessions {active_ids}: "
                 f"{status.branch}, {len(status.commits)} commits"
             )
         else:
-            await manager.broadcast_all(message)
+            await get_manager().broadcast_all(message)
             logger.debug(f"Broadcast git status: {status.branch}, {len(status.commits)} commits")
 
     def configure(self, session_id: str | None = None, project_root: str | None = None) -> None:

@@ -11,8 +11,8 @@ from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.websocket import manager
-from app.core.event_processor import event_processor
+from app.core.connection_manager import get_manager
+from app.core.event_processor import get_event_processor
 from app.db.database import get_db
 from app.db.models import EventRecord, SessionRecord, TaskRecord, UserPreference
 from app.services.git_service import git_service
@@ -459,7 +459,7 @@ async def get_session_replay(
                         "id": str(rec.timestamp.timestamp()),
                         "type": rec.event_type,
                         "agentId": str(agent_id),
-                        "summary": event_processor.get_event_summary(evt),
+                        "summary": get_event_processor().get_event_summary(evt),
                         "timestamp": ts_utc.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                     },
                     "state": state.model_dump(mode="json", by_alias=True),
@@ -519,10 +519,10 @@ async def clear_database(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[s
 
         invalidate_building_config()
 
-        await event_processor.clear_all_sessions()
+        await get_event_processor().clear_all_sessions()
         git_service.clear()
 
-        await manager.broadcast_all({"type": "reload", "timestamp": ""})
+        await get_manager().broadcast_all({"type": "reload", "timestamp": ""})
 
         message = "Database and memory cleared"
         if simulation_killed:
@@ -561,10 +561,10 @@ async def delete_session(
         await db.execute(delete(SessionRecord).where(SessionRecord.id == session_id))
         await db.commit()
 
-        await event_processor.remove_session(session_id)
+        await get_event_processor().remove_session(session_id)
 
         # Broadcast session deletion to all connected clients
-        await manager.broadcast_all(
+        await get_manager().broadcast_all(
             {
                 "type": "session_deleted",
                 "session_id": session_id,

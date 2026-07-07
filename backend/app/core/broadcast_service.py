@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING, Any
 
-from app.core.connection_manager import manager
+from app.core.connection_manager import get_manager
 from app.core.state_machine import StateMachine
 from app.models.sessions import GameState, HistoryEntry
 
@@ -35,7 +35,7 @@ async def broadcast_state(session_id: str, sm: StateMachine) -> None:
         sm: The StateMachine holding current state.
     """
     game_state: GameState = sm.to_game_state(session_id)
-    await manager.broadcast(
+    await get_manager().broadcast(
         {
             "type": "state_update",
             "timestamp": game_state.last_updated.isoformat(),
@@ -60,7 +60,7 @@ async def broadcast_event(
         "timestamp": event_dict["timestamp"],
         "event": dict(event_dict),
     }
-    await manager.broadcast(payload, session_id)
+    await get_manager().broadcast(payload, session_id)
 
 
 async def broadcast_error(session_id: str, message: str, timestamp: str) -> None:
@@ -71,7 +71,7 @@ async def broadcast_error(session_id: str, message: str, timestamp: str) -> None
         message: Human-readable error description.
         timestamp: ISO-format timestamp string for the error.
     """
-    await manager.broadcast(
+    await get_manager().broadcast(
         {
             "type": "error",
             "message": message,
@@ -86,7 +86,7 @@ async def broadcast_room_state(room_id: str, orchestrator: RoomOrchestrator) -> 
     merged_state = orchestrator.merge()
     if merged_state is None:
         return
-    await manager.broadcast_room(
+    await get_manager().broadcast_room(
         {
             "type": "state_update",
             "timestamp": merged_state.last_updated.isoformat(),
@@ -112,7 +112,7 @@ async def broadcast_overview_state(
     mid-iteration. Callers must NOT already hold the lock (it is acquired here
     exactly once, so there is no re-entry / deadlock risk).
     """
-    if not manager.overview_connections:
+    if not get_manager().overview_connections:
         return
     # Local import avoids any import-order coupling at module load.
     from app.core.room_orchestrator import build_overview
@@ -122,7 +122,7 @@ async def broadcast_overview_state(
             overview = build_overview(sessions)
     else:
         overview = build_overview(sessions)
-    await manager.broadcast_overview(
+    await get_manager().broadcast_overview(
         {
             "type": "state_update",
             "timestamp": overview.last_updated.isoformat(),

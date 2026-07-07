@@ -28,7 +28,7 @@ from app.core.broadcast_service import (
     broadcast_room_state,
     broadcast_state,
 )
-from app.core.connection_manager import manager
+from app.core.connection_manager import get_manager
 from app.core.floor_config import get_cached_building_config
 from app.core.handlers import (
     enrich_agent_from_transcript,
@@ -602,7 +602,7 @@ class EventProcessor:
         flush rebuilds from ``self.sessions`` at fire time, so it always
         captures the final state of the burst (no dropped updates).
         """
-        if not manager.overview_connections:
+        if not get_manager().overview_connections:
             return
         if self._overview_flush_task is not None and not self._overview_flush_task.done():
             return

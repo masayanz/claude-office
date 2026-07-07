@@ -98,6 +98,3 @@ class AsyncSessionLocal:
             if exc_type is not None:
                 await self._session.rollback()
             await self._session.close()
-
-
-engine = _engine

@@ -524,9 +524,14 @@ class AgentMachineService {
     const hasPersistentBubble = store.boss.bubble.content?.persistent === true;
 
     if (isCompleting || hasPersistentBubble) {
-      console.log(
-        `[AgentMachineService] Skipping boss bubble "${text.slice(0, 30)}..." - isCompleting=${isCompleting}, hasPersistentBubble=${hasPersistentBubble}`,
-      );
+      // QA-011: gate the diagnostic log behind debug mode so production paths
+      // stay quiet. Message text unchanged. Matches the `debugMode` gating
+      // pattern used in CommandBar and elsewhere.
+      if (useGameStore.getState().debugMode) {
+        console.log(
+          `[AgentMachineService] Skipping boss bubble "${text.slice(0, 30)}..." - isCompleting=${isCompleting}, hasPersistentBubble=${hasPersistentBubble}`,
+        );
+      }
       // Unblock any agent waiting for BUBBLE_DISPLAYED in the conversing
       // sub-state. Without this, the agent gets stuck at A0 forever (and
       // every other agent behind it in the queue stays standing too).

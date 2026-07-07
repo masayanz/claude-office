@@ -514,7 +514,7 @@ describe("updateAgentMeta", () => {
     expect(useGameStore.getState().agents.get("A")?.name).toBe("Alice");
   });
 
-  it("currentTask: a non-empty new task replaces the old one (|| fallback)", () => {
+  it("currentTask: a non-empty new task replaces the old one", () => {
     useGameStore.getState().updateAgentMeta("A", {
       backendState: "working",
       name: null,
@@ -525,7 +525,8 @@ describe("updateAgentMeta", () => {
     );
   });
 
-  it("currentTask: null keeps the previous task (|| falsy fallback)", () => {
+  it("currentTask: null keeps the previous task (?? nullish fallback)", () => {
+    // QA-012 changed `||` to `??`. null is nullish, so the old task is kept.
     useGameStore.getState().updateAgentMeta("A", {
       backendState: "working",
       name: null,
@@ -534,6 +535,19 @@ describe("updateAgentMeta", () => {
     expect(useGameStore.getState().agents.get("A")?.currentTask).toBe(
       "old task",
     );
+  });
+
+  it("currentTask: empty string CLEARS the previous task (QA-012 fix)", () => {
+    // Before QA-012 this case was a bug: `||` treated "" as falsy and silently
+    // kept the old task, so an empty-string currentTask could never clear it.
+    // With `??`, only null/undefined fall back; "" is a meaningful value and
+    // overwrites.
+    useGameStore.getState().updateAgentMeta("A", {
+      backendState: "working",
+      name: null,
+      currentTask: "",
+    });
+    expect(useGameStore.getState().agents.get("A")?.currentTask).toBe("");
   });
 
   it("always overwrites backendState with the supplied value", () => {
@@ -547,7 +561,8 @@ describe("updateAgentMeta", () => {
     );
   });
 
-  // NOTE: `currentTask: ""` is deliberately NOT tested here — that case is the
-  // known QA-012 bug (`||` treats "" as falsy and keeps the old task) and
-  // changes when QA-012 lands. QA-012 adds its own test.
+  // QA-012 note: the `currentTask: ""` case was previously excluded because
+  // the old `||` fallback made it a known bug (empty string treated as falsy,
+  // silently keeping the previous task). QA-012 switched to `??` and added
+  // the explicit empty-string test above to pin the corrected behavior.
 });

@@ -11,7 +11,7 @@ import { apiFetch } from "@/utils/api";
 export type ClockType = "analog" | "digital";
 export type ClockFormat = "12h" | "24h";
 
-interface PreferencesState {
+export interface PreferencesState {
   clockType: ClockType;
   clockFormat: ClockFormat;
   autoFollowNewSessions: boolean;

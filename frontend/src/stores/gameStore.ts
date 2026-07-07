@@ -516,7 +516,9 @@ export const useGameStore = create<GameStore>()(
           ...agent,
           backendState: meta.backendState,
           name: meta.name ?? agent.name,
-          currentTask: meta.currentTask || agent.currentTask,
+          // `??` (not `||`) so an explicit empty-string currentTask clears the
+          // previous task — only null/undefined fall back. See QA-012.
+          currentTask: meta.currentTask ?? agent.currentTask,
         });
         return { agents: newAgents };
       }),
@@ -594,9 +596,10 @@ export const useGameStore = create<GameStore>()(
       if (state.arrivalQueue.length === 0) return undefined;
 
       const [frontId, ...rest] = state.arrivalQueue;
-      set({ arrivalQueue: rest });
 
-      // Update remaining agents' queue indices
+      // Re-index remaining queued agents in the same atomic update so
+      // subscribers never observe a shifted queue with stale queueIndex
+      // values (QA-006: previously two separate `set()` calls).
       const newAgents = new Map(state.agents);
       rest.forEach((id, idx) => {
         const agent = newAgents.get(id);
@@ -604,7 +607,7 @@ export const useGameStore = create<GameStore>()(
           newAgents.set(id, { ...agent, queueIndex: idx });
         }
       });
-      set({ agents: newAgents });
+      set({ arrivalQueue: rest, agents: newAgents });
 
       return frontId;
     },
@@ -614,9 +617,10 @@ export const useGameStore = create<GameStore>()(
       if (state.departureQueue.length === 0) return undefined;
 
       const [frontId, ...rest] = state.departureQueue;
-      set({ departureQueue: rest });
 
-      // Update remaining agents' queue indices
+      // Re-index remaining queued agents in the same atomic update so
+      // subscribers never observe a shifted queue with stale queueIndex
+      // values (QA-006: previously two separate `set()` calls).
       const newAgents = new Map(state.agents);
       rest.forEach((id, idx) => {
         const agent = newAgents.get(id);
@@ -624,7 +628,7 @@ export const useGameStore = create<GameStore>()(
           newAgents.set(id, { ...agent, queueIndex: idx });
         }
       });
-      set({ agents: newAgents });
+      set({ departureQueue: rest, agents: newAgents });
 
       return frontId;
     },

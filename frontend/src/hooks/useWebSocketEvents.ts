@@ -22,6 +22,7 @@ import { agentMachineService } from "@/machines/agentMachineService";
 import { resetSpawnIndex } from "@/systems/queuePositions";
 import { TypingTracker } from "@/systems/typingTracker";
 import { reconcileState } from "@/systems/stateReconciler";
+import { shouldShowToast } from "@/systems/toastFilter";
 import { WebSocketController } from "@/systems/webSocketController";
 import type { EventType, WebSocketMessage } from "@/types";
 
@@ -140,36 +141,22 @@ export function useWebSocketEvents({
               }
 
               // Attention toasts — wire event processing into attention store.
-              // Check toast filter preferences before generating toasts.
-              const attentionEventTypes = new Set<EventType>([
-                "permission_request",
-                "error",
-                "stop",
-                "task_completed",
-                "subagent_start",
-                "background_task_notification",
-              ]);
-              if (attentionEventTypes.has(message.event.type as EventType)) {
-                const prefs = usePreferencesStore.getState();
-                const filterMap: Record<string, boolean> = {
-                  permission_request: prefs.toastFilterPermission,
-                  error: prefs.toastFilterError,
-                  stop: prefs.toastFilterError,
-                  task_completed: prefs.toastFilterTaskComplete,
-                  subagent_start: prefs.toastFilterArrival,
-                  background_task_notification: prefs.toastFilterArrival,
-                };
-                if (filterMap[message.event.type as string] !== false) {
-                  useAttentionStore.getState().processEvent({
-                    type: message.event.type as EventType,
-                    agentId: message.event.agentId ?? null,
-                    agentName: message.event.detail?.agentName ?? null,
-                    taskDescription:
-                      message.event.detail?.taskDescription ?? null,
-                    errorType: message.event.detail?.errorType ?? null,
-                    message: message.event.detail?.message ?? null,
-                  });
-                }
+              // `shouldShowToast` (pure) owns the type + preference gate.
+              if (
+                shouldShowToast(
+                  message.event.type as EventType,
+                  usePreferencesStore.getState(),
+                )
+              ) {
+                useAttentionStore.getState().processEvent({
+                  type: message.event.type as EventType,
+                  agentId: message.event.agentId ?? null,
+                  agentName: message.event.detail?.agentName ?? null,
+                  taskDescription:
+                    message.event.detail?.taskDescription ?? null,
+                  errorType: message.event.detail?.errorType ?? null,
+                  message: message.event.detail?.message ?? null,
+                });
               }
             }
             break;

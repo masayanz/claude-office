@@ -22,12 +22,10 @@ import {
   useGameStore,
   selectIsConnected,
   selectDebugMode,
-  selectAgents,
   selectBoss,
 } from "@/stores/gameStore";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useTourStore } from "@/stores/tourStore";
-import { useShallow } from "zustand/react/shallow";
 import { apiFetch, initApiKeyFromBrowser } from "@/utils/api";
 import { Menu, X, Map } from "lucide-react";
 import { SessionSidebar } from "@/components/layout/SessionSidebar";
@@ -143,7 +141,11 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   const isConnected = useGameStore(selectIsConnected);
   const debugMode = useGameStore(selectDebugMode);
-  const agents = useGameStore(useShallow(selectAgents));
+  // ARC-006: subscribe only to the count, not the whole agents Map. The page
+  // uses just `agents.size` (badge) — selecting a primitive means this root
+  // component re-renders only when an agent is added/removed, not every frame
+  // agents move (which was cascading re-renders through header/sidebar/modals).
+  const agentCount = useGameStore((s) => s.agents.size);
   const boss = useGameStore(selectBoss);
   const loadPersistedDebugSettings = useGameStore(
     (state) => state.loadPersistedDebugSettings,
@@ -453,7 +455,7 @@ export default function V2TestPage(): React.ReactNode {
               }`}
             />
             <span className="text-xs text-slate-400 font-mono">
-              {agents.size} {t("header.agents")}
+              {agentCount} {t("header.agents")}
             </span>
           </div>
         )}
@@ -485,7 +487,7 @@ export default function V2TestPage(): React.ReactNode {
           <div className="flex-[3] border border-slate-800 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative min-h-0">
             <OfficeGame />
           </div>
-          <MobileAgentActivity agents={agents} boss={boss} />
+          <MobileAgentActivity boss={boss} />
         </div>
       ) : view === "single" ? (
         /* ----------------------------------------------------------------

@@ -1,10 +1,12 @@
 "use client";
 
 import { Users } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useTranslation } from "@/hooks/useTranslation";
-import type {
-  BossAnimationState,
-  AgentAnimationState,
+import {
+  useGameStore,
+  selectAgents,
+  type BossAnimationState,
 } from "@/stores/gameStore";
 
 // ============================================================================
@@ -12,7 +14,6 @@ import type {
 // ============================================================================
 
 interface MobileAgentActivityProps {
-  agents: Map<string, AgentAnimationState>;
   boss: BossAnimationState;
 }
 
@@ -26,10 +27,13 @@ interface MobileAgentActivityProps {
  * in the stacked mobile layout.
  */
 export function MobileAgentActivity({
-  agents,
   boss,
 }: MobileAgentActivityProps): React.ReactNode {
   const { t } = useTranslation();
+  // Subscribe here (mobile-only) so the root page no longer holds the whole
+  // agents Map subscription — keeps the desktop header/sidebars/modals off the
+  // per-frame animation re-render path (ARC-006).
+  const agents = useGameStore(useShallow(selectAgents));
 
   return (
     <div className="flex-[2] bg-slate-950 border border-slate-800 rounded-lg overflow-hidden min-h-0">

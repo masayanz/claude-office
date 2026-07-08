@@ -34,6 +34,7 @@ export type {
   BossAnimationState,
   EventLogEntry,
   ReplayFrame,
+  AgentMovement,
 } from "./slices/types";
 import type {
   AgentPhase,
@@ -43,6 +44,7 @@ import type {
   BossAnimationState,
   EventLogEntry,
   ReplayFrame,
+  AgentMovement,
 } from "./slices/types";
 
 // Slices (ARC-005): each concern owns its state + actions in its own file and
@@ -95,6 +97,7 @@ export interface GameStore {
     queueIndex: number,
   ) => void;
   setAgentTyping: (agentId: string, typing: boolean) => void;
+  applyAgentMovements: (movements: AgentMovement[]) => void;
 
   // ========== Queue State ==========
   arrivalQueue: string[]; // Agent IDs in order

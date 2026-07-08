@@ -13,6 +13,7 @@ import {
   useGameStore,
   type AgentPhase,
   type PathState,
+  type AgentMovement,
 } from "@/stores/gameStore";
 import { calculatePath, updateAgentObstacle } from "./pathfinding";
 import { collisionManager } from "./agentCollision";
@@ -184,6 +185,14 @@ class AnimationSystem {
   private updateAgentPositions(deltaSeconds: number): void {
     const store = useGameStore.getState();
 
+    // Collect every moving agent's position/path delta, then apply them in one
+    // store write at the end (ARC-006: was one Map clone + one subscriber
+    // notification per agent per frame). The loop reads from the snapshot taken
+    // above, so batching the writes is behavior-equivalent. Non-moving agents
+    // keep their object reference, so React.memo on the sprites bails out.
+    const movements: AgentMovement[] = [];
+    const arrivals: Array<{ agentId: string; phase: AgentPhase }> = [];
+
     for (const [agentId, agent] of store.agents) {
       if (!agent.path) {
         // Still update obstacle position for stationary agents
@@ -208,22 +217,32 @@ class AnimationSystem {
       // Agent collision disabled - agents pass through each other
       // This simplifies pathfinding and avoids deadlock issues
 
-      // Update position in store
-      store.updateAgentPosition(agentId, newPosition);
-
       // Update obstacle position for pathfinding
       updateAgentObstacle(agentId, newPosition);
 
       // Update collision manager position for agent-to-agent collision
       collisionManager.updatePosition(agentId, newPosition);
 
-      // Update path state
+      // Queue the delta: path omitted => unchanged, null => cleared on arrival.
       if (arrived) {
-        store.updateAgentPath(agentId, null);
-        this.handleArrival(agentId, agent.phase);
+        movements.push({ agentId, position: newPosition, path: null });
+        arrivals.push({ agentId, phase: agent.phase });
       } else if (newPath) {
-        store.updateAgentPath(agentId, newPath);
+        movements.push({ agentId, position: newPosition, path: newPath });
+      } else {
+        movements.push({ agentId, position: newPosition });
       }
+    }
+
+    // One set() per tick instead of one per agent. Non-moving agents are not in
+    // `movements`, so their entries in the new Map keep the same object ref.
+    if (movements.length > 0) {
+      store.applyAgentMovements(movements);
+    }
+
+    // Arrival notifications fire after the batched state update.
+    for (const { agentId, phase } of arrivals) {
+      this.handleArrival(agentId, phase);
     }
   }
 

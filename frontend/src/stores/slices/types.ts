@@ -123,3 +123,13 @@ export interface ReplayFrame {
   event: NonNullable<WebSocketMessage["event"]>;
   state: BackendGameState;
 }
+
+/**
+ * One agent's position/path delta for a single animation tick (ARC-006).
+ * `path` is optional: omit to leave the path unchanged, pass null to clear it.
+ */
+export interface AgentMovement {
+  agentId: string;
+  position: Position;
+  path?: PathState | null;
+}

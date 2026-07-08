@@ -13,7 +13,12 @@ import type {
   AgentState as BackendAgentState,
   Agent as BackendAgent,
 } from "@/types";
-import type { AgentPhase, PathState, AgentAnimationState } from "./types";
+import type {
+  AgentPhase,
+  PathState,
+  AgentAnimationState,
+  AgentMovement,
+} from "./types";
 import { DESKS_PER_ROW } from "@/constants/positions";
 import { createEmptyBubbleState } from "./shared";
 
@@ -40,6 +45,7 @@ export type AgentSlice = {
     queueIndex: number,
   ) => void;
   setAgentTyping: (agentId: string, typing: boolean) => void;
+  applyAgentMovements: (movements: AgentMovement[]) => void;
 };
 
 export const initialAgentState = {
@@ -187,6 +193,26 @@ export const createAgentSlice: StateCreator<GameStore, [], [], AgentSlice> = (
 
       const newAgents = new Map(state.agents);
       newAgents.set(agentId, { ...agent, isTyping });
+      return { agents: newAgents };
+    }),
+
+  // ARC-006: apply every moving agent's position/path delta for one animation
+  // tick in a single `set()` (one Map clone), instead of one write — and one
+  // clone — per agent per frame. `path` omitted => unchanged; null => cleared.
+  applyAgentMovements: (movements) =>
+    set((state) => {
+      if (movements.length === 0) return state;
+      const newAgents = new Map(state.agents);
+      for (const { agentId, position, path } of movements) {
+        const agent = newAgents.get(agentId);
+        if (!agent) continue;
+        newAgents.set(
+          agentId,
+          path === undefined
+            ? { ...agent, currentPosition: position }
+            : { ...agent, currentPosition: position, path },
+        );
+      }
       return { agents: newAgents };
     }),
 });

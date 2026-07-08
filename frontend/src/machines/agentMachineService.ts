@@ -64,6 +64,15 @@ class AgentMachineService implements AnimationListener {
    */
   private pendingDepartures: Set<string> = new Set();
 
+  /**
+   * Deferred-notification queue (QA-009). Replaces the six ``setTimeout(…, 0)``
+   * re-entrancy escapes: notifications that must not fire synchronously inside
+   * an XState transition are queued and flushed once via a single microtask, so
+   * ordering no longer depends on the macrotask timer.
+   */
+  private deferred: Array<() => void> = [];
+  private flushScheduled = false;
+
   constructor() {
     // Initialize actions that bridge state machine to store
     this.actions = {
@@ -273,6 +282,34 @@ class AgentMachineService implements AnimationListener {
     this.queue.reset();
     this.elevatorUsageCount = 0;
     this.pendingDepartures.clear();
+    this.deferred = [];
+    this.flushScheduled = false;
+  }
+
+  // ==========================================================================
+  // DEFERRED NOTIFICATIONS (QA-009)
+  // ==========================================================================
+
+  /**
+   * Queue a notification to run after the current synchronous stack unwinds.
+   * Multiple defers within one tick batch into a single microtask flush,
+   * replacing the fragile per-call ``setTimeout(…, 0)`` ordering.
+   */
+  private defer(fn: () => void): void {
+    this.deferred.push(fn);
+    if (!this.flushScheduled) {
+      this.flushScheduled = true;
+      queueMicrotask(() => this.flushDeferred());
+    }
+  }
+
+  private flushDeferred(): void {
+    this.flushScheduled = false;
+    const batch = this.deferred;
+    this.deferred = [];
+    for (const fn of batch) {
+      fn();
+    }
   }
 
   // ==========================================================================
@@ -428,7 +465,7 @@ class AgentMachineService implements AnimationListener {
   ): void {
     const released = this.queue.releaseReadyPositionForAgent(agentId);
     if (released) {
-      setTimeout(() => this.notifyBossAvailable(), 0);
+      this.defer(() => this.notifyBossAvailable());
     }
   }
 
@@ -476,7 +513,7 @@ class AgentMachineService implements AnimationListener {
 
     // If this is the first agent and boss is free, trigger boss available
     if (actualIndex === 0 && !freshStore.boss.inUseBy) {
-      setTimeout(() => this.notifyBossAvailable(), 0);
+      this.defer(() => this.notifyBossAvailable());
     }
   }
 
@@ -518,7 +555,7 @@ class AgentMachineService implements AnimationListener {
     // If the backend already removed this agent while it was still arriving,
     // fire its departure now that it has reached its desk.
     if (phase === "idle" && this.pendingDepartures.has(agentId)) {
-      setTimeout(() => this.triggerDeparture(agentId), 0);
+      this.defer(() => this.triggerDeparture(agentId));
     }
   }
 
@@ -542,7 +579,7 @@ class AgentMachineService implements AnimationListener {
       // every other agent behind it in the queue stays standing too).
       for (const [agentId, agent] of store.agents) {
         if (agent.phase === "conversing") {
-          setTimeout(() => this.notifyBubbleComplete(agentId), 0);
+          this.defer(() => this.notifyBubbleComplete(agentId));
           break;
         }
       }
@@ -577,7 +614,7 @@ class AgentMachineService implements AnimationListener {
     const store = useGameStore.getState();
     store.setBossInUse(by);
     if (by === null) {
-      setTimeout(() => this.notifyBossAvailable(), 0);
+      this.defer(() => this.notifyBossAvailable());
     }
   }
 
@@ -616,7 +653,7 @@ class AgentMachineService implements AnimationListener {
 
     const queueType = this.queue.releaseReadyPositionForAgent(agentId);
     if (queueType) {
-      setTimeout(() => this.notifyBossAvailable(), 0);
+      this.defer(() => this.notifyBossAvailable());
     }
 
     useGameStore.getState().removeAgent(agentId);

@@ -34,6 +34,13 @@ async def broadcast_state(session_id: str, sm: StateMachine) -> None:
         session_id: The session whose clients should receive the update.
         sm: The StateMachine holding current state.
     """
+    # Skip the (up to 500+500 entry) GameState serialization when nobody is
+    # listening for this session (ARC-015). Existence-check without the manager
+    # lock is safe — same pattern as the ``overview_connections`` guard in
+    # ``broadcast_overview_state``. A reconnect triggers a fresh snapshot via
+    # the /ws/{session_id} connect path, so skipping here loses nothing.
+    if not get_manager().active_connections.get(session_id):
+        return
     game_state: GameState = sm.to_game_state(session_id)
     await get_manager().broadcast(
         {

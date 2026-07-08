@@ -79,8 +79,15 @@ async def test_broadcast_service_uses_overridden_manager() -> None:
     ``manager`` at import time, so overriding the singleton had no effect on
     broadcasts. With the accessor-based lookup, the stub receives the message.
     """
+    from unittest.mock import AsyncMock
+
     stub = _RecordingManager()
     override_manager(stub)
+
+    # Register a listener so the no-listener early-return (ARC-015) doesn't
+    # skip the broadcast — this test verifies routing, not the skip behaviour.
+    ws = AsyncMock()
+    await stub.connect(ws, "session-abc")
 
     sm = StateMachine()
     await broadcast_state("session-abc", sm)
@@ -89,3 +96,27 @@ async def test_broadcast_service_uses_overridden_manager() -> None:
     message, sid = stub.broadcast_calls[0]
     assert sid == "session-abc"
     assert message["type"] == "state_update"
+
+
+@pytest.mark.asyncio
+async def test_broadcast_state_skips_when_no_listeners() -> None:
+    """``broadcast_state`` must skip serialization when nobody is listening (ARC-015).
+
+    With zero WebSocket connections for the session, the (up to 500+500 entry)
+    ``to_game_state`` serialization and the manager broadcast must both be
+    skipped entirely. This is the per-event hot-path optimisation.
+    """
+    stub = _RecordingManager()
+    override_manager(stub)
+
+    sm = StateMachine()
+    # No connections registered for "session-solo".
+    await broadcast_state("session-solo", sm)
+
+    assert stub.broadcast_calls == []
+    # And the GameState was never built — confirm by spying on to_game_state.
+    calls = []
+    original = sm.to_game_state
+    sm.to_game_state = lambda *a, **k: calls.append(1) or original(*a, **k)  # type: ignore[method-assign]
+    await broadcast_state("session-solo", sm)
+    assert calls == []

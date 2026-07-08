@@ -12,7 +12,7 @@ import asyncio
 import contextlib
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -321,6 +321,27 @@ class EventProcessor:
         async with self._sessions_lock:
             self.sessions.clear()
 
+    async def evict_idle_sessions(self, max_idle_seconds: float) -> int:
+        """Drop in-memory StateMachines idle longer than ``max_idle_seconds``.
+
+        State is replayable from the DB on next access, so evicting a live
+        session only costs a one-time replay when activity resumes (ARC-015).
+        Sessions that still have WebSocket viewers are kept regardless of idle
+        time — a reconnect restores from DB, but there is no reason to force
+        that churn on an active viewer.
+        """
+        cutoff = datetime.now(UTC) - timedelta(seconds=max_idle_seconds)
+        manager = get_manager()
+        async with self._sessions_lock:
+            stale = [
+                sid
+                for sid, sm in self.sessions.items()
+                if sm.last_event_at < cutoff and not manager.active_connections.get(sid)
+            ]
+            for sid in stale:
+                self.sessions.pop(sid, None)
+        return len(stale)
+
     async def get_current_state(self, session_id: str) -> GameState | None:
         """Retrieve current game state for a session, restoring from DB if needed."""
         if session_id not in self.sessions:
@@ -499,6 +520,9 @@ class EventProcessor:
             # concurrent clear_all_sessions()/remove_session() can't drop the key
             # between this lookup and use (which would raise KeyError).
             sm = self.sessions[event.session_id]
+            # Refresh idle-eviction watermark (ARC-015) under the same lock so
+            # ``evict_idle_sessions`` sees a consistent timestamp for this slot.
+            sm.last_event_at = datetime.now(UTC)
 
         sm.transition(event)
 

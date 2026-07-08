@@ -727,3 +727,105 @@ class TestSessionsAPISmoke:
             headers={"X-API-Key": get_settings().effective_api_key},
         )
         assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Replay pagination (ARC-015)
+# ---------------------------------------------------------------------------
+
+
+class TestReplayPagination:
+    """Replay endpoint pagination (ARC-015).
+
+    Verifies that offset/limit window the returned entries WITHOUT truncating
+    the StateMachine's prefix — the state snapshot at entry N must reflect
+    every prior event, not just the windowed slice.
+
+    The full GameState dump carries volatile timestamps (``lastUpdated``,
+    ``newsItems[].timestamp`` stamped by ``datetime.now()`` during
+    reconstruction), so cross-request state equality is not stable. Instead we
+    assert event identity (windowing) and conversation/history length (proof
+    the SM transitioned through the full prefix — a broken SQL-level offset
+    would leave the conversation shorter at the first paginated entry).
+    """
+
+    def _seed(self, prompt_count: int) -> str:
+        sid = f"replay-page-{uuid4()}"
+        post_event(sid, "session_start", {"project_name": "ReplayTest"})
+        for i in range(prompt_count):
+            post_event(sid, "user_prompt_submit", {"prompt": f"prompt {i}"})
+        return sid
+
+    @staticmethod
+    def _prefix_proof(entry: dict[str, Any]) -> tuple[int, int]:
+        """Return (conversation length, history length) — deterministic
+        indicators of how many events the StateMachine has transitioned through."""
+        state = entry["state"]
+        return (len(state.get("conversation", [])), len(state.get("history", [])))
+
+    def test_replay_without_pagination_returns_all(self) -> None:
+        sid = self._seed(8)
+        resp = client.get(f"/api/v1/sessions/{sid}/replay")
+        assert resp.status_code == 200
+        # session_start + 8 prompts = 9 entries.
+        assert len(resp.json()) == 9
+
+    def test_replay_offset_skips_first_n(self) -> None:
+        sid = self._seed(8)
+        full = client.get(f"/api/v1/sessions/{sid}/replay").json()
+        paged = client.get(f"/api/v1/sessions/{sid}/replay?offset=5").json()
+        assert len(paged) == len(full) - 5
+        for i, entry in enumerate(paged):
+            # Event identity matches the corresponding full entry (windowing).
+            assert entry["event"] == full[5 + i]["event"]
+            # Conversation/history length matches — proving the SM replayed
+            # the full prefix rather than starting from the offset.
+            assert self._prefix_proof(entry) == self._prefix_proof(full[5 + i])
+
+    def test_replay_limit_caps_response(self) -> None:
+        sid = self._seed(8)
+        full = client.get(f"/api/v1/sessions/{sid}/replay").json()
+        paged = client.get(f"/api/v1/sessions/{sid}/replay?limit=3").json()
+        assert len(paged) == 3
+        for i, entry in enumerate(paged):
+            assert entry["event"] == full[i]["event"]
+            assert self._prefix_proof(entry) == self._prefix_proof(full[i])
+
+    def test_replay_offset_and_limit_window(self) -> None:
+        sid = self._seed(8)
+        full = client.get(f"/api/v1/sessions/{sid}/replay").json()
+        paged = client.get(f"/api/v1/sessions/{sid}/replay?offset=2&limit=4").json()
+        assert len(paged) == 4
+        for i, entry in enumerate(paged):
+            assert entry["event"] == full[2 + i]["event"]
+            assert self._prefix_proof(entry) == self._prefix_proof(full[2 + i])
+
+    def test_replay_offset_first_entry_matches_sixth_of_full(self) -> None:
+        """Verification straight from AUDIT_REMEDIATION.md: with offset=5&limit=10
+        the first returned entry's event matches the 6th event of the
+        unpaginated response (0-indexed: full[5])."""
+        sid = self._seed(8)
+        full = client.get(f"/api/v1/sessions/{sid}/replay").json()
+        paged = client.get(f"/api/v1/sessions/{sid}/replay?offset=5&limit=10").json()
+        assert len(paged) <= 10
+        assert paged[0]["event"] == full[5]["event"]
+        assert self._prefix_proof(paged[0]) == self._prefix_proof(full[5])
+
+    def test_replay_limit_above_2000_is_capped(self) -> None:
+        sid = self._seed(3)
+        # limit=99999 must be capped to 2000, not rejected — and since the
+        # session only has 4 entries, all are returned.
+        resp = client.get(f"/api/v1/sessions/{sid}/replay?limit=99999")
+        assert resp.status_code == 200
+        assert len(resp.json()) == 4
+
+    def test_replay_offset_beyond_end_returns_empty(self) -> None:
+        sid = self._seed(3)
+        resp = client.get(f"/api/v1/sessions/{sid}/replay?offset=100")
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+    def test_replay_negative_offset_rejected(self) -> None:
+        sid = self._seed(3)
+        resp = client.get(f"/api/v1/sessions/{sid}/replay?offset=-1")
+        assert resp.status_code == 422

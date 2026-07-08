@@ -6,7 +6,7 @@ import sys
 from datetime import UTC
 from typing import Annotated, Any, TypedDict
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -407,13 +407,25 @@ async def focus_session(
 
 @router.get("/{session_id}/replay")
 async def get_session_replay(
-    session_id: str, db: Annotated[AsyncSession, Depends(get_db)]
+    session_id: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    offset: int = Query(0, ge=0, description="Skip the first N replay entries"),
+    limit: int | None = Query(None, ge=1, description="Return at most N entries (capped at 2000)"),
 ) -> list[ReplayEntry]:
-    """Get all events and resulting states for session replay.
+    """Get events and resulting states for session replay, with optional pagination.
 
     Replays events through the state machine to reconstruct the state
     after each event, enabling frontend replay functionality.
+
+    Pagination (ARC-015) applies to the *returned entries* only. State
+    reconstruction always replays from event 0 — when ``offset > 0`` the
+    StateMachine still transitions through the full prefix so the state
+    snapshot at entry N reflects every prior event. Defaults (offset=0,
+    limit=None) preserve today's full-response behaviour, so the frontend
+    needs no change.
     """
+    # Fetch ALL events — no SQL .offset()/.limit() here, because the
+    # StateMachine must see the full prefix to reconstruct state correctly.
     stmt = (
         select(EventRecord)
         .where(EventRecord.session_id == session_id)
@@ -427,8 +439,13 @@ async def get_session_replay(
     from app.core.state_machine import StateMachine
     from app.models.events import EventAdapter, EventType
 
+    effective_limit = min(limit, 2000) if limit is not None else None
+
     sm = StateMachine()
     replay_data: list[ReplayEntry] = []
+    # Counts valid (appendable) entries only — invalid/unparseable events are
+    # skipped before transition, so they don't shift the offset window.
+    valid_idx = 0
 
     for rec in events:
         try:
@@ -458,7 +475,15 @@ async def get_session_replay(
                 session_id,
             )
             continue
+        # Full-prefix reconstruction: every valid event transitions the SM,
+        # even those before ``offset``. Only the append is gated below.
         sm.transition(evt)
+
+        if valid_idx < offset:
+            valid_idx += 1
+            continue
+        valid_idx += 1
+
         state = sm.to_game_state(session_id)
 
         ts_utc = (
@@ -482,6 +507,9 @@ async def get_session_replay(
                 "state": state.model_dump(mode="json", by_alias=True),
             }
         )
+
+        if effective_limit is not None and len(replay_data) >= effective_limit:
+            break
 
     return replay_data
 

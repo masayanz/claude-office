@@ -1,3 +1,5 @@
+import asyncio
+import contextlib
 import hmac
 import importlib
 import logging
@@ -12,7 +14,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from rich.logging import RichHandler
-from sqlalchemy import text, update
+from sqlalchemy import delete, select, text, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 from starlette.middleware.base import BaseHTTPMiddleware
 
@@ -21,10 +23,10 @@ from app.api.websocket import (
     get_manager,
 )
 from app.config import get_settings
-from app.core.event_processor import get_event_processor
+from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
-from app.db.models import SessionRecord
+from app.db.models import EventRecord, SessionRecord
 from app.services.git_service import git_service
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -191,16 +193,38 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     git_service.start()
 
+    # Periodic idle-session eviction (ARC-015). Drops in-memory StateMachine
+    # instances that have not seen activity for ``SESSION_IDLE_EVICT_SECONDS``
+    # (default 6h); state is replayable from the DB on next access. Mirrors
+    # the git_service.start()/stop() pattern: started before yield, cancelled
+    # and awaited on shutdown so the loop never outlives the app.
+    idle_evictor = asyncio.create_task(
+        _idle_eviction_loop(
+            get_event_processor(),
+            interval=15 * 60,
+            max_idle=settings.SESSION_IDLE_EVICT_SECONDS,
+        )
+    )
+
     yield
 
     # Cancel any pending debounced overview broadcast so shutdown is clean.
     await get_event_processor().shutdown()
+    idle_evictor.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await idle_evictor
     await git_service.stop()
     await get_engine().dispose()
 
 
 async def _reap_stale_sessions() -> None:
-    """Mark active sessions with no activity for 48+ hours as completed."""
+    """Mark active sessions with no activity for 48+ hours as completed.
+
+    When ``EVENT_RETENTION_DAYS`` is set (> 0), also deletes EventRecord rows
+    for sessions already ``completed`` whose ``updated_at`` is older than the
+    retention window (ARC-015). Default 0 preserves today's behaviour — no
+    event rows are ever deleted, so replay keeps working for every session.
+    """
     from sqlalchemy.ext.asyncio import async_sessionmaker
 
     reap_logger = logging.getLogger("claude-office.reaper")
@@ -217,6 +241,55 @@ async def _reap_stale_sessions() -> None:
         count = getattr(result, "rowcount", 0) or 0
         if count > 0:
             reap_logger.info("Reaped %d stale sessions (inactive >48h)", count)
+
+        # Opt-in event retention (ARC-015). Only fires when the admin sets
+        # EVENT_RETENTION_DAYS > 0. Deleting events breaks replay for the
+        # affected sessions, so the default (0) never deletes anything.
+        retention_days = settings.EVENT_RETENTION_DAYS
+        if retention_days > 0:
+            retention_cutoff = datetime.now(UTC) - timedelta(days=retention_days)
+            stale_session_ids = select(SessionRecord.id).where(
+                SessionRecord.status == "completed",
+                SessionRecord.updated_at < retention_cutoff,
+            )
+            deleted = await db.execute(
+                delete(EventRecord).where(EventRecord.session_id.in_(stale_session_ids))
+            )
+            await db.commit()
+            del_count = getattr(deleted, "rowcount", 0) or 0
+            if del_count > 0:
+                reap_logger.info(
+                    "Deleted %d event rows for completed sessions older than %dd (retention)",
+                    del_count,
+                    retention_days,
+                )
+
+
+async def _idle_eviction_loop(
+    event_processor: EventProcessor, interval: float, max_idle: float
+) -> None:
+    """Periodically drop idle in-memory sessions (ARC-015).
+
+    Runs as a background task started in ``lifespan``. Each tick calls
+    ``EventProcessor.evict_idle_sessions``; state is replayable from the DB
+    on next access. Cancellation (on shutdown) is the only exit — the loop
+    logs and continues on per-tick errors so a transient failure doesn't
+    permanently disable eviction.
+    """
+    evict_logger = logging.getLogger("claude-office.idle-evictor")
+    try:
+        while True:
+            await asyncio.sleep(interval)
+            try:
+                count = await event_processor.evict_idle_sessions(max_idle)
+                if count:
+                    evict_logger.info("Evicted %d idle sessions (idle >%ds)", count, int(max_idle))
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                evict_logger.exception("Idle eviction sweep failed")
+    except asyncio.CancelledError:
+        evict_logger.info("Idle eviction loop stopped")
 
 
 app = FastAPI(

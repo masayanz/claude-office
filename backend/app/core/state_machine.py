@@ -591,6 +591,13 @@ class StateMachine:
     # Whiteboard tracking delegated to WhiteboardTracker
     whiteboard: WhiteboardTracker = field(default_factory=WhiteboardTracker)
 
+    # Wall-clock timestamp of the most recent event routed through ``transition``
+    # for this session (ARC-015). Used by ``EventProcessor.evict_idle_sessions``
+    # to drop in-memory state that has not seen activity for a while; the DB
+    # remains the source of truth, so an evicted session replays on next access.
+    # Not part of ``to_game_state`` output — internal eviction metadata only.
+    last_event_at: datetime = field(default_factory=lambda: datetime.now(UTC))
+
     # ---------------------------------------------------------------------------
     # Core methods
     # ---------------------------------------------------------------------------

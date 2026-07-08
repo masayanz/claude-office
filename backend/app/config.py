@@ -48,6 +48,19 @@ class Settings(BaseSettings):
     # the previous global 300/60s default throttled the wrong dimension.
     EVENT_RATE_LIMIT: int = 1000
 
+    # Idle-eviction sweep (ARC-015). In-memory StateMachine instances idle
+    # longer than this are dropped from the registry; state is replayable from
+    # the DB on next access. 6h default is well above any reconnect window so
+    # a viewer that briefly drops and reconnects still finds the session warm.
+    SESSION_IDLE_EVICT_SECONDS: int = 21600  # 6h
+
+    # Event-record retention (ARC-015). 0 = keep forever (default). When > 0,
+    # ``_reap_stale_sessions`` deletes EventRecord rows for sessions whose
+    # ``status == "completed"`` and ``updated_at`` is older than this many
+    # days. Deleting events breaks replay for those sessions, so the knob is
+    # strictly opt-in — the default preserves today's behaviour.
+    EVENT_RETENTION_DAYS: int = 0
+
     CLAUDE_CODE_OAUTH_TOKEN: str = ""
     SUMMARY_MODEL: str = "claude-haiku-4-5-20251001"
     SUMMARY_ENABLED: bool = True

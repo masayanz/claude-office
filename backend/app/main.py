@@ -1,6 +1,5 @@
 import asyncio
 import contextlib
-import hmac
 import importlib
 import logging
 import os
@@ -9,117 +8,26 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from rich.logging import RichHandler
-from sqlalchemy import delete, select, text, update
-from sqlalchemy.ext.asyncio import AsyncConnection
-from starlette.middleware.base import BaseHTTPMiddleware
+from sqlalchemy import delete, select, update
 
-from app.api.routes import events, floors, preferences, sessions
-from app.api.websocket import (
-    get_manager,
-)
+from app.api.middleware import ApiKeyMiddleware, LocalhostOnlyMiddleware
+from app.api.routes import events, floors, preferences, sessions, websockets
 from app.config import get_settings
 from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
+from app.db.migrate import migrate_schema
 from app.db.models import EventRecord, SessionRecord
 from app.services.git_service import git_service
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
 
 _SERVE_STATIC = os.environ.get("SERVE_STATIC", "").lower() in ("1", "true", "yes")
-
-_LOCALHOST_HOSTS = frozenset({"127.0.0.1", "::1", "localhost", "testclient"})
-
-# Upper bound on concurrent /ws/overview (Command Center) watchers. Each one
-# amplifies the per-event overview rebuild cost, so refuse new ones past this.
-_MAX_OVERVIEW_CONNECTIONS = 16
-
-
-class LocalhostOnlyMiddleware(BaseHTTPMiddleware):
-    """Reject HTTP requests from non-localhost origins.
-
-    This is a local-only development tool, not deployed to the public internet.
-    All API endpoints (including subprocess execution and clipboard writes)
-    are protected by restricting access to the loopback interface.
-
-    ``"testclient"`` is the sentinel host used by Starlette's test transport
-    and cannot appear on a real TCP connection, so it is safe to allow.
-    """
-
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        client_host = request.client.host if request.client else None
-        if client_host not in _LOCALHOST_HOSTS:
-            return JSONResponse(
-                status_code=403,
-                content={"detail": "Access denied: localhost only"},
-            )
-        return await call_next(request)
-
-
-# Paths that do NOT require an API key (health checks, interactive docs).
-# The OpenAPI schema URL is checked separately in the middleware because it is
-# served under settings.API_V1_STR (e.g. /api/v1/openapi.json), not /openapi.json.
-_NO_AUTH_PATHS = frozenset({"/health", "/docs", "/redoc"})
-
-
-def _is_state_changing(path: str, method: str) -> bool:
-    """Return True if the request targets a destructive or side-effecting endpoint.
-
-    Covers global destructive operations (clearing all sessions, running a
-    simulation) and per-session OS side effects (terminal activation + clipboard
-    write via ``/focus``). Other per-session mutations remain open in the default
-    configuration and are fully gated when an explicit key is set (handled by
-    ``settings.has_explicit_key`` in the middleware).
-    """
-    prefix = settings.API_V1_STR + "/sessions"
-    return (
-        (path == prefix and method == "DELETE")
-        or (path == f"{prefix}/simulate" and method == "POST")
-        or (path.startswith(f"{prefix}/") and path.endswith("/focus") and method == "POST")
-    )
-
-
-class ApiKeyMiddleware(BaseHTTPMiddleware):
-    """Validate X-API-Key header for protected endpoints.
-
-    * When ``CLAUDE_OFFICE_API_KEY`` is explicitly set, ALL non-public paths
-      require the key (existing behaviour).
-    * When the key is empty (default), state-changing endpoints still require
-      the per-launch auto-generated token (``settings.effective_api_key``).
-      Read-only paths remain open for backwards compatibility.
-    """
-
-    async def dispatch(self, request: Request, call_next):  # type: ignore[override]
-        if request.method == "OPTIONS":
-            return await call_next(request)
-
-        # Skip auth for public paths and WebSocket handshakes
-        if (
-            request.url.path in _NO_AUTH_PATHS
-            or request.url.path == f"{settings.API_V1_STR}/openapi.json"
-            or request.url.path.startswith("/ws/")
-        ):
-            return await call_next(request)
-
-        # Determine whether auth is required for this request
-        requires_auth = settings.has_explicit_key or _is_state_changing(
-            request.url.path, request.method
-        )
-
-        if not requires_auth:
-            return await call_next(request)
-
-        provided = request.headers.get("X-API-Key", "")
-        if not hmac.compare_digest(provided, settings.effective_api_key):
-            return JSONResponse(status_code=401, content={"detail": "Invalid API key"})
-
-        return await call_next(request)
-
 
 settings = get_settings()
 
@@ -131,39 +39,6 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
-async def _migrate_schema(conn: AsyncConnection) -> None:
-    """Add columns to existing tables that were added after initial schema.
-
-    Only runs for SQLite. Uses ALTER TABLE ADD COLUMN which is a no-op if
-    the column already exists (checked via PRAGMA first).
-
-    NOTE: This project intentionally uses inline schema migration instead of
-    Alembic.  The backend is SQLite-only and single-instance, so the lightweight
-    PRAGMA-based approach is sufficient.  Alembic was removed as a dependency
-    (see pyproject.toml).
-    """
-    dialect = conn.dialect.name
-    if dialect != "sqlite":
-        return
-
-    new_columns: dict[str, str] = {
-        "label": "TEXT DEFAULT NULL",
-        "display_name": "TEXT DEFAULT NULL",
-        "floor_id": "TEXT DEFAULT NULL",
-        "room_id": "TEXT DEFAULT NULL",
-        "team_name": "TEXT DEFAULT NULL",
-        "teammate_name": "TEXT DEFAULT NULL",
-        "is_lead": "BOOLEAN DEFAULT 0",
-    }
-
-    result = await conn.execute(text("PRAGMA table_info(sessions)"))
-    existing = {row[1] for row in result.fetchall()}
-
-    for col_name, col_def in new_columns.items():
-        if col_name not in existing:
-            await conn.execute(text(f"ALTER TABLE sessions ADD COLUMN {col_name} {col_def}"))
-
-
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Manage application startup and shutdown lifecycle."""
@@ -171,7 +46,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     engine = get_engine()
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-        await _migrate_schema(conn)
+        await migrate_schema(conn)
 
     await _reap_stale_sessions()
 
@@ -314,6 +189,11 @@ app.include_router(events.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(floors.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(preferences.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")
+# WebSocket routes (no prefix). Registered before the SERVE_STATIC catch-all
+# ``@app.get("/{path:path}")`` block so WS handshakes aren't shadowed. Within
+# the router, ``/ws/overview`` is declared before ``/ws/{session_id}`` so the
+# literal path wins over the parameterized one.
+app.include_router(websockets.router)
 
 
 @app.exception_handler(Exception)
@@ -335,7 +215,7 @@ async def health_check() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/v1/status")
+@app.get(f"{settings.API_V1_STR}/status")
 async def get_status() -> dict[str, bool | str | None]:
     """Get server status including AI summary availability.
 
@@ -348,143 +228,6 @@ async def get_status() -> dict[str, bool | str | None]:
         "aiSummaryEnabled": summary_service.enabled,
         "aiSummaryModel": summary_service.model if summary_service.enabled else None,
     }
-
-
-@app.websocket("/ws/overview")
-async def websocket_overview(websocket: WebSocket) -> None:
-    """Overview WebSocket: boss status of every live session (Command Center).
-
-    Declared BEFORE ``/ws/{session_id}`` so the single-segment path ``/ws/overview``
-    isn't captured by the session route (which would treat "overview" as a session
-    id, accept, find no state, and silently idle).
-    """
-    from app.api.websocket import validate_websocket_origin
-
-    if not validate_websocket_origin(websocket):
-        await websocket.close(code=4003, reason="Origin not allowed")
-        return
-
-    # Cap concurrent overview watchers: each connection amplifies the per-event
-    # overview rebuild cost, so refuse beyond the limit instead of letting it
-    # grow unbounded. The check is enforced atomically with the registration
-    # inside connect_overview (under the manager lock) so a burst of concurrent
-    # handshakes can't each pass the limit before any registers.
-    accepted = await get_manager().connect_overview(
-        websocket, max_connections=_MAX_OVERVIEW_CONNECTIONS
-    )
-    if not accepted:
-        await websocket.close(code=4013, reason="Too many overview connections")
-        return
-    try:
-        # Send the current overview snapshot on connect. Built under the same
-        # ``_sessions_lock`` used by the per-event broadcast so it reads a
-        # consistent registry snapshot and can't race a concurrent event handler
-        # resizing ``sessions`` mid-iteration.
-        overview = await get_event_processor().build_overview_snapshot()
-        await websocket.send_json(
-            {
-                "type": "state_update",
-                "timestamp": overview.last_updated.isoformat(),
-                "state": overview.model_dump(mode="json", by_alias=True),
-            }
-        )
-        # Keep alive -- discard incoming messages
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        logger.warning("Overview WebSocket error", exc_info=True)
-    finally:
-        await get_manager().disconnect_overview(websocket)
-
-
-@app.websocket("/ws/{session_id}")
-async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
-    from app.api.websocket import validate_session_id, validate_websocket_origin
-
-    if not validate_session_id(session_id):
-        await websocket.close(code=4000, reason="Invalid session ID format")
-        return
-
-    if not validate_websocket_origin(websocket):
-        await websocket.close(code=4003, reason="Origin not allowed")
-        return
-
-    await get_manager().connect(websocket, session_id)
-
-    current_state = await get_event_processor().get_current_state(session_id)
-    if current_state:
-        await get_manager().send_personal_message(
-            {
-                "type": "state_update",
-                "timestamp": current_state.last_updated.isoformat(),
-                "state": current_state.model_dump(mode="json", by_alias=True),
-            },
-            websocket,
-        )
-
-    project_root = await get_event_processor().get_project_root(session_id)
-    if project_root:
-        git_service.configure(session_id=session_id, project_root=project_root)
-
-    git_status = git_service.get_status(session_id=session_id)
-    if git_status:
-        await get_manager().send_personal_message(
-            {
-                "type": "git_status",
-                "timestamp": git_status.last_updated.isoformat(),
-                "gitStatus": git_status.model_dump(mode="json"),
-            },
-            websocket,
-        )
-
-    try:
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        await get_manager().disconnect(websocket, session_id)
-        git_service.remove_session(session_id)
-
-
-@app.websocket("/ws/room/{room_id}")
-async def websocket_room(websocket: WebSocket, room_id: str) -> None:
-    """Room-level WebSocket: sends merged state for all sessions in a room."""
-    from app.api.websocket import validate_session_id, validate_websocket_origin
-
-    if not validate_session_id(room_id):
-        await websocket.close(code=4000, reason="Invalid room ID format")
-        return
-
-    if not validate_websocket_origin(websocket):
-        await websocket.close(code=4003, reason="Origin not allowed")
-        return
-
-    from app.core.room_orchestrator import RoomOrchestrator
-
-    await get_manager().connect_room(websocket, room_id)
-    try:
-        # Send current room state on connect
-        orch: RoomOrchestrator | None = get_event_processor().orchestrators.get(room_id)
-        if orch:
-            state = orch.merge()
-            if state:
-                await websocket.send_json(
-                    {
-                        "type": "state_update",
-                        "timestamp": state.last_updated.isoformat(),
-                        "state": state.model_dump(mode="json", by_alias=True),
-                    }
-                )
-        # Keep alive -- discard incoming messages
-        while True:
-            await websocket.receive_text()
-    except WebSocketDisconnect:
-        pass
-    except Exception:
-        logger.warning("Room WebSocket error for %s", room_id, exc_info=True)
-    finally:
-        await get_manager().disconnect_room(websocket, room_id)
 
 
 def _safe_static_path(requested_path: str) -> Path | None:

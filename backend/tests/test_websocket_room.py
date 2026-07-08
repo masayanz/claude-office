@@ -103,9 +103,14 @@ class TestOverviewRouteOrder:
         """`/ws/overview` is a single segment and would be captured by the
         `/ws/{session_id}` route unless declared first — which silently breaks
         the Command Center feed. Guard the registration order."""
-        from app.main import app
+        # After ARC-023 the WS endpoints live on a dedicated APIRouter
+        # included via ``app.include_router(websockets.router)``. FastAPI
+        # wraps included routers in ``_IncludedRouter`` entries on
+        # ``app.routes``, so the declaration order is checked on the router
+        # itself — that is what determines match order at request time.
+        from app.api.routes.websockets import router
 
-        paths = [getattr(r, "path", None) for r in app.routes]
+        paths = [getattr(r, "path", None) for r in router.routes]
         assert "/ws/overview" in paths
         assert "/ws/{session_id}" in paths
         assert paths.index("/ws/overview") < paths.index("/ws/{session_id}")

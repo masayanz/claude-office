@@ -3,9 +3,10 @@
  *
  * Arrival/departure queue ID arrays and their mutators. Several actions also
  * re-index the queued agents' `queueIndex`/`queueType` fields (cross-slice
- * writes via the shared `set`); dequeueArrival/dequeueDeparture use `get()`
- * to read then atomically write so subscribers never observe a shifted queue
- * with stale indices (QA-006).
+ * writes via the shared `set`). The enqueue/dequeue pairs share one helper
+ * each, parameterized by queueType (QA-003); dequeue uses `get()` to read then
+ * atomically write so subscribers never observe a shifted queue with stale
+ * indices (QA-006).
  */
 import type { StateCreator } from "zustand";
 import type { GameStore } from "../gameStore";
@@ -29,62 +30,49 @@ export const initialQueueState = {
 export const createQueueSlice: StateCreator<GameStore, [], [], QueueSlice> = (
   set,
   get,
-) => ({
-  ...initialQueueState,
-
-  enqueueArrival: (agentId) =>
+) => {
+  // QA-003: one helper for the enqueueArrival/enqueueDeparture duplicate pair.
+  // Appends the agent (no-op if already queued) and stamps their queueType/
+  // queueIndex in the same update.
+  const enqueueAgent = (
+    agentId: string,
+    queueType: "arrival" | "departure",
+  ): void =>
     set((state) => {
-      if (state.arrivalQueue.includes(agentId)) return state;
+      const isArrival = queueType === "arrival";
+      const queue = isArrival ? state.arrivalQueue : state.departureQueue;
+      if (queue.includes(agentId)) return state;
 
-      const newQueue = [...state.arrivalQueue, agentId];
+      const newQueue = [...queue, agentId];
       const queueIndex = newQueue.length - 1;
 
-      // Update agent's queue info
       const agent = state.agents.get(agentId);
       if (agent) {
         const newAgents = new Map(state.agents);
-        newAgents.set(agentId, {
-          ...agent,
-          queueType: "arrival",
-          queueIndex,
-        });
-        return { arrivalQueue: newQueue, agents: newAgents };
+        newAgents.set(agentId, { ...agent, queueType, queueIndex });
+        return isArrival
+          ? { arrivalQueue: newQueue, agents: newAgents }
+          : { departureQueue: newQueue, agents: newAgents };
       }
 
-      return { arrivalQueue: newQueue };
-    }),
+      return isArrival
+        ? { arrivalQueue: newQueue }
+        : { departureQueue: newQueue };
+    });
 
-  enqueueDeparture: (agentId) =>
-    set((state) => {
-      if (state.departureQueue.includes(agentId)) return state;
-
-      const newQueue = [...state.departureQueue, agentId];
-      const queueIndex = newQueue.length - 1;
-
-      // Update agent's queue info
-      const agent = state.agents.get(agentId);
-      if (agent) {
-        const newAgents = new Map(state.agents);
-        newAgents.set(agentId, {
-          ...agent,
-          queueType: "departure",
-          queueIndex,
-        });
-        return { departureQueue: newQueue, agents: newAgents };
-      }
-
-      return { departureQueue: newQueue };
-    }),
-
-  dequeueArrival: () => {
+  // QA-003: one helper for the dequeueArrival/dequeueDeparture duplicate pair.
+  // Pops the front and re-indexes the remainder atomically (QA-006: a single
+  // set() so subscribers never see a shifted queue with stale queueIndex).
+  const dequeueAgent = (
+    queueType: "arrival" | "departure",
+  ): string | undefined => {
     const state = get();
-    if (state.arrivalQueue.length === 0) return undefined;
+    const isArrival = queueType === "arrival";
+    const queue = isArrival ? state.arrivalQueue : state.departureQueue;
+    if (queue.length === 0) return undefined;
 
-    const [frontId, ...rest] = state.arrivalQueue;
+    const [frontId, ...rest] = queue;
 
-    // Re-index remaining queued agents in the same atomic update so
-    // subscribers never observe a shifted queue with stale queueIndex
-    // values (QA-006: previously two separate `set()` calls).
     const newAgents = new Map(state.agents);
     rest.forEach((id, idx) => {
       const agent = newAgents.get(id);
@@ -92,81 +80,74 @@ export const createQueueSlice: StateCreator<GameStore, [], [], QueueSlice> = (
         newAgents.set(id, { ...agent, queueIndex: idx });
       }
     });
-    set({ arrivalQueue: rest, agents: newAgents });
+    set(
+      isArrival
+        ? { arrivalQueue: rest, agents: newAgents }
+        : { departureQueue: rest, agents: newAgents },
+    );
 
     return frontId;
-  },
+  };
 
-  dequeueDeparture: () => {
-    const state = get();
-    if (state.departureQueue.length === 0) return undefined;
+  return {
+    ...initialQueueState,
 
-    const [frontId, ...rest] = state.departureQueue;
+    enqueueArrival: (agentId) => enqueueAgent(agentId, "arrival"),
+    enqueueDeparture: (agentId) => enqueueAgent(agentId, "departure"),
 
-    // Re-index remaining queued agents in the same atomic update so
-    // subscribers never observe a shifted queue with stale queueIndex
-    // values (QA-006: previously two separate `set()` calls).
-    const newAgents = new Map(state.agents);
-    rest.forEach((id, idx) => {
-      const agent = newAgents.get(id);
-      if (agent) {
-        newAgents.set(id, { ...agent, queueIndex: idx });
-      }
-    });
-    set({ departureQueue: rest, agents: newAgents });
+    dequeueArrival: () => dequeueAgent("arrival"),
+    dequeueDeparture: () => dequeueAgent("departure"),
 
-    return frontId;
-  },
+    advanceQueue: (queueType) =>
+      set((state) => {
+        const queue =
+          queueType === "arrival" ? state.arrivalQueue : state.departureQueue;
+        if (queue.length === 0) return state;
 
-  advanceQueue: (queueType) =>
-    set((state) => {
-      const queue =
-        queueType === "arrival" ? state.arrivalQueue : state.departureQueue;
-      if (queue.length === 0) return state;
+        // Update all agents' queue indices
+        const newAgents = new Map(state.agents);
+        queue.forEach((id, idx) => {
+          const agent = newAgents.get(id);
+          if (agent) {
+            newAgents.set(id, { ...agent, queueIndex: idx });
+          }
+        });
 
-      // Update all agents' queue indices
-      const newAgents = new Map(state.agents);
-      queue.forEach((id, idx) => {
-        const agent = newAgents.get(id);
-        if (agent) {
-          newAgents.set(id, { ...agent, queueIndex: idx });
-        }
-      });
+        return { agents: newAgents };
+      }),
 
-      return { agents: newAgents };
-    }),
+    syncQueues: (arrivalQueue, departureQueue) =>
+      set((state) => {
+        // Update agents' queue info based on synced queues
+        const newAgents = new Map(state.agents);
 
-  syncQueues: (arrivalQueue, departureQueue) =>
-    set((state) => {
-      // Update agents' queue info based on synced queues
-      const newAgents = new Map(state.agents);
+        arrivalQueue.forEach((id, idx) => {
+          const agent = newAgents.get(id);
+          if (agent) {
+            newAgents.set(id, {
+              ...agent,
+              queueType: "arrival",
+              queueIndex: idx,
+            });
+          }
+        });
 
-      arrivalQueue.forEach((id, idx) => {
-        const agent = newAgents.get(id);
-        if (agent) {
-          newAgents.set(id, {
-            ...agent,
-            queueType: "arrival",
-            queueIndex: idx,
-          });
-        }
-      });
+        departureQueue.forEach((id, idx) => {
+          const agent = newAgents.get(id);
+          if (agent) {
+            newAgents.set(id, {
+              ...agent,
+              queueType: "departure",
+              queueIndex: idx,
+            });
+          }
+        });
 
-      departureQueue.forEach((id, idx) => {
-        const agent = newAgents.get(id);
-        if (agent) {
-          newAgents.set(id, {
-            ...agent,
-            queueType: "departure",
-            queueIndex: idx,
-          });
-        }
-      });
-
-      return {
-        arrivalQueue,
-        departureQueue,
-        agents: newAgents,
-      };
-    }),
-});
+        return {
+          arrivalQueue,
+          departureQueue,
+          agents: newAgents,
+        };
+      }),
+  };
+};

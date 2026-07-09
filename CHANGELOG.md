@@ -19,6 +19,7 @@ All notable changes to Claude Office Visualizer are documented here.
 
 ### Fixed
 
+- **Command Center layout polish**: matched the back-wall height to the normal office, moved the elevator onto that wall, replaced the duplicate raw wall photo with the framed Employee of the Month poster, removed the extra printer/coffee-maker/plant clutter, lowered the wall outlet to the baseboard area, stacked each agent's todo count/progress bar under its nameplate, and corrected the exit elevator to use two proper door panels instead of one centered slab.
 - **`gameStore` action duplication (QA-003)**: the seven byte-identical `updateAgentX` mutators funnel through one `patchAgent` helper; the enqueue/dequeue duplicate pairs are parameterized by `queueType`. Behavior-preserving.
 
 67 of 69 audit findings now resolved; only QA-016 (the opportunistic `OfficeGame.tsx`/`page.tsx` god-component split — "do when next touched") remains. See `AUDIT-REMEDIATION.md`.

@@ -36,10 +36,11 @@ describe("Command Center wall layout", () => {
     expect(layoutSource).toContain("export const TOP_WALL_H = 250;");
   });
 
-  it("uses a single wall photo", () => {
-    const photoSprites = decorSource.match(/texture={t\.employeeOfMonth}/g);
+  it("uses the framed employee photo", () => {
+    const framedPhoto = decorSource.match(/<EmployeeOfTheMonth \/>/g);
 
-    expect(photoSprites).toHaveLength(1);
+    expect(framedPhoto).toHaveLength(1);
+    expect(decorSource).not.toContain("texture={t.employeeOfMonth}");
   });
 
   it("keeps the summary whiteboard readable", () => {
@@ -53,5 +54,19 @@ describe("Command Center wall layout", () => {
     );
     expect(furnitureSource).not.toContain("zone.y + 150");
     expect(exitingPeerSource).not.toContain("zone.y + 150");
+  });
+
+  it("keeps only the requested floor decor", () => {
+    const plantRefs = decorSource.match(/texture={t\.plant}/g);
+
+    expect(plantRefs).toHaveLength(1);
+    expect(decorSource).toContain("x={CANVAS_WIDTH - 60}");
+    expect(decorSource).not.toContain("t.printer");
+    expect(decorSource).not.toContain("t.coffeeMachine");
+  });
+
+  it("moves the water cooler to the elevator side", () => {
+    expect(decorSource).toContain("x={EXIT_DOOR_X + 120}");
+    expect(decorSource).toContain("y={TOP_WALL_H - 50}");
   });
 });

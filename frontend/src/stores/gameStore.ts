@@ -188,6 +188,9 @@ export interface GameStore {
   setPrintReport: (printReport: boolean) => void;
   setGitStatus: (status: GitStatus | null) => void;
   addEventLog: (event: NonNullable<WebSocketMessage["event"]>) => void;
+  hydrateEventLog: (
+    events: NonNullable<WebSocketMessage["event"]>[],
+  ) => void;
   conversation: ConversationEntry[];
   setConversation: (conversation: ConversationEntry[]) => void;
 

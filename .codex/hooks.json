@@ -1,5 +1,42 @@
 {
+  "description": "Project-local Claude Office lifecycle event adapter for Codex.",
   "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 1
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Bash",
@@ -7,6 +44,68 @@
           {
             "type": "command",
             "command": "graphify hook-check"
+          }
+        ]
+      },
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
+            "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
+            "timeout": 2
           }
         ]
       }

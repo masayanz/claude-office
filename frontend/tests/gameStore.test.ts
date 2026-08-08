@@ -13,6 +13,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { useGameStore } from "@/stores/gameStore";
 import type { Agent, BubbleContent, Position } from "@/types";
+import type { WebSocketMessage } from "@/types";
 
 // ---------------------------------------------------------------------------
 // FIXTURES
@@ -41,6 +42,35 @@ const BUBBLE_B: BubbleContent = { type: "speech", text: "yo" };
 /** Reset the store before every test so order never matters. */
 beforeEach(() => {
   useGameStore.getState().reset();
+});
+
+describe("hydrateEventLog", () => {
+  const event = (
+    id: string,
+    type: NonNullable<WebSocketMessage["event"]>["type"],
+    timestamp: string,
+  ): NonNullable<WebSocketMessage["event"]> => ({
+    id,
+    type,
+    agentId: "",
+    summary: type,
+    timestamp,
+  });
+
+  it("merges replay history with live events, de-duplicates, and sorts newest first", () => {
+    const live = event("live", "pre_tool_use", "2026-08-08T01:00:03Z");
+    useGameStore.getState().addEventLog(live);
+
+    useGameStore.getState().hydrateEventLog([
+      event("start", "session_start", "2026-08-08T01:00:01Z"),
+      event("prompt", "user_prompt_submit", "2026-08-08T01:00:02Z"),
+      live,
+    ]);
+
+    const log = useGameStore.getState().eventLog;
+    expect(log.map(({ id }) => id)).toEqual(["live", "prompt", "start"]);
+    expect(log[0]?.timestamp).toBeInstanceOf(Date);
+  });
 });
 
 // ---------------------------------------------------------------------------

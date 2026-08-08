@@ -25,6 +25,8 @@ import { reconcileState } from "@/systems/stateReconciler";
 import { shouldShowToast } from "@/systems/toastFilter";
 import { WebSocketController } from "@/systems/webSocketController";
 import type { EventType, WebSocketMessage } from "@/types";
+import type { ReplayFrame } from "@/stores/gameStore";
+import { apiFetch } from "@/utils/api";
 
 // ============================================================================
 // TYPES
@@ -71,6 +73,7 @@ export function useWebSocketEvents({
   const setSessionId = useGameStore.getState().setSessionId;
   const setGitStatus = useGameStore.getState().setGitStatus;
   const addEventLog = useGameStore.getState().addEventLog;
+  const hydrateEventLog = useGameStore.getState().hydrateEventLog;
 
   // ---- Reconnect bookkeeping (clears stale tracking state on a fresh socket) ----
   const handleReconnectReset = useCallback(() => {
@@ -236,11 +239,37 @@ export function useWebSocketEvents({
 
     controllerRef.current?.connect();
 
+    // A session is created by session_start, so the socket cannot subscribe
+    // early enough to receive that first event. Hydrate the Event Log from the
+    // replay endpoint while retaining any live events that arrive meanwhile.
+    const abortController = new AbortController();
+    void apiFetch(
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/replay`,
+      { signal: abortController.signal },
+    )
+      .then((response) => (response.ok ? response.json() : null))
+      .then((frames: ReplayFrame[] | null) => {
+        if (
+          !frames ||
+          !Array.isArray(frames) ||
+          currentSessionIdRef.current !== sessionId
+        ) {
+          return;
+        }
+        hydrateEventLog(frames.map((frame) => frame.event));
+      })
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          console.error("[WS] Failed to hydrate Event Log:", error);
+        }
+      });
+
     return () => {
+      abortController.abort();
       controllerRef.current?.disconnect();
       typingTrackerRef.current?.clear();
     };
-  }, [sessionId, enabled]);
+  }, [sessionId, enabled, hydrateEventLog]);
 }
 
 // ============================================================================

@@ -48,6 +48,9 @@ export type OfficeSlice = {
   setPrintReport: (printReport: boolean) => void;
   setGitStatus: (status: GitStatus | null) => void;
   addEventLog: (event: NonNullable<WebSocketMessage["event"]>) => void;
+  hydrateEventLog: (
+    events: NonNullable<WebSocketMessage["event"]>[],
+  ) => void;
   setConversation: (conversation: ConversationEntry[]) => void;
 };
 
@@ -105,6 +108,24 @@ export const createOfficeSlice: StateCreator<GameStore, [], [], OfficeSlice> = (
       return {
         eventLog: [entry, ...state.eventLog.slice(0, MAX_EVENT_LOG - 1)],
       };
+    }),
+
+  hydrateEventLog: (events) =>
+    set((state) => {
+      const entries: EventLogEntry[] = events.map((event) => ({
+        ...event,
+        timestamp: event.timestamp ? new Date(event.timestamp) : new Date(),
+      }));
+      const seen = new Set<string>();
+      const eventLog = [...state.eventLog, ...entries]
+        .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+        .filter((entry) => {
+          if (seen.has(entry.id)) return false;
+          seen.add(entry.id);
+          return true;
+        })
+        .slice(0, MAX_EVENT_LOG);
+      return { eventLog };
     }),
 
   setConversation: (conversation) => set({ conversation }),

@@ -595,6 +595,9 @@ export function OfficeGame(): ReactNode {
                     renderBubble={false}
                     isTyping={boss.isTyping}
                     isAway={compactionAnimation.phase !== "idle"}
+                    name={boss.name}
+                    source={boss.source}
+                    model={boss.model}
                   />
 
                   {/* Mobile Boss (when walking to/from trash can) */}
@@ -605,6 +608,10 @@ export function OfficeGame(): ReactNode {
                       scale={compactionAnimation.bossScale}
                       sunglassesTexture={textures.sunglasses}
                       headsetTexture={textures.headset}
+                      name={boss.name}
+                      source={boss.source}
+                      model={boss.model}
+                      state={boss.backendState}
                     />
                   )}
 
@@ -656,6 +663,10 @@ export function OfficeGame(): ReactNode {
                         key={`label-${agent.id}`}
                         name={agent.name!}
                         position={agent.currentPosition}
+                        source={agent.source}
+                        model={agent.model}
+                        isWaiting={agent.backendState === "waiting"}
+                        agentType={agent.agentType}
                       />
                     ))}
 

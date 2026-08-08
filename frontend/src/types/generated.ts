@@ -41,6 +41,9 @@ export type Text = string;
 export type Icon = string | null;
 export type Persistent = boolean;
 export type Currenttask = string | null;
+export type Source = string | null;
+export type Model = string | null;
+export type Agenttype = string | null;
 export type Charactertype = string | null;
 export type Parentsessionid = string | null;
 export type Parentid = string | null;
@@ -62,6 +65,8 @@ export type CacheReadTokens = number | null;
 export type CacheCreationTokens = number | null;
 export type FloorId = string | null;
 export type RoomId = string | null;
+export type Source1 = string | null;
+export type Model1 = string | null;
 export type AgentName = string | null;
 export type AgentType = string | null;
 export type TaskDescription = string | null;
@@ -100,6 +105,8 @@ export type CacheReadTokens1 = number | null;
 export type CacheCreationTokens1 = number | null;
 export type FloorId1 = string | null;
 export type RoomId1 = string | null;
+export type Source2 = string | null;
+export type Model2 = string | null;
 export type BackgroundTaskId = string | null;
 export type BackgroundTaskOutputFile = string | null;
 export type BackgroundTaskStatus = string | null;
@@ -121,6 +128,10 @@ export type BossState =
   | "reviewing"
   | "completing";
 export type Currenttask1 = string | null;
+export type Name1 = string | null;
+export type Source3 = string | null;
+export type Model3 = string | null;
+export type Agenttype1 = string | null;
 export type Path = string;
 /**
  * Git file status codes.
@@ -224,6 +235,8 @@ export type BackgroundTaskSummary1 = string | null;
 export type TaskListId2 = string | null;
 export type FloorId2 = string | null;
 export type RoomId2 = string | null;
+export type Source4 = string | null;
+export type Model4 = string | null;
 export type TeamName2 = string | null;
 export type TeammateName2 = string | null;
 export type TaskId = string | null;
@@ -246,6 +259,8 @@ export type CacheReadTokens3 = number | null;
 export type CacheCreationTokens3 = number | null;
 export type FloorId3 = string | null;
 export type RoomId3 = string | null;
+export type Source5 = string | null;
+export type Model5 = string | null;
 export type Filepath = string;
 export type Editcount = number;
 export type Sessionid = string;
@@ -354,6 +369,8 @@ export type CacheReadTokens4 = number | null;
 export type CacheCreationTokens4 = number | null;
 export type FloorId4 = string | null;
 export type RoomId4 = string | null;
+export type Source6 = string | null;
+export type Model6 = string | null;
 export type NotificationType1 = string | null;
 export type ErrorType1 = string | null;
 export type Reason1 = string | null;
@@ -390,6 +407,8 @@ export type CacheReadTokens5 = number | null;
 export type CacheCreationTokens5 = number | null;
 export type FloorId5 = string | null;
 export type RoomId5 = string | null;
+export type Source7 = string | null;
+export type Model7 = string | null;
 export type Prompt1 = string | null;
 export type Id3 = string;
 export type CreatedAt = string;
@@ -415,6 +434,8 @@ export type CacheReadTokens6 = number | null;
 export type CacheCreationTokens6 = number | null;
 export type FloorId6 = string | null;
 export type RoomId6 = string | null;
+export type Source8 = string | null;
+export type Model8 = string | null;
 export type Reason2 = string | null;
 export type ProjectName7 = string | null;
 export type ProjectDir7 = string | null;
@@ -434,6 +455,8 @@ export type CacheReadTokens7 = number | null;
 export type CacheCreationTokens7 = number | null;
 export type FloorId7 = string | null;
 export type RoomId7 = string | null;
+export type Source9 = string | null;
+export type Model9 = string | null;
 export type TaskId2 = string | null;
 export type TaskSubject1 = string | null;
 export type ProjectName8 = string | null;
@@ -454,6 +477,8 @@ export type CacheReadTokens8 = number | null;
 export type CacheCreationTokens8 = number | null;
 export type FloorId8 = string | null;
 export type RoomId8 = string | null;
+export type Source10 = string | null;
+export type Model10 = string | null;
 export type ToolName1 = string | null;
 export type ToolUseId2 = string | null;
 export type ToolInput1 = {
@@ -463,6 +488,7 @@ export type Success2 = boolean | null;
 export type ResultSummary2 = string | null;
 export type ErrorType2 = string | null;
 export type Thinking2 = string | null;
+export type AgentType2 = string | null;
 
 export interface ClaudeOfficeBackendTypes {
   [k: string]: unknown;
@@ -483,6 +509,9 @@ export interface Agent {
   desk?: Desk;
   bubble?: BubbleContent | null;
   currentTask?: Currenttask;
+  source?: Source;
+  model?: Model;
+  agentType?: Agenttype;
   position?: Position;
   characterType?: Charactertype;
   parentSessionId?: Parentsessionid;
@@ -535,6 +564,8 @@ export interface AgentEventData {
   cache_creation_tokens?: CacheCreationTokens;
   floor_id?: FloorId;
   room_id?: RoomId;
+  source?: Source1;
+  model?: Model1;
   agent_name?: AgentName;
   agent_type?: AgentType;
   task_description?: TaskDescription;
@@ -611,6 +642,8 @@ export interface BackgroundTaskEventData {
   cache_creation_tokens?: CacheCreationTokens1;
   floor_id?: FloorId1;
   room_id?: RoomId1;
+  source?: Source2;
+  model?: Model2;
   background_task_id?: BackgroundTaskId;
   background_task_output_file?: BackgroundTaskOutputFile;
   background_task_status?: BackgroundTaskStatus;
@@ -627,6 +660,10 @@ export interface Boss1 {
   state: BossState;
   currentTask?: Currenttask1;
   bubble?: BubbleContent | null;
+  name?: Name1;
+  source?: Source3;
+  model?: Model3;
+  agentType?: Agenttype1;
   position?: Position1;
   [k: string]: unknown;
 }
@@ -742,6 +779,8 @@ export interface EventData {
   task_list_id?: TaskListId2;
   floor_id?: FloorId2;
   room_id?: RoomId2;
+  source?: Source4;
+  model?: Model4;
   team_name?: TeamName2;
   teammate_name?: TeammateName2;
   task_id?: TaskId;
@@ -776,6 +815,8 @@ export interface EventDataBase {
   cache_creation_tokens?: CacheCreationTokens3;
   floor_id?: FloorId3;
   room_id?: RoomId3;
+  source?: Source5;
+  model?: Model5;
   [k: string]: unknown;
 }
 /**
@@ -961,6 +1002,8 @@ export interface LifecycleEventData {
   cache_creation_tokens?: CacheCreationTokens4;
   floor_id?: FloorId4;
   room_id?: RoomId4;
+  source?: Source6;
+  model?: Model6;
   notification_type?: NotificationType1;
   error_type?: ErrorType1;
   reason?: Reason1;
@@ -1020,6 +1063,8 @@ export interface PromptEventData {
   cache_creation_tokens?: CacheCreationTokens5;
   floor_id?: FloorId5;
   room_id?: RoomId5;
+  source?: Source7;
+  model?: Model7;
   prompt?: Prompt1;
   [k: string]: unknown;
 }
@@ -1063,6 +1108,8 @@ export interface SessionEventData {
   cache_creation_tokens?: CacheCreationTokens6;
   floor_id?: FloorId6;
   room_id?: RoomId6;
+  source?: Source8;
+  model?: Model8;
   reason?: Reason2;
   [k: string]: unknown;
 }
@@ -1091,6 +1138,8 @@ export interface TaskEventData {
   cache_creation_tokens?: CacheCreationTokens7;
   floor_id?: FloorId7;
   room_id?: RoomId7;
+  source?: Source9;
+  model?: Model9;
   task_id?: TaskId2;
   task_subject?: TaskSubject1;
   [k: string]: unknown;
@@ -1120,6 +1169,8 @@ export interface ToolEventData {
   cache_creation_tokens?: CacheCreationTokens8;
   floor_id?: FloorId8;
   room_id?: RoomId8;
+  source?: Source10;
+  model?: Model10;
   tool_name?: ToolName1;
   tool_use_id?: ToolUseId2;
   tool_input?: ToolInput1;
@@ -1127,5 +1178,6 @@ export interface ToolEventData {
   result_summary?: ResultSummary2;
   error_type?: ErrorType2;
   thinking?: Thinking2;
+  agent_type?: AgentType2;
   [k: string]: unknown;
 }

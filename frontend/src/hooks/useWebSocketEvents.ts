@@ -27,6 +27,10 @@ import { WebSocketController } from "@/systems/webSocketController";
 import type { EventType, WebSocketMessage } from "@/types";
 import type { ReplayFrame } from "@/stores/gameStore";
 import { apiFetch } from "@/utils/api";
+import {
+  isCodexAgentWait,
+  shouldEnterCodexWaitState,
+} from "@/utils/codexPresentation";
 
 // ============================================================================
 // TYPES
@@ -131,7 +135,25 @@ export function useWebSocketEvents({
               ) {
                 const agentId = message.event.agentId;
                 const typingKey = agentId || "boss";
-                if (message.event.type === "pre_tool_use") {
+                if (isCodexAgentWait(message.event.detail)) {
+                  typingTrackerRef.current?.stopImmediately(typingKey);
+                  if (
+                    shouldEnterCodexWaitState(
+                      message.event.type,
+                      message.event.detail,
+                    )
+                  ) {
+                    if (agentId && agentId !== "main" && agentId !== "boss") {
+                      useGameStore
+                        .getState()
+                        .updateAgentBackendState(agentId, "waiting");
+                    } else {
+                      useGameStore
+                        .getState()
+                        .updateBossBackendState("reviewing");
+                    }
+                  }
+                } else if (message.event.type === "pre_tool_use") {
                   typingTrackerRef.current?.onPreToolUse(typingKey);
                 } else {
                   typingTrackerRef.current?.onPostToolUse(typingKey);

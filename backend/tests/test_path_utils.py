@@ -26,9 +26,10 @@ class TestCompressPath:
 
     def test_home_directory_replaced_with_tilde(self) -> None:
         """Home directory should be replaced with ~."""
-        with patch.object(Path, "home", return_value=Path("/home/user")):
-            result = compress_path("/home/user/projects/file.txt")
-            assert result == "~/projects/file.txt"
+        mock_home = Path("/home/user")
+        with patch.object(Path, "home", return_value=mock_home):
+            result = compress_path(str(mock_home / "projects" / "file.txt"))
+            assert result == str(Path("~") / "projects" / "file.txt")
 
     def test_long_path_truncated_from_beginning(self) -> None:
         """Long paths should be truncated from the beginning."""
@@ -69,17 +70,19 @@ class TestCompressPathsInText:
 
     def test_home_path_replaced_in_text(self) -> None:
         """Home directory paths in text should be replaced with ~."""
-        with patch.object(Path, "home", return_value=Path("/home/user")):
-            text = "Reading file /home/user/projects/test.py"
+        mock_home = Path("/home/user")
+        with patch.object(Path, "home", return_value=mock_home):
+            text = f"Reading file {mock_home / 'projects' / 'test.py'}"
             result = compress_paths_in_text(text)
-            assert result == "Reading file ~/projects/test.py"
+            assert result == f"Reading file {Path('~') / 'projects' / 'test.py'}"
 
     def test_multiple_home_paths_replaced(self) -> None:
         """Multiple home paths should all be replaced."""
-        with patch.object(Path, "home", return_value=Path("/home/user")):
-            text = "Copying /home/user/a.txt to /home/user/b.txt"
+        mock_home = Path("/home/user")
+        with patch.object(Path, "home", return_value=mock_home):
+            text = f"Copying {mock_home / 'a.txt'} to {mock_home / 'b.txt'}"
             result = compress_paths_in_text(text)
-            assert result == "Copying ~/a.txt to ~/b.txt"
+            assert result == f"Copying {Path('~') / 'a.txt'} to {Path('~') / 'b.txt'}"
 
 
 class TestTruncateLongWords:

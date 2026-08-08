@@ -78,7 +78,7 @@ async def handle_subagent_start(
         f"agent_type={event.data.agent_type!r}"
     )
 
-    if agent_id in sm.agents:
+    if agent_id in sm.agents and event.data.source != "codex":
         existing = {a.name for aid, a in sm.agents.items() if aid != agent_id and a.name}
         await enrich_agent_with_summaries(sm.agents[agent_id], event.data, existing)
         # Propagate enriched short name to the lifespan record.

@@ -85,6 +85,31 @@ _DISPLAY_NAME_STRIP_PREFIXES = ("repos", "projects", "src", "work", "code", "git
 # already named; this names the third `sm.history` cap site.
 MAX_HISTORY_ENTRIES = 500
 
+_HISTORY_DETAIL_FIELDS = (
+    ("tool_name", "toolName"),
+    ("tool_input", "toolInput"),
+    ("result_summary", "resultSummary"),
+    ("message", "message"),
+    ("thinking", "thinking"),
+    ("error_type", "errorType"),
+    ("task_description", "taskDescription"),
+    ("agent_name", "agentName"),
+    ("agent_type", "agentType"),
+    ("source", "source"),
+    ("model", "model"),
+    ("prompt", "prompt"),
+)
+
+
+def _build_history_detail(event: AnyEvent) -> dict[str, Any]:
+    """Build the explicit frontend history allowlist for one event."""
+    detail: dict[str, Any] = {}
+    for source_name, destination_name in _HISTORY_DETAIL_FIELDS:
+        value = getattr(event.data, source_name, None)
+        if value is not None:
+            detail[destination_name] = value
+    return detail
+
 
 def _todos_unchanged(old_todos: list[TodoItem], new_todos: list[TodoItem]) -> bool:
     """Return True if two todo lists are semantically identical.
@@ -544,21 +569,7 @@ class EventProcessor:
         # Family-specific fields are read via getattr because event.data is the
         # union of all payload classes; only the family matching event.event_type
         # actually carries each field.
-        detail: dict[str, Any] = {}
-        for src, dst in [
-            ("tool_name", "toolName"),
-            ("tool_input", "toolInput"),
-            ("result_summary", "resultSummary"),
-            ("message", "message"),
-            ("thinking", "thinking"),
-            ("error_type", "errorType"),
-            ("task_description", "taskDescription"),
-            ("agent_name", "agentName"),
-            ("prompt", "prompt"),
-        ]:
-            val = getattr(event.data, src, None)
-            if val is not None:
-                detail[dst] = val
+        detail = _build_history_detail(event)
 
         event_dict: HistoryEntry = {
             "id": str(event.timestamp.timestamp()),

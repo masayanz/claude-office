@@ -38,6 +38,9 @@ export type AgentSlice = {
       backendState: BackendAgentState;
       name: string | null;
       currentTask: string | null;
+      source?: string | null;
+      model?: string | null;
+      agentType?: string | null;
     },
   ) => void;
   updateAgentQueueInfo: (
@@ -92,6 +95,14 @@ export const createAgentSlice: StateCreator<GameStore, [], [], AgentSlice> = (
           characterType: backendAgent.characterType ?? null,
           parentSessionId: backendAgent.parentSessionId ?? null,
           parentId: backendAgent.parentId ?? null,
+          source:
+            typeof backendAgent.source === "string" ? backendAgent.source : null,
+          model:
+            typeof backendAgent.model === "string" ? backendAgent.model : null,
+          agentType:
+            typeof backendAgent.agentType === "string"
+              ? backendAgent.agentType
+              : null,
           phase: "arriving",
           currentPosition: initialPosition,
           targetPosition: initialPosition,
@@ -152,6 +163,10 @@ export const createAgentSlice: StateCreator<GameStore, [], [], AgentSlice> = (
         // `??` (not `||`) so an explicit empty-string currentTask clears the
         // previous task — only null/undefined fall back. See QA-012.
         currentTask: meta.currentTask ?? agent.currentTask,
+        source: meta.source === undefined ? agent.source : meta.source,
+        model: meta.model === undefined ? agent.model : meta.model,
+        agentType:
+          meta.agentType === undefined ? agent.agentType : meta.agentType,
       })),
 
     updateAgentQueueInfo: (agentId, queueType, queueIndex) =>

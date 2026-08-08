@@ -101,12 +101,20 @@ export const createOfficeSlice: StateCreator<GameStore, [], [], OfficeSlice> = (
 
   addEventLog: (event) =>
     set((state) => {
+      if (
+        event.id &&
+        state.eventLog.some((entry) => entry.id === event.id)
+      ) {
+        return state;
+      }
       const timestamp = event.timestamp
         ? new Date(event.timestamp)
         : new Date();
       const entry: EventLogEntry = { ...event, timestamp };
       return {
-        eventLog: [entry, ...state.eventLog.slice(0, MAX_EVENT_LOG - 1)],
+        eventLog: [entry, ...state.eventLog]
+          .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+          .slice(0, MAX_EVENT_LOG),
       };
     }),
 
@@ -120,8 +128,11 @@ export const createOfficeSlice: StateCreator<GameStore, [], [], OfficeSlice> = (
       const eventLog = [...state.eventLog, ...entries]
         .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
         .filter((entry) => {
-          if (seen.has(entry.id)) return false;
-          seen.add(entry.id);
+          // Older producers may omit IDs. Keep those entries rather than
+          // collapsing every ID-less event into one; stable IDs are the only
+          // safe cross-replay/reconnect de-duplication key.
+          if (entry.id && seen.has(entry.id)) return false;
+          if (entry.id) seen.add(entry.id);
           return true;
         })
         .slice(0, MAX_EVENT_LOG);

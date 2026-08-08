@@ -106,6 +106,9 @@ export interface EventDetail {
   taskDescription?: string;
   agentName?: string;
   prompt?: string;
+  source?: string;
+  model?: string;
+  agentType?: string;
 }
 
 /**

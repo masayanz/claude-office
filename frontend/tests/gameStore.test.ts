@@ -71,6 +71,60 @@ describe("hydrateEventLog", () => {
     expect(log.map(({ id }) => id)).toEqual(["live", "prompt", "start"]);
     expect(log[0]?.timestamp).toBeInstanceOf(Date);
   });
+
+  it("ignores a duplicate live event received again after reconnect", () => {
+    const duplicate = event(
+      "same-event",
+      "pre_tool_use",
+      "2026-08-08T01:00:03Z",
+    );
+
+    useGameStore.getState().addEventLog(duplicate);
+    useGameStore.getState().addEventLog(duplicate);
+
+    expect(useGameStore.getState().eventLog.map(({ id }) => id)).toEqual([
+      "same-event",
+    ]);
+  });
+
+  it("de-duplicates when replay hydration finishes before the matching live event", () => {
+    const replayed = event(
+      "replayed-first",
+      "session_start",
+      "2026-08-08T01:00:01Z",
+    );
+
+    useGameStore.getState().hydrateEventLog([replayed]);
+    useGameStore.getState().addEventLog(replayed);
+
+    expect(useGameStore.getState().eventLog.map(({ id }) => id)).toEqual([
+      "replayed-first",
+    ]);
+  });
+
+  it("keeps live events in timestamp order when reconnect delivery is delayed", () => {
+    useGameStore
+      .getState()
+      .addEventLog(event("newer", "post_tool_use", "2026-08-08T01:00:03Z"));
+    useGameStore
+      .getState()
+      .addEventLog(event("older", "pre_tool_use", "2026-08-08T01:00:02Z"));
+
+    expect(useGameStore.getState().eventLog.map(({ id }) => id)).toEqual([
+      "newer",
+      "older",
+    ]);
+  });
+
+  it("retains ID-less legacy events because they cannot be safely correlated", () => {
+    const first = event("", "pre_tool_use", "2026-08-08T01:00:01Z");
+    const second = event("", "post_tool_use", "2026-08-08T01:00:02Z");
+
+    useGameStore.getState().hydrateEventLog([first]);
+    useGameStore.getState().addEventLog(second);
+
+    expect(useGameStore.getState().eventLog).toHaveLength(2);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -522,6 +576,20 @@ describe("reset variants", () => {
       useGameStore.getState().resetForSessionSwitch();
       expect(useGameStore.getState().isReplaying).toBe(false);
     });
+
+    it("clears the prior session event log", () => {
+      useGameStore.getState().addEventLog({
+        id: "old-session-event",
+        type: "session_start",
+        agentId: "",
+        summary: "old session",
+        timestamp: "2026-08-08T01:00:01Z",
+      });
+
+      useGameStore.getState().resetForSessionSwitch();
+
+      expect(useGameStore.getState().eventLog).toEqual([]);
+    });
   });
 });
 
@@ -589,6 +657,50 @@ describe("updateAgentMeta", () => {
     expect(useGameStore.getState().agents.get("A")?.backendState).toBe(
       "thinking",
     );
+  });
+
+  it("clears Codex source and model when backend sends explicit null", () => {
+    useGameStore.getState().updateAgentMeta("A", {
+      backendState: "working",
+      name: "Codex Agent 1",
+      currentTask: null,
+      source: "codex",
+      model: "gpt-5.6-sol",
+      agentType: "default",
+    });
+    useGameStore.getState().updateAgentMeta("A", {
+      backendState: "working",
+      name: null,
+      currentTask: null,
+      source: null,
+      model: null,
+      agentType: null,
+    });
+
+    expect(useGameStore.getState().agents.get("A")).toMatchObject({
+      source: null,
+      model: null,
+      agentType: null,
+    });
+  });
+
+  it("clears boss Codex identity when a non-Codex state arrives", () => {
+    useGameStore.getState().updateBossIdentity({
+      name: "Codex Main",
+      source: "codex",
+      model: "gpt-5.6-sol",
+    });
+    useGameStore.getState().updateBossIdentity({
+      name: null,
+      source: null,
+      model: null,
+    });
+
+    expect(useGameStore.getState().boss).toMatchObject({
+      name: null,
+      source: null,
+      model: null,
+    });
   });
 
   // QA-012 note: the `currentTask: ""` case was previously excluded because

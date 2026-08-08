@@ -16,6 +16,7 @@ import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
 import { truncateBubbleText } from "@/utils/bubbleText";
+import { codexSecondaryLabel } from "@/utils/codexPresentation";
 
 // ============================================================================
 // TYPES
@@ -37,6 +38,9 @@ export interface BossSpriteProps {
   renderBubble?: boolean; // Whether to render bubble (default true)
   isTyping?: boolean; // Whether boss is typing (animates arms)
   isAway?: boolean; // Whether boss is away from desk (hides body, shows only furniture)
+  name?: string | null;
+  source?: string | null;
+  model?: string | null;
 }
 
 // ============================================================================
@@ -204,7 +208,15 @@ function BossSpriteComponent({
   renderBubble = true,
   isTyping = false,
   isAway = false,
+  name = null,
+  source = null,
+  model = null,
 }: BossSpriteProps): ReactNode {
+  const secondaryLabel = codexSecondaryLabel(
+    source,
+    model,
+    state === "reviewing",
+  );
   // Animation state for typing
   const [typingTime, setTypingTime] = useState(0);
 
@@ -345,9 +357,9 @@ function BossSpriteComponent({
 
       {/* Boss label - hidden when away from desk */}
       {!isAway && (
-        <pixiContainer y={-63} scale={0.5}>
+        <pixiContainer y={secondaryLabel ? -75 : -63} scale={0.5}>
           <pixiText
-            text="Claude"
+            text={name ?? "Claude"}
             anchor={0.5}
             style={{
               fontFamily: "monospace",
@@ -358,6 +370,20 @@ function BossSpriteComponent({
             }}
             resolution={2}
           />
+          {secondaryLabel && (
+            <pixiText
+              text={secondaryLabel.slice(0, 28)}
+              anchor={0.5}
+              y={24}
+              style={{
+                fontFamily: "monospace",
+                fontSize: 13,
+                fill: 0x94a3b8,
+                stroke: { width: 3, color: 0x000000 },
+              }}
+              resolution={2}
+            />
+          )}
         </pixiContainer>
       )}
 
@@ -391,6 +417,10 @@ export interface MobileBossProps {
   scale?: number; // Scale factor for boss body
   sunglassesTexture: Texture | null;
   headsetTexture: Texture | null;
+  name?: string | null;
+  source?: string | null;
+  model?: string | null;
+  state?: BossState;
 }
 
 function MobileBossComponent({
@@ -399,7 +429,16 @@ function MobileBossComponent({
   scale = 1.0,
   sunglassesTexture,
   headsetTexture,
+  name = null,
+  source = null,
+  model = null,
+  state = "working",
 }: MobileBossProps): ReactNode {
+  const secondaryLabel = codexSecondaryLabel(
+    source,
+    model,
+    state === "reviewing",
+  );
   const drawBossCallback = useMemo(
     () => (g: Graphics) => drawBossBody(g, "working"),
     [],
@@ -434,9 +473,9 @@ function MobileBossComponent({
       )}
 
       {/* Boss label */}
-      <pixiContainer y={-63} scale={0.5}>
+      <pixiContainer y={secondaryLabel ? -75 : -63} scale={0.5}>
         <pixiText
-          text="Claude"
+          text={name ?? "Claude"}
           anchor={0.5}
           style={{
             fontFamily: "monospace",
@@ -447,6 +486,20 @@ function MobileBossComponent({
           }}
           resolution={2}
         />
+        {secondaryLabel && (
+          <pixiText
+            text={secondaryLabel.slice(0, 28)}
+            anchor={0.5}
+            y={24}
+            style={{
+              fontFamily: "monospace",
+              fontSize: 13,
+              fill: 0x94a3b8,
+              stroke: { width: 3, color: 0x000000 },
+            }}
+            resolution={2}
+          />
+        )}
       </pixiContainer>
     </pixiContainer>
   );

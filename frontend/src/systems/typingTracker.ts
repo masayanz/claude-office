@@ -67,6 +67,18 @@ export class TypingTracker {
   }
 
   /**
+   * Immediately stop typing for tools that represent waiting rather than work.
+   * Unlike onPostToolUse, this intentionally bypasses the minimum duration.
+   */
+  stopImmediately(key: string): void {
+    const timeout = this.timeouts.get(key);
+    if (timeout) clearTimeout(timeout);
+    this.timeouts.delete(key);
+    this.startTimes.delete(key);
+    this.setTyping(key, false);
+  }
+
+  /**
    * Cancel all pending timeouts and clear start-time tracking.
    * Called on WebSocket teardown and on session_start (re-arm for a fresh run).
    */

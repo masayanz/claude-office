@@ -8,6 +8,10 @@ import {
   selectAgents,
   type BossAnimationState,
 } from "@/stores/gameStore";
+import {
+  codexSecondaryLabel,
+  isCodexSource,
+} from "@/utils/codexPresentation";
 
 // ============================================================================
 // TYPES
@@ -51,8 +55,13 @@ export function MobileAgentActivity({
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full bg-amber-500" />
             <span className="text-amber-400 font-bold text-xs">
-              {t("mobile.boss")}
+              {boss.name ?? t("mobile.boss")}
             </span>
+            {isCodexSource(boss.source) && boss.model && (
+              <span className="text-slate-500 text-[9px] truncate max-w-24">
+                {boss.model}
+              </span>
+            )}
             <span className="text-slate-500 text-[10px] font-mono ml-auto">
               {boss.backendState}
             </span>
@@ -86,9 +95,24 @@ export function MobileAgentActivity({
                     className="w-2 h-2 rounded-full"
                     style={{ backgroundColor: agent.color }}
                   />
-                  <span className="text-slate-300 font-bold text-xs">
-                    {agent.name}
+                  <span className="text-slate-300 font-bold text-xs truncate min-w-0">
+                    {agent.name || `${t("agentStatus.agent")} #${agent.number}`}
                   </span>
+                  {codexSecondaryLabel(
+                    agent.source,
+                    agent.model,
+                    agent.backendState === "waiting",
+                    agent.agentType,
+                  ) && (
+                    <span className="text-slate-500 text-[9px] truncate max-w-20">
+                      {codexSecondaryLabel(
+                        agent.source,
+                        agent.model,
+                        agent.backendState === "waiting",
+                        agent.agentType,
+                      )}
+                    </span>
+                  )}
                   <span className="text-slate-600 text-[10px] font-mono ml-auto">
                     {agent.phase}
                   </span>

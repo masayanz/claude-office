@@ -31,20 +31,59 @@ def test_maps_all_supported_hooks(hook_name: str, event_type: str) -> None:
     assert event["timestamp"] == "2026-08-08T03:04:05+00:00"
 
 
-def test_session_start_only_maps_cwd() -> None:
+def test_session_start_maps_safe_metadata_and_cwd_only() -> None:
     event = map_event(
         {
             "hook_event_name": "SessionStart",
             "session_id": "session-1",
             "cwd": "D:/safe/project",
-            "model": "not-forwarded",
+            "model": "gpt-5.6-sol",
             "prompt": "secret",
         },
         received_at=NOW,
     )
 
     assert event is not None
-    assert event["data"] == {"working_dir": "D:/safe/project"}
+    assert event["data"] == {
+        "source": "codex",
+        "model": "gpt-5.6-sol",
+        "project_name": "project",
+        "working_dir": "D:/safe/project",
+    }
+
+
+def test_project_name_uses_only_a_safe_cwd_basename() -> None:
+    event = map_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "session-1",
+            "cwd": r"C:\Users\admin\secret-project",
+        },
+        received_at=NOW,
+    )
+
+    assert event is not None
+    assert event["data"] == {
+        "source": "codex",
+        "project_name": "secret-project",
+    }
+
+
+def test_project_name_drops_unsafe_path_basename() -> None:
+    event = map_event(
+        {
+            "hook_event_name": "SessionStart",
+            "session_id": "session-1",
+            "cwd": r"C:\Users\admin\project with spaces",
+        },
+        received_at=NOW,
+    )
+
+    assert event is not None
+    assert event["data"] == {
+        "source": "codex",
+        "working_dir": r"C:\Users\admin\project with spaces",
+    }
 
 
 def test_user_prompt_uses_fixed_message_and_drops_content() -> None:
@@ -59,7 +98,7 @@ def test_user_prompt_uses_fixed_message_and_drops_content() -> None:
     )
 
     assert event is not None
-    assert event["data"] == {"message": "Codex user prompt"}
+    assert event["data"] == {"source": "codex", "message": "Codex user prompt"}
 
 
 @pytest.mark.parametrize(
@@ -86,13 +125,14 @@ def test_tool_metadata_and_name_normalization(source_name: str, mapped_name: str
 
     assert event is not None
     assert event["data"] == {
+        "source": "codex",
         "tool_name": mapped_name,
         "tool_use_id": "tool-1",
         "agent_id": "agent-1",
     }
 
 
-def test_subagent_start_builds_safe_stable_name() -> None:
+def test_subagent_start_forwards_identity_without_id_derived_display_text() -> None:
     event = map_event(
         {
             "hook_event_name": "SubagentStart",
@@ -106,8 +146,8 @@ def test_subagent_start_builds_safe_stable_name() -> None:
 
     assert event is not None
     assert event["data"] == {
+        "source": "codex",
         "agent_id": "abc-123456789",
-        "agent_name": "Codex Agent abc12345",
         "agent_type": "default",
     }
 
@@ -125,7 +165,11 @@ def test_subagent_stop_maps_only_identity() -> None:
     )
 
     assert event is not None
-    assert event["data"] == {"agent_id": "agent-1", "agent_type": "default"}
+    assert event["data"] == {
+        "source": "codex",
+        "agent_id": "agent-1",
+        "agent_type": "default",
+    }
 
 
 def test_unknown_hook_is_ignored() -> None:
@@ -156,4 +200,38 @@ def test_missing_optional_fields_are_allowed() -> None:
     )
 
     assert event is not None
-    assert event["data"] == {}
+    assert event["data"] == {"source": "codex"}
+
+
+def test_safe_model_and_agent_type_metadata_are_allowlisted() -> None:
+    event = map_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "session-1",
+            "model": "gpt-5.6-sol",
+            "agent_type": "default",
+        },
+        received_at=NOW,
+    )
+
+    assert event is not None
+    assert event["data"] == {
+        "source": "codex",
+        "model": "gpt-5.6-sol",
+        "agent_type": "default",
+    }
+
+
+def test_arbitrary_model_and_agent_type_text_are_not_forwarded() -> None:
+    event = map_event(
+        {
+            "hook_event_name": "SubagentStart",
+            "session_id": "session-1",
+            "model": "secret model text with spaces",
+            "agent_type": "secret\ncontent",
+        },
+        received_at=NOW,
+    )
+
+    assert event is not None
+    assert event["data"] == {"source": "codex"}

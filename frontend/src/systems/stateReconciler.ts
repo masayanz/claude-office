@@ -188,6 +188,14 @@ export function reconcileState(state: GameState, ctx: ReconcilerContext): void {
         backendState: backendAgent.state,
         name: backendAgent.name ?? null,
         currentTask: backendAgent.currentTask ?? null,
+        source:
+          typeof backendAgent.source === "string" ? backendAgent.source : null,
+        model:
+          typeof backendAgent.model === "string" ? backendAgent.model : null,
+        agentType:
+          typeof backendAgent.agentType === "string"
+            ? backendAgent.agentType
+            : null,
       });
 
       // Enqueue bubbles for agents who are at their desk working.
@@ -230,6 +238,11 @@ export function reconcileState(state: GameState, ctx: ReconcilerContext): void {
   // ---- Update boss state ----
   store.updateBossBackendState(state.boss.state);
   store.updateBossTask(state.boss.currentTask ?? null);
+  store.updateBossIdentity({
+    name: typeof state.boss.name === "string" ? state.boss.name : null,
+    source: typeof state.boss.source === "string" ? state.boss.source : null,
+    model: typeof state.boss.model === "string" ? state.boss.model : null,
+  });
 
   // Enqueue boss bubble if present.
   if (state.boss.bubble) {

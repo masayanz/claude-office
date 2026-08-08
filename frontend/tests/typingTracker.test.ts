@@ -44,6 +44,24 @@ describe("TypingTracker", () => {
     ]);
   });
 
+  it("stops typing immediately for a waiting tool and cancels pending timers", () => {
+    const calls: Array<{ key: string; typing: boolean }> = [];
+    const tracker = new TypingTracker(
+      (key, typing) => calls.push({ key, typing }),
+      500,
+    );
+
+    tracker.onPreToolUse("boss");
+    tracker.onPostToolUse("boss");
+    tracker.stopImmediately("boss");
+    vi.advanceTimersByTime(500);
+
+    expect(calls).toEqual([
+      { key: "boss", typing: true },
+      { key: "boss", typing: false },
+    ]);
+  });
+
   it("schedules the typing-off callback for the remaining duration when post fires early", () => {
     const calls: Array<{ key: string; typing: boolean }> = [];
     const tracker = new TypingTracker((key, typing) =>

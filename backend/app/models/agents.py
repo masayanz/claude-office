@@ -61,6 +61,9 @@ class Agent(BaseModel):
     desk: int | None = None
     bubble: BubbleContent | None = None
     current_task: str | None = None
+    source: str | None = None
+    model: str | None = None
+    agent_type: str | None = None
     position: dict[str, int] = {"x": 0, "y": 0}
     # Agent Teams character hierarchy (Phase 4)
     character_type: str | None = None  # "lead" | "teammate" | "subagent"
@@ -76,6 +79,10 @@ class Boss(BaseModel):
     state: BossState
     current_task: str | None = None
     bubble: BubbleContent | None = None
+    name: str | None = None
+    source: str | None = None
+    model: str | None = None
+    agent_type: str | None = None
     position: dict[str, int] = {"x": 640, "y": 830}
 
 

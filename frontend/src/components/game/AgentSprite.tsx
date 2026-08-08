@@ -19,6 +19,7 @@ import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
 import { truncateBubbleText } from "@/utils/bubbleText";
+import { codexSecondaryLabel } from "@/utils/codexPresentation";
 
 // ============================================================================
 // TYPES
@@ -346,11 +347,32 @@ export const AgentHeadset = memo(AgentHeadsetComponent);
 export interface AgentLabelProps {
   name: string;
   position: Position;
+  source?: string | null;
+  model?: string | null;
+  isWaiting?: boolean;
+  agentType?: string | null;
 }
 
-function AgentLabelComponent({ name, position }: AgentLabelProps): ReactNode {
+function AgentLabelComponent({
+  name,
+  position,
+  source = null,
+  model = null,
+  isWaiting = false,
+  agentType = null,
+}: AgentLabelProps): ReactNode {
+  const secondaryLabel = codexSecondaryLabel(
+    source,
+    model,
+    isWaiting,
+    agentType,
+  );
   return (
-    <pixiContainer x={position.x} y={position.y - 70} scale={0.5}>
+    <pixiContainer
+      x={position.x}
+      y={position.y - (secondaryLabel ? 82 : 70)}
+      scale={0.5}
+    >
       <pixiText
         text={name}
         anchor={0.5}
@@ -363,6 +385,20 @@ function AgentLabelComponent({ name, position }: AgentLabelProps): ReactNode {
         }}
         resolution={2}
       />
+      {secondaryLabel && (
+        <pixiText
+          text={secondaryLabel.slice(0, 28)}
+          anchor={0.5}
+          y={24}
+          style={{
+            fontFamily: "monospace",
+            fontSize: 13,
+            fill: 0x94a3b8,
+            stroke: { width: 3, color: 0x000000 },
+          }}
+          resolution={2}
+        />
+      )}
     </pixiContainer>
   );
 }

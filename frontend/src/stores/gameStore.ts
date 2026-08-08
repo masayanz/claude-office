@@ -89,6 +89,9 @@ export interface GameStore {
       backendState: BackendAgentState;
       name: string | null;
       currentTask: string | null;
+      source?: string | null;
+      model?: string | null;
+      agentType?: string | null;
     },
   ) => void;
   updateAgentQueueInfo: (
@@ -147,6 +150,11 @@ export interface GameStore {
   updateBossTask: (task: string | null) => void;
   setBossInUse: (by: "arrival" | "departure" | null) => void;
   setBossTyping: (typing: boolean) => void;
+  updateBossIdentity: (identity: {
+    name: string | null;
+    source: string | null;
+    model: string | null;
+  }) => void;
 
   // ========== Bubble Actions (unified for boss and agents) ==========
   enqueueBubble: (
@@ -351,6 +359,18 @@ export const useGameStore = create<GameStore>()(
                 currentTask: backendAgent.currentTask ?? null,
                 desk: backendAgent.desk ?? null,
                 name: backendAgent.name ?? null,
+                source:
+                  typeof backendAgent.source === "string"
+                    ? backendAgent.source
+                    : null,
+                model:
+                  typeof backendAgent.model === "string"
+                    ? backendAgent.model
+                    : null,
+                agentType:
+                  typeof backendAgent.agentType === "string"
+                    ? backendAgent.agentType
+                    : null,
               });
             }
           }
@@ -368,6 +388,18 @@ export const useGameStore = create<GameStore>()(
           ...state.boss,
           backendState: backendState.boss.state,
           currentTask: backendState.boss.currentTask ?? null,
+          name:
+            typeof backendState.boss.name === "string"
+              ? backendState.boss.name
+              : null,
+          source:
+            typeof backendState.boss.source === "string"
+              ? backendState.boss.source
+              : null,
+          model:
+            typeof backendState.boss.model === "string"
+              ? backendState.boss.model
+              : null,
         };
 
         // Process bubbles from backend state

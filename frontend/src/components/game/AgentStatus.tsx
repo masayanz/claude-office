@@ -18,6 +18,7 @@ import {
   MapPin,
   Layers,
 } from "lucide-react";
+import { codexSecondaryLabel } from "@/utils/codexPresentation";
 
 // Backend state colors (work status)
 function getBackendStateColor(state: string) {
@@ -129,6 +130,31 @@ export function AgentStatus() {
                   <span className="font-bold text-slate-100 truncate">
                     {agent.name || `${t("agentStatus.agent")} #${agent.number}`}
                   </span>
+                  {codexSecondaryLabel(
+                    agent.source,
+                    agent.model,
+                    agent.backendState === "waiting",
+                    agent.agentType,
+                  ) && (
+                    <span
+                      className="text-slate-500 text-[9px] truncate max-w-24"
+                      title={
+                        codexSecondaryLabel(
+                          agent.source,
+                          agent.model,
+                          agent.backendState === "waiting",
+                          agent.agentType,
+                        ) ?? undefined
+                      }
+                    >
+                      {codexSecondaryLabel(
+                        agent.source,
+                        agent.model,
+                        agent.backendState === "waiting",
+                        agent.agentType,
+                      )}
+                    </span>
+                  )}
                   <span className="text-slate-600 text-[9px] flex-shrink-0">
                     #{agent.id.slice(0, 7)}
                   </span>

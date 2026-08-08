@@ -67,6 +67,9 @@ export interface AgentAnimationState {
   characterType: string | null;
   parentSessionId: string | null;
   parentId: string | null;
+  source: string | null;
+  model: string | null;
+  agentType: string | null;
 
   // Phase tracking (frontend owned)
   phase: AgentPhase;
@@ -106,6 +109,9 @@ export interface BossAnimationState {
   inUseBy: "arrival" | "departure" | null;
   currentTask: string | null;
   isTyping: boolean; // True when boss is actively using tools (typing animation)
+  name: string | null;
+  source: string | null;
+  model: string | null;
 }
 
 /**

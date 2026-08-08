@@ -1,255 +1,272 @@
 # Codex Integration
 
-This guide describes the Windows-first integration between OpenAI Codex and Claude Office. It uses project-local Codex lifecycle hooks to pass allowlisted event metadata to a standalone adapter without modifying Codex or the VS Code extension.
+Claude Office can visualize OpenAI Codex activity through user-level global lifecycle hooks. Once
+installed, the same integration works in every Codex project without copying a Claude Office hook
+file into each repository.
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Why Lifecycle Hooks](#why-lifecycle-hooks)
-- [Prerequisites](#prerequisites)
-- [Project-Local Setup](#project-local-setup)
-- [Architecture and Events](#architecture-and-events)
-- [Security and Privacy](#security-and-privacy)
-- [Failure Behavior](#failure-behavior)
-- [Verify the Integration](#verify-the-integration)
-- [Uninstall](#uninstall)
-- [Troubleshooting](#troubleshooting)
-- [Related Documentation](#related-documentation)
-
-## Overview
-
-The integration is designed to keep Codex and its editor extension unchanged:
-
-```mermaid
-graph LR
-    Codex[Codex]
-    Hooks[Project-local lifecycle hooks]
-    Adapter[codex-adapter]
-    API[Claude Office /api/v1/events]
-    Office[Pixel art office]
-
-    Codex -->|JSON on stdin| Hooks
-    Hooks -->|Allowlisted metadata| Adapter
-    Adapter -->|HTTP on 127.0.0.1| API
-    API --> Office
+```text
+Codex lifecycle hook (`~/.codex/hooks.json`)
+        ↓ JSON on stdin
+`~/.codex/claude-office-hook.ps1`
+        ↓ `py -3.13`, independent of project environments
+`codex-adapter/hook.py`
+        ↓ allowlisted metadata only
+http://127.0.0.1:8000/api/v1/events
+        ↓
+Claude Office
 ```
 
-The adapter endpoint is fixed to `http://127.0.0.1:8000/api/v1/events`. On Windows, the project hook runs:
+The adapter is local and fail-open: if Claude Office is stopped or unreachable, Codex continues
+normally and that visualization event is dropped.
+
+## Global setup (recommended)
+
+Run this once from the Claude Office repository. It backs up the existing user hooks, preserves
+unrelated handlers, and adds only the eight Claude Office lifecycle events. Running it again is
+safe and updates the stored Claude Office root if the repository was moved.
 
 ```powershell
-py -3.13 "$(git rev-parse --show-toplevel)\codex-adapter\hook.py"
+cd <Claude Office root>
+.\codex-adapter\install-global-hooks.ps1
 ```
 
-The launcher loads the package directly from `codex-adapter/src`, so no package installation is required for project-local hooks.
+The installer writes `~/.codex/hooks.json`, a stable launcher, and a root config under
+`~/.codex`; existing settings are backed up under `~/.codex/backups/` before each update.
+After installation, open a new Codex session and use `/hooks` to review/trust the launcher if
+Codex requests it.
+
+Remove only Claude Office's global handlers with:
+
+```powershell
+.\codex-adapter\uninstall-global-hooks.ps1
+```
+
+Codex loads matching user and project hooks together. Therefore this repository's
+`.codex/hooks.json` intentionally contains no Claude Office handler; unrelated project hooks can
+remain in place.
 
 ## Why Lifecycle Hooks
 
-Lifecycle hooks are preferred because they:
+Lifecycle hooks provide session, tool, and subagent events as they happen without parsing Codex's
+internal JSONL, SQLite files, or VS Code extension protocol. The global hook does not replace an
+existing `notify` command.
 
-- provide session, turn, tool, and subagent events as they occur;
-- use an official Codex extension point;
-- do not require changes to Codex, the VS Code extension, or the existing global `notify` setting;
-- can be scoped to this repository through `.codex/hooks.json`;
-- avoid continuously parsing internal JSONL or SQLite formats;
-- allow the adapter to discard sensitive fields before sending anything to Claude Office.
+When upgrading Codex, compare the configuration with the
+[official Codex Hooks documentation](https://developers.openai.com/codex/hooks).
 
-Codex hook behavior can evolve. Refer to the [official OpenAI Codex Hooks documentation](https://developers.openai.com/codex/hooks) when updating configuration or event handling.
+## Windows setup and one-click start
 
-## Prerequisites
+Requirements:
 
-Confirm that:
-
-- Codex is installed and can open this repository;
-- Python 3.13 is available through the Windows Python launcher;
-- Claude Office can listen on `127.0.0.1:8000` when visualization is required;
-- you trust the project-local hooks before enabling them.
+- Python 3.13 available through the Windows Python launcher;
+- `uv` for the backend;
+- Bun for the frontend.
 
 ```powershell
 py -3.13 --version
 ```
 
-## Project-Local Setup
+No adapter package installation is required. The global launcher always invokes the adapter from
+the configured Claude Office root with `py -3.13`; it does not use the active project's venv or
+Node environment.
 
-### 1. Review the Existing Hook Configuration
+## Starting and Stopping on Windows
 
-The project-local configuration is `.codex/hooks.json`. It invokes `codex-adapter/hook.py` for:
+Install dependencies once from the repository root:
 
-- `SessionStart`
-- `SessionEnd`
-- `UserPromptSubmit`
-- `PreToolUse`
-- `PostToolUse`
-- `SubagentStart`
-- `SubagentStop`
-- `Stop`
-
-It also contains an existing `PreToolUse` entry for `graphify hook-check`. The adapter entry coexists with that unrelated hook.
-
-### 2. Confirm the Adapter Command
-
-The repository keeps both command fields for Windows and non-Windows environments:
-
-```json
-{
-  "type": "command",
-  "command": "python3 \"$(git rev-parse --show-toplevel)/codex-adapter/hook.py\"",
-  "commandWindows": "py -3.13 \"$(git rev-parse --show-toplevel)\\codex-adapter\\hook.py\"",
-  "timeout": 2
-}
+```powershell
+cd backend
+uv sync
+cd ..
 ```
 
-Preserve the surrounding event matchers and the existing `graphify hook-check` entry.
-
-Do not add the same handlers to `~/.codex/hooks.json` unless user-wide behavior is intentional. Codex may merge user and project hook configurations, causing duplicate events.
-
-### 3. Review and Trust the Hooks
-
-Codex requires the project to be trusted before project-local hooks run. Open the hooks interface in Codex:
-
-```text
-/hooks
+```powershell
+cd frontend
+bun install
+cd ..
 ```
 
-Review every displayed command, verify that it resolves to the expected adapter, and approve the project hooks only if the commands are trusted. Reopen the Codex session if the installed version does not reload hook changes immediately.
+For normal use, start everything with:
 
-> **Security:** Project-local hook files execute commands locally. Review `.codex/hooks.json` again after pulling changes from another branch or remote repository.
+```powershell
+.\start_claude_office.ps1
+```
 
-## Architecture and Events
+The script starts the backend (`uv run uvicorn ... --host 127.0.0.1 --port 8000`) and frontend
+(`bun run dev`) in titled PowerShell windows, checks `/health` and `http://localhost:3000` for up
+to 30 seconds, prevents duplicate starts, and opens the browser. It never kills an unrelated
+process that owns port 8000 or 3000. Stop either server with `Ctrl+C` in its own window.
 
-The adapter receives one JSON object on standard input for each hook invocation, maps its event name, and sends a minimized Claude Office event.
+Manual fallback:
 
-| Codex hook | Claude Office `event_type` | Allowlisted output |
+```powershell
+cd backend
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+cd frontend
+bun run dev
+```
+
+Stopping Claude Office does not require disabling the global hooks and does not stop Codex; events
+produced while the backend is down are not replayed.
+
+## Adapter Components
+
+| File | Responsibility |
+| --- | --- |
+| `codex-adapter/hook.py` | Shared, fail-open Python adapter launcher |
+| `codex-adapter/install-global-hooks.ps1` | Idempotent global hook installer and backup creator |
+| `codex-adapter/uninstall-global-hooks.ps1` | Removes only Claude Office global handlers |
+| `start_claude_office.ps1` | Backend/frontend readiness check and browser launcher |
+| `event_mapper.py` | Hook mapping, metadata allowlist, and tool normalization |
+| `sender.py` | One HTTP POST to the fixed loopback destination |
+| `config.py` | Fixed host, port, path, and 0.5-second timeout |
+| `main.py` | Reads one stdin JSON object and suppresses adapter failures |
+
+The sender uses a direct `HTTPConnection` to `127.0.0.1:8000`, bypasses environment proxies,
+does not follow redirects, performs no retry, and keeps no queue.
+
+## Events and Metadata
+
+| Codex hook | Claude Office `event_type` | Event-specific data |
 | --- | --- | --- |
-| `SessionStart` | `session_start` | envelope `session_id`; data `working_dir` from `cwd` |
-| `SessionEnd` | `session_end` | `session_id` |
-| `UserPromptSubmit` | `user_prompt_submit` | envelope `session_id`; fixed safe message |
-| `PreToolUse` | `pre_tool_use` | envelope `session_id`; data `agent_id`, `tool_name`, `tool_use_id` when present |
-| `PostToolUse` | `post_tool_use` | envelope `session_id`; data `agent_id`, `tool_name`, `tool_use_id` when present |
-| `SubagentStart` | `subagent_start` | envelope `session_id`; data `agent_id`, `agent_type`, generated `agent_name` |
-| `SubagentStop` | `subagent_stop` | envelope `session_id`; data `agent_id`, `agent_type` |
-| `Stop` | `stop` | `session_id` |
+| `SessionStart` | `session_start` | safe `project_name` plus backend-only `working_dir` from `cwd` |
+| `SessionEnd` | `session_end` | none |
+| `UserPromptSubmit` | `user_prompt_submit` | fixed message `Codex user prompt` |
+| `PreToolUse` | `pre_tool_use` | `tool_name`, `tool_use_id`, optional `agent_id` and `agent_type` |
+| `PostToolUse` | `post_tool_use` | `tool_name`, `tool_use_id`, optional `agent_id` and `agent_type` |
+| `SubagentStart` | `subagent_start` | `agent_id`, optional `agent_type` |
+| `SubagentStop` | `subagent_stop` | `agent_id`, optional `agent_type` |
+| `Stop` | `stop` | none |
 
-The adapter may receive `turn_id`, `model`, and additional `cwd` values from Codex, but the initial allowlist deliberately does not forward them. It does not assume every hook contains every field. A direct parent-agent identifier was not present in the validated payload, so nested parent-child relationships require further validation.
+Every mapped event has `data.source = "codex"`. A short identifier-like `model` value is included
+when Codex supplies one. `agent_type` uses the same conservative validation. Missing optional
+fields are omitted rather than invented. `project_name` is the safe basename of the hook `cwd`
+(for example `you_ne` or `epubreader-`); the full path is never used as the UI project label.
 
-Use `session_id` for the Codex/Claude Office session, `agent_id` for a subagent, and `tool_use_id` to pair tool start and completion. Use the hook receive time when the source payload lacks a suitable timestamp.
+The backend presents the main character as **Codex Main**. Subagents receive stable names in
+arrival order within the session: **Codex Agent 1**, **Codex Agent 2**, and so on. The same
+`agent_id` follows a child from `SubagentStart`, through tool events, to `SubagentStop`; its display
+number remains reserved after the character leaves.
+
+Tool names are normalized as follows:
+
+| Codex tool | Claude Office tool |
+| --- | --- |
+| `collaborationspawn_agent` | `Agent` |
+| `collaborationwait_agent` | `AgentWait` |
+| other names, such as `Bash` | unchanged |
+
+`Agent` shows delegation. `AgentWait` shows the main agent reviewing/waiting for subagents; a child
+receiving the same event is shown waiting until its matching post-tool event.
 
 ## Security and Privacy
 
-Use an explicit allowlist. Construct a new event object from approved scalar metadata and ignore every unknown field.
-
-The initial forwarded values are:
+The mapper constructs a new payload from an explicit allowlist and never forwards unknown fields.
+Forwarded metadata is limited to:
 
 ```text
 session_id
-agent_id
-agent_type
-tool_name
-tool_use_id
-cwd as SessionStart working_dir only
 receive timestamp
+source = codex
+model when safely formatted
+working_dir on SessionStart
+project_name from the safe `cwd` basename
+tool_name and tool_use_id on tool events
+agent_id and safely formatted agent_type when present
 ```
 
-Never log, persist, or forward values from prompts, input messages, tool input or response, assistant messages, commands, stdout, stderr, transcripts, file contents, authentication data, tokens, secrets, or API keys.
+The adapter does **not** forward or log:
 
-If diagnostics need to confirm a sensitive field exists, record only a boolean such as `tool_input_present: true`. Do not include its value, length, hash, excerpt, or structure.
+- prompt or input-message text;
+- tool input or tool response;
+- assistant messages;
+- command text, stdout, or stderr;
+- transcript paths or contents;
+- file contents;
+- authentication data, tokens, secrets, or API keys.
 
-Additional safeguards:
-
-- send only to a configured loopback address by default;
-- set short HTTP connection and response timeouts;
-- avoid redirects to non-loopback destinations;
-- keep diagnostic logging disabled by default;
-- never copy Codex authentication files or environment secrets into adapter configuration;
-- treat `cwd` as potentially sensitive and send it only when Claude Office needs it.
+`working_dir` is forwarded only on `SessionStart` for backend project-root and git/task lookup; the
+frontend label uses `project_name` and does not display that path. Project, model, and agent type
+values are restricted identifier-like metadata. No debug log is enabled by default.
 
 ## Failure Behavior
 
-The adapter must be fail-open: visualization failures must not interrupt Codex.
+Launcher, JSON parsing, mapping, and sending exceptions are contained inside the adapter. It writes
+no routine stdout or stderr and returns success to Codex even when:
 
-When Claude Office is stopped, unreachable, slow, or returns an error, the adapter should:
+- stdin is empty or malformed;
+- a hook is unknown or required IDs are missing;
+- Claude Office refuses the connection;
+- the HTTP request exceeds 0.5 seconds;
+- the API returns 4xx or 5xx.
 
-1. abandon delivery after a short timeout;
-2. suppress normal stdout output;
-3. avoid repeated or large stderr output;
-4. avoid unbounded retries and queues;
-5. handle all exceptions internally;
-6. return a successful process exit status to Codex.
+Delivery is attempted once. There is no retry loop, disk spool, or in-memory queue.
 
-Events may be dropped while Claude Office is unavailable. This is preferable to delaying tool execution or a Codex turn. Durable replay is outside the minimal integration unless it can be added without storing sensitive data.
+## Verification
 
-## Verify the Integration
-
-After installing the adapter and updating `.codex/hooks.json`:
-
-1. Start the Claude Office backend.
+1. Start the backend and frontend.
 2. Open this repository in a new trusted Codex session.
-3. Submit a harmless prompt that reads a non-sensitive project file.
-4. Run one harmless tool action.
-5. Start and complete one subagent task.
-6. Confirm the office shows the main agent, tool activity, and subagent lifecycle.
-7. Stop Claude Office and repeat a harmless Codex action.
-8. Confirm Codex completes normally even though events cannot be delivered.
+3. Submit a harmless request that performs one tool action.
+4. Start one subagent, let it use a tool, and let it finish.
+5. Confirm `Codex Main`, tool activity, `Codex Agent 1`, waiting state, and departure appear.
+6. Stop the backend and perform another harmless Codex action.
+7. Confirm Codex still completes normally.
 
-Do not use prompts, commands, or files containing credentials during verification. If debug output is enabled, inspect it for metadata keys only and remove temporary logs afterward.
+Use only non-sensitive prompts and files during verification.
 
 ## Uninstall
 
-To disable this project's integration without affecting user-wide Codex settings:
-
-1. Remove only handlers that invoke `claude_office_codex_adapter` from `.codex/hooks.json`.
-2. Preserve unrelated handlers such as `graphify hook-check`.
-3. Remove `codex-adapter/` if the adapter source itself is no longer needed.
-4. Reopen Codex and use `/hooks` to verify that no Claude Office adapter command remains.
+Run `codex-adapter\uninstall-global-hooks.ps1`, then start a new Codex session and confirm the
+Claude Office entries are gone in `/hooks`. The project-local file is intentionally retained as an
+empty, documented hook layer; it does not affect other integrations.
 
 ## Troubleshooting
 
-### Hooks Do Not Run
+### Hooks do not run
 
-**Likely causes:** The repository is not trusted, configuration was not reloaded, or an event name or matcher is invalid for the installed Codex version.
+Run `/hooks`, review/trust the user-level launcher, and start a new session. Confirm that hooks are
+enabled and that `~/.codex/hooks.json` contains all eight events.
 
-**Fix:**
-
-1. Run `/hooks` in Codex.
-2. Review and trust the project-local configuration.
-3. Compare `.codex/hooks.json` with the official hooks documentation.
-4. Start a new Codex session after changing the hook file.
-
-### Python Launcher or Module Is Not Found
-
-**Symptom:** The hook cannot run `py -3.13` or load `codex-adapter/hook.py`.
-
-**Fix:** Confirm the interpreter and adapter installation:
+### `py -3.13` or `hook.py` is not found
 
 ```powershell
 py -3.13 --version
-py -3.13 "$(git rev-parse --show-toplevel)\codex-adapter\hook.py" < NUL
+'' | py -3.13 "<Claude Office root>\codex-adapter\hook.py"
 ```
 
-### Events Appear Twice
+The empty-input command should exit successfully without output.
 
-**Likely cause:** Equivalent handlers exist in both `.codex/hooks.json` and `~/.codex/hooks.json`.
+### Events appear twice
 
-**Fix:** Review `/hooks` and both scopes. Keep only the intended project-local adapter handler while preserving unrelated hooks.
+Check `/hooks`, `.codex/hooks.json`, and `~/.codex/hooks.json`. Remove any old project-local
+Claude Office handlers; matching hooks from multiple scopes all run concurrently.
 
-### Tool Events Appear but Subagents Do Not
+### Main activity appears but subagents do not
 
-**Likely causes:** The installed Codex version does not emit the expected subagent hooks, the matcher differs, or no child agent was started.
+Confirm `SubagentStart` and `SubagentStop` in `/hooks`, then explicitly start one child agent. Do
+not infer child lifecycle solely from the `Agent` tool event.
 
-**Fix:** Verify `SubagentStart` and `SubagentStop` in `/hooks`, then run a harmless task that explicitly delegates to one subagent. Do not infer subagent completion from a tool event alone.
+### `AgentWait` is shown as a generic tool
 
-### Claude Office Is Unavailable
+Confirm Codex emitted `collaborationwait_agent` and the adapter normalized it to `AgentWait`.
+Restart Codex and Claude Office after updating an older adapter/backend pair.
 
-**Expected behavior:** Codex continues normally and the visualization misses events generated during the outage.
+### Claude Office is unavailable
 
-If Codex pauses or fails, treat that as an adapter defect. Disable the adapter handlers in `.codex/hooks.json`, verify Codex operation, and inspect only sanitized diagnostic metadata.
+Codex should continue and visualization events are dropped. If Codex pauses or fails, temporarily
+run `uninstall-global-hooks.ps1` and report the adapter defect. No retry loop, popup, or queue is
+used.
 
-### Event Fields Are Missing
+### Some metadata is missing
 
-Hook fields vary by event and Codex version. Omit absent optional fields instead of inventing values. If a required correlation key is missing, safely drop the event and record only a non-sensitive reason when debug logging is explicitly enabled.
+Payloads vary by event and Codex version. Optional `model`, `agent_type`, `agent_id`, and
+`tool_use_id` values are omitted when unavailable or unsafe. The adapter never guesses them.
 
 ## Related Documentation
 
-- [Official OpenAI Codex Hooks documentation](https://developers.openai.com/codex/hooks)
 - [Claude Office architecture](../architecture/ARCHITECTURE.md)
 - [Claude Office quick start](../guides/quickstart.md)
 - [Codex hooks research](../research/openai-codex-hooks.md)

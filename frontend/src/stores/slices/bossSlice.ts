@@ -17,6 +17,11 @@ export type BossSlice = {
   updateBossTask: (task: string | null) => void;
   setBossInUse: (by: "arrival" | "departure" | null) => void;
   setBossTyping: (typing: boolean) => void;
+  updateBossIdentity: (identity: {
+    name: string | null;
+    source: string | null;
+    model: string | null;
+  }) => void;
 };
 
 export const initialBossSliceState = {
@@ -46,5 +51,15 @@ export const createBossSlice: StateCreator<GameStore, [], [], BossSlice> = (
   setBossTyping: (typing) =>
     set((state) => ({
       boss: { ...state.boss, isTyping: typing },
+    })),
+
+  updateBossIdentity: (identity) =>
+    set((state) => ({
+      boss: {
+        ...state.boss,
+        name: identity.name,
+        source: identity.source,
+        model: identity.model,
+      },
     })),
 });

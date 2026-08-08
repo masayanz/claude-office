@@ -52,6 +52,10 @@ def _empty_agents() -> dict[str, Agent]:
     return cast(dict[str, Agent], {})
 
 
+def _empty_agent_numbers() -> dict[str, int]:
+    return cast(dict[str, int], {})
+
+
 def _empty_str_list() -> list[str]:
     return cast(list[str], [])
 
@@ -215,6 +219,18 @@ def _handle_session_start(sm: "StateMachine", event: AnyEvent) -> None:
     sm.phase = OfficePhase.STARTING
     sm.boss_state = BossState.IDLE
     sm.turn_active = False
+    if event.data.source == "codex":
+        sm.boss_name = "Codex Main"
+        sm.boss_source = "codex"
+        sm.boss_model = event.data.model
+        sm.boss_agent_type = "main"
+    else:
+        # A StateMachine can be replayed/reused; never leak Codex identity into
+        # a later Claude Code or OpenCode session start.
+        sm.boss_name = None
+        sm.boss_source = None
+        sm.boss_model = None
+        sm.boss_agent_type = None
     sm.whiteboard.reset()
     sm.whiteboard.add_news_item("session", "New session started - ready for work!")
 
@@ -249,7 +265,9 @@ def _handle_pre_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
         bubble = sm.tool_to_thought(event)
         if agent_id == "main":
             sm.boss_bubble = bubble
-            sm.boss_state = BossState.WORKING
+            sm.boss_state = (
+                BossState.REVIEWING if tool_name == "AgentWait" else BossState.WORKING
+            )
         else:
             if agent_id not in sm.agents and len(sm.agents) < sm.MAX_AGENTS:
                 new_agent = sm.create_agent(
@@ -257,14 +275,21 @@ def _handle_pre_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
                         agent_id=agent_id,
                         agent_name=f"Ghost {agent_id[-4:]}",
                         task_description="Resumed mid-session",
+                        source=event.data.source,
+                        model=event.data.model,
+                        agent_type=event.data.agent_type,
                     )
                 )
-                new_agent.state = AgentState.WORKING
+                new_agent.state = (
+                    AgentState.WAITING if tool_name == "AgentWait" else AgentState.WORKING
+                )
                 sm.agents[agent_id] = new_agent
 
             if agent_id in sm.agents:
                 sm.agents[agent_id].bubble = bubble
-                sm.agents[agent_id].state = AgentState.WORKING
+                sm.agents[agent_id].state = (
+                    AgentState.WAITING if tool_name == "AgentWait" else AgentState.WORKING
+                )
                 if agent_id in sm.arrival_queue:
                     sm.arrival_queue.remove(agent_id)
 
@@ -311,9 +336,15 @@ def _handle_post_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle POST_TOOL_USE: increment tool counter and reset agent state."""
     assert isinstance(event, ToolEvent)
     agent_id = event.data.agent_id or "main"
+    tool_name = event.data.tool_name
     if agent_id == "main":
         sm.boss_state = BossState.IDLE
-    elif agent_id in sm.agents and sm.agents[agent_id].state == AgentState.WAITING_PERMISSION:
+    elif agent_id in sm.agents and (
+        sm.agents[agent_id].state == AgentState.WAITING_PERMISSION
+        or (
+            tool_name == "AgentWait" and sm.agents[agent_id].state == AgentState.WAITING
+        )
+    ):
         sm.agents[agent_id].state = AgentState.WORKING
 
     sm.tool_uses_since_compaction += 1
@@ -532,6 +563,8 @@ _TOOL_ICONS: dict[str, str] = {
     "WebSearch": "🌐",
     "WebFetch": "📥",
     "Task": "🎯",
+    "Agent": "🎯",
+    "AgentWait": "⏳",
 }
 
 
@@ -558,8 +591,14 @@ class StateMachine:
     boss_state: BossState = BossState.IDLE
     boss_bubble: BubbleContent | None = None
     boss_current_task: str | None = None  # Summarized user prompt
+    boss_name: str | None = None
+    boss_source: str | None = None
+    boss_model: str | None = None
+    boss_agent_type: str | None = None
     elevator_state: ElevatorState = ElevatorState.CLOSED
     agents: dict[str, Agent] = field(default_factory=_empty_agents)
+    # Stable display ordinals for Codex agents, retained after an agent leaves.
+    codex_agent_numbers: dict[str, int] = field(default_factory=_empty_agent_numbers)
     arrival_queue: list[str] = field(default_factory=_empty_str_list)
     handin_queue: list[str] = field(default_factory=_empty_str_list)
     history: list[HistoryEntry] = field(default_factory=_empty_history_list)
@@ -632,6 +671,10 @@ class StateMachine:
             state=self.boss_state,
             current_task=self.boss_current_task,
             bubble=self.boss_bubble,
+            name=self.boss_name,
+            source=self.boss_source,
+            model=self.boss_model,
+            agent_type=self.boss_agent_type,
         )
 
         desk_count = min(
@@ -773,6 +816,9 @@ class StateMachine:
         elif tool_name in ("Task", "Agent"):
             text = "Delegating..."
 
+        elif tool_name == "AgentWait":
+            text = "Waiting for agents..."
+
         text = compress_paths_in_text(text)
         text = truncate_long_words(text, max_len=35)
 
@@ -806,14 +852,21 @@ class StateMachine:
         color = colors[(count - 1) % len(colors)]
 
         # Generate short name from description using fallback
-        name_source = data.agent_name or data.task_description or ""
-        summary_service = get_summary_service()
-        existing_names = {a.name for a in self.agents.values() if a.name}
-        short_name = summary_service.generate_agent_name_fallback(
-            name_source, existing_names, agent_type=data.agent_type
-        )
+        if data.source == "codex":
+            ordinal = self.codex_agent_numbers.get(agent_id)
+            if ordinal is None:
+                ordinal = max(self.codex_agent_numbers.values(), default=0) + 1
+                self.codex_agent_numbers[agent_id] = ordinal
+            short_name = f"Codex Agent {ordinal}"
+        else:
+            name_source = data.agent_name or data.task_description or ""
+            summary_service = get_summary_service()
+            existing_names = {a.name for a in self.agents.values() if a.name}
+            short_name = summary_service.generate_agent_name_fallback(
+                name_source, existing_names, agent_type=data.agent_type
+            )
 
-        task = data.task_description or data.agent_name or None
+        task = None if data.source == "codex" else data.task_description or data.agent_name or None
 
         return Agent(
             id=agent_id,
@@ -824,4 +877,7 @@ class StateMachine:
             desk=count,
             bubble=None,
             current_task=task,
+            source=data.source,
+            model=data.model,
+            agent_type=data.agent_type,
         )

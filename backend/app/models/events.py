@@ -116,6 +116,8 @@ class EventData(BaseModel):
     # Room assignment (populated by ProductMapper)
     floor_id: str | None = None
     room_id: str | None = None
+    source: str | None = None
+    model: str | None = None
     # Agent Teams fields (Phase 4)
     team_name: str | None = None
     teammate_name: str | None = None
@@ -210,6 +212,9 @@ class EventDataBase(BaseModel):
     # Room assignment (populated by ProductMapper).
     floor_id: str | None = None
     room_id: str | None = None
+    # Producer metadata. Optional so Claude Code/OpenCode wire payloads remain unchanged.
+    source: str | None = None
+    model: str | None = None
 
 
 class SessionEventData(EventDataBase):
@@ -228,6 +233,7 @@ class ToolEventData(EventDataBase):
     result_summary: str | None = None
     error_type: str | None = None
     thinking: str | None = None
+    agent_type: str | None = None
 
 
 class PromptEventData(EventDataBase):

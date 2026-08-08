@@ -1,5 +1,7 @@
 """Map allowlisted Codex hook metadata to Claude Office events."""
 
+import ntpath
+import posixpath
 import re
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -22,6 +24,8 @@ _TOOL_NAMES = {
 }
 
 _SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
+_SAFE_METADATA_PATTERN = re.compile(r"[A-Za-z0-9._:/+\-]{1,128}\Z")
+_SAFE_PROJECT_NAME_PATTERN = re.compile(r"[A-Za-z0-9._\-]{1,128}\Z")
 
 
 def _nonempty_string(value: object) -> str | None:
@@ -30,15 +34,42 @@ def _nonempty_string(value: object) -> str | None:
     return None
 
 
-def _agent_name(agent_id: str) -> str:
-    """Create a stable display name without using prompt or task content."""
-    compact_id = re.sub(r"[^A-Za-z0-9]", "", agent_id)
-    suffix = compact_id[:8] or "unknown"
-    return f"Codex Agent {suffix}"
+def _safe_metadata(value: object) -> str | None:
+    """Accept short identifier-like metadata, never arbitrary text content."""
+    text = _nonempty_string(value)
+    if text is None or _SAFE_METADATA_PATTERN.fullmatch(text) is None:
+        return None
+    return text
+
+
+def _project_name(payload: Mapping[str, object]) -> str | None:
+    """Derive a safe, display-only project name from Codex's working directory."""
+    cwd = _nonempty_string(payload.get("cwd"))
+    if cwd is None:
+        return None
+
+    # Hooks run on Windows in the supported setup, but accepting both path
+    # separators keeps mapper tests and copied configurations portable.
+    trimmed = cwd.rstrip("/\\")
+    basename = ntpath.basename(trimmed) or posixpath.basename(trimmed)
+    if _SAFE_PROJECT_NAME_PATTERN.fullmatch(basename):
+        return basename
+    return None
+
+
+def _base_data(payload: Mapping[str, object]) -> dict[str, str]:
+    data = {"source": "codex"}
+    project_name = _project_name(payload)
+    if project_name is not None:
+        data["project_name"] = project_name
+    model = _safe_metadata(payload.get("model"))
+    if model is not None:
+        data["model"] = model
+    return data
 
 
 def _tool_data(payload: Mapping[str, object]) -> dict[str, str]:
-    data: dict[str, str] = {}
+    data = _base_data(payload)
     tool_name = _nonempty_string(payload.get("tool_name"))
     if tool_name is not None:
         data["tool_name"] = _TOOL_NAMES.get(tool_name, tool_name)
@@ -48,37 +79,41 @@ def _tool_data(payload: Mapping[str, object]) -> dict[str, str]:
     agent_id = _nonempty_string(payload.get("agent_id"))
     if agent_id is not None:
         data["agent_id"] = agent_id
+    agent_type = _safe_metadata(payload.get("agent_type"))
+    if agent_type is not None:
+        data["agent_type"] = agent_type
     return data
 
 
 def _event_data(hook_name: str, payload: Mapping[str, object]) -> dict[str, str]:
+    data = _base_data(payload)
     if hook_name == "SessionStart":
         cwd = _nonempty_string(payload.get("cwd"))
-        return {"working_dir": cwd} if cwd is not None else {}
+        if cwd is not None:
+            data["working_dir"] = cwd
+        return data
     if hook_name == "UserPromptSubmit":
-        return {"message": "Codex user prompt"}
+        data["message"] = "Codex user prompt"
+        return data
     if hook_name in {"PreToolUse", "PostToolUse"}:
         return _tool_data(payload)
     if hook_name == "SubagentStart":
-        data: dict[str, str] = {}
         agent_id = _nonempty_string(payload.get("agent_id"))
         if agent_id is not None:
             data["agent_id"] = agent_id
-            data["agent_name"] = _agent_name(agent_id)
-        agent_type = _nonempty_string(payload.get("agent_type"))
+        agent_type = _safe_metadata(payload.get("agent_type"))
         if agent_type is not None:
             data["agent_type"] = agent_type
         return data
     if hook_name == "SubagentStop":
-        data = {}
         agent_id = _nonempty_string(payload.get("agent_id"))
         if agent_id is not None:
             data["agent_id"] = agent_id
-        agent_type = _nonempty_string(payload.get("agent_type"))
+        agent_type = _safe_metadata(payload.get("agent_type"))
         if agent_type is not None:
             data["agent_type"] = agent_type
         return data
-    return {}
+    return data
 
 
 def map_event(

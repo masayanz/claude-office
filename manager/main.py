@@ -1,146 +1,389 @@
-"""Tkinter-based Windows GUI for everyday Claude Office operation."""
+"""PySide6 Windows GUI and task-tray host for AI Office Manager."""
 
 from __future__ import annotations
 
-import tkinter as tk
-from tkinter import messagebox, ttk
+import ctypes
+import sys
+from collections.abc import Callable
+from contextlib import suppress
+
+from PySide6.QtCore import QIODevice, QObject, QTimer, Signal
+from PySide6.QtGui import QAction, QCloseEvent, QIcon
+from PySide6.QtNetwork import QLocalServer, QLocalSocket
+from PySide6.QtWidgets import (
+    QApplication,
+    QCheckBox,
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QGridLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSpinBox,
+    QSystemTrayIcon,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
 
 from .process_manager import ServiceManager
+from .resources import manager_icon_path
 from .settings import load_settings, save_settings
 
+APP_USER_MODEL_ID = "AI.Office.Manager"
+SINGLE_INSTANCE_NAME = "AI.Office.Manager.SingleInstance"
 
-class ManagerWindow(tk.Tk):
+
+def _set_windows_app_id() -> None:
+    """Set a stable Windows taskbar identity without affecting other platforms."""
+    if sys.platform != "win32":
+        return
+    with suppress(AttributeError, OSError):
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(APP_USER_MODEL_ID)
+
+
+class SingleInstance(QObject):
+    """Use a local Qt socket to restore the existing Manager on second launch."""
+
+    show_requested = Signal()
+
     def __init__(self) -> None:
         super().__init__()
-        self.title("Claude Office Manager")
-        self.geometry("760x520")
-        self.manager = ServiceManager()
-        self.status_labels: dict[str, ttk.Label] = {}
-        self._build()
-        self._refresh()
+        self._server = QLocalServer(self)
+        self._server.newConnection.connect(self._accept_connections)
 
-    def _build(self) -> None:
-        root = ttk.Frame(self, padding=16)
-        root.pack(fill=tk.BOTH, expand=True)
-        ttk.Label(root, text="Claude Office", font=("Segoe UI", 20, "bold")).pack(anchor=tk.W)
-        ttk.Label(root, text="AIオフィス管理マネージャー").pack(anchor=tk.W, pady=(0, 16))
-        cards = ttk.Frame(root)
-        cards.pack(fill=tk.X)
-        for service, label in (("backend", "Backend"), ("frontend", "Frontend")):
-            frame = ttk.LabelFrame(cards, text=label, padding=12)
-            frame.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(0, 8))
-            status = ttk.Label(frame, text="確認中…")
-            status.pack(anchor=tk.W)
-            self.status_labels[service] = status
-        hooks_frame = ttk.LabelFrame(cards, text="Codex global hooks", padding=12)
-        hooks_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        self.status_labels["hooks"] = ttk.Label(hooks_frame, text="確認中…")
-        self.status_labels["hooks"].pack(anchor=tk.W)
-        buttons = ttk.Frame(root)
-        buttons.pack(fill=tk.X, pady=16)
-        for text, command in (
+    def acquire(self) -> bool:
+        socket = QLocalSocket(self)
+        socket.connectToServer(SINGLE_INSTANCE_NAME, QIODevice.OpenModeFlag.WriteOnly)
+        if socket.waitForConnected(350):
+            socket.write(b"show")
+            socket.flush()
+            socket.waitForBytesWritten(350)
+            socket.disconnectFromServer()
+            return False
+
+        QLocalServer.removeServer(SINGLE_INSTANCE_NAME)
+        return self._server.listen(SINGLE_INSTANCE_NAME)
+
+    def _accept_connections(self) -> None:
+        while self._server.hasPendingConnections():
+            socket = self._server.nextPendingConnection()
+            if socket is None:
+                continue
+            socket.readyRead.connect(lambda current=socket: self._read_socket(current))
+            socket.disconnected.connect(socket.deleteLater)
+            if socket.bytesAvailable():
+                self._read_socket(socket)
+
+    def _read_socket(self, socket: QLocalSocket) -> None:
+        if bytes(socket.readAll()).startswith(b"show"):
+            self.show_requested.emit()
+
+    def close(self) -> None:
+        self._server.close()
+        QLocalServer.removeServer(SINGLE_INSTANCE_NAME)
+
+
+class SettingsDialog(QDialog):
+    def __init__(self, icon: QIcon, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("AIオフィス設定")
+        self.setWindowIcon(icon)
+        settings, warning = load_settings()
+
+        self.company_name = QLineEdit(str(settings["company_name"]))
+        self.owner_name = QLineEdit(str(settings["owner_name"]))
+        self.backend_port = QSpinBox()
+        self.backend_port.setRange(1024, 65535)
+        self.backend_port.setValue(int(settings["backend_port"]))
+        self.frontend_port = QSpinBox()
+        self.frontend_port.setRange(1024, 65535)
+        self.frontend_port.setValue(int(settings["frontend_port"]))
+        self.browser_mode = QComboBox()
+        self.browser_mode.addItem("通常ブラウザ", "normal")
+        self.browser_mode.addItem("AI Office専用表示", "app")
+        index = self.browser_mode.findData(settings["browser_mode"])
+        self.browser_mode.setCurrentIndex(max(index, 0))
+        self.stop_on_exit = QCheckBox("Manager終了時にBackend/Frontendも停止する")
+        self.stop_on_exit.setChecked(bool(settings.get("stop_servers_on_manager_exit", False)))
+
+        form = QFormLayout()
+        form.addRow("会社名", self.company_name)
+        form.addRow("オーナー名", self.owner_name)
+        form.addRow("Backendポート", self.backend_port)
+        form.addRow("Frontendポート", self.frontend_port)
+        form.addRow("ブラウザ表示", self.browser_mode)
+        form.addRow("", self.stop_on_exit)
+        if warning:
+            warning_label = QLabel(f"設定警告: {warning}")
+            warning_label.setStyleSheet("color: #b91c1c")
+            form.addRow(warning_label)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Save | QDialogButtonBox.StandardButton.Cancel
+        )
+        buttons.accepted.connect(self._save)
+        buttons.rejected.connect(self.reject)
+        form.addRow(buttons)
+        self.setLayout(form)
+
+    def _save(self) -> None:
+        try:
+            save_settings(
+                {
+                    "company_name": self.company_name.text(),
+                    "owner_name": self.owner_name.text(),
+                    "backend_port": self.backend_port.value(),
+                    "frontend_port": self.frontend_port.value(),
+                    "browser_mode": self.browser_mode.currentData(),
+                    "stop_servers_on_manager_exit": self.stop_on_exit.isChecked(),
+                }
+            )
+        except ValueError as exc:
+            QMessageBox.critical(self, "設定エラー", str(exc))
+            return
+        self.accept()
+
+
+class ManagerWindow(QMainWindow):
+    def __init__(self, icon: QIcon) -> None:
+        super().__init__()
+        self.setWindowTitle("AI Office Manager")
+        self.setWindowIcon(icon)
+        self.resize(820, 500)
+        self.manager = ServiceManager()
+        self._icon = icon
+        self._is_quitting = False
+        self._tray_notice_shown = False
+        self._status_labels: dict[str, QLabel] = {}
+        self._last_backend_healthy = False
+        self._last_frontend_healthy = False
+        self._build_window()
+        self._build_tray()
+
+        self._status_timer = QTimer(self)
+        self._status_timer.timeout.connect(self._refresh_status)
+        self._status_timer.start(3000)
+        self._refresh_status()
+
+    def _build_window(self) -> None:
+        central = QWidget(self)
+        layout = QVBoxLayout(central)
+        title = QLabel("Claude Office")
+        title.setStyleSheet("font-size: 24px; font-weight: 700")
+        layout.addWidget(title)
+        layout.addWidget(QLabel("AIオフィス管理マネージャー"))
+
+        cards = QGridLayout()
+        for column, (service, label) in enumerate(
+            (
+                ("backend", "Backend"),
+                ("frontend", "Frontend"),
+                ("adapter", "Codex Adapter"),
+                ("hooks", "Codex global hooks"),
+            )
+        ):
+            card = QGroupBox(label)
+            card_layout = QVBoxLayout(card)
+            status = QLabel("確認中…")
+            card_layout.addWidget(status)
+            self._status_labels[service] = status
+            cards.addWidget(card, column // 2, column % 2)
+        layout.addLayout(cards)
+
+        buttons = QHBoxLayout()
+        for text, callback in (
             ("起動", self._start),
             ("停止", self._stop),
             ("再起動", self._restart),
-            ("AIオフィスを開く", self._open),
-            ("専用表示", lambda: self._open(True)),
+            ("AIオフィスを開く", self._open_normal),
+            ("専用表示", self._open_app),
             ("設定", self._settings_dialog),
-            ("ログ", self._logs),
+            ("ログ", self._logs_dialog),
         ):
-            ttk.Button(buttons, text=text, command=command).pack(side=tk.LEFT, padx=(0, 6))
-        ttk.Label(root, text="共通設定: config\\app-settings.json", foreground="#666").pack(
-            anchor=tk.W, pady=(8, 0)
+            button = QPushButton(text)
+            button.clicked.connect(lambda _checked=False, fn=callback: fn())
+            buttons.addWidget(button)
+        layout.addLayout(buttons)
+        layout.addWidget(QLabel("× / Alt+F4: タスクトレイへ収納　　終了: トレイメニューから"))
+        layout.addStretch(1)
+        self.setCentralWidget(central)
+
+    def _build_tray(self) -> None:
+        self._tray = QSystemTrayIcon(self._icon, self)
+        self._tray.setToolTip("AI Office Manager")
+        menu = QMenu(self)
+        self._add_tray_action(menu, "AI Office Managerを開く", self.restore_window)
+        menu.addSeparator()
+        self._add_tray_action(menu, "AI Officeを起動", self._start)
+        self._add_tray_action(menu, "AI Officeを停止", self._stop)
+        self._add_tray_action(menu, "AI Officeを再起動", self._restart)
+        menu.addSeparator()
+        self._add_tray_action(menu, "通常ブラウザで開く", self._open_normal)
+        self._add_tray_action(menu, "AI Office専用表示", self._open_app)
+        menu.addSeparator()
+        self._add_tray_action(menu, "設定", self._settings_dialog)
+        self._add_tray_action(menu, "ログ", self._logs_dialog)
+        menu.addSeparator()
+        self._add_tray_action(menu, "終了", self._quit_from_tray)
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._tray_activated)
+        self._tray.show()
+
+    @staticmethod
+    def _add_tray_action(menu: QMenu, text: str, callback: Callable[[], None]) -> QAction:
+        action = QAction(text, menu)
+        action.triggered.connect(lambda _checked=False: callback())
+        menu.addAction(action)
+        return action
+
+    def _tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.restore_window()
+
+    def restore_window(self) -> None:
+        self.show()
+        self.showNormal()
+        self.raise_()
+        self.activateWindow()
+
+    def closeEvent(self, event: QCloseEvent) -> None:  # noqa: N802 - Qt API name
+        if self._is_quitting:
+            event.accept()
+            return
+        event.ignore()
+        self.hide()
+        if not self._tray_notice_shown and self._tray.isVisible():
+            self._tray_notice_shown = True
+            self._tray.showMessage(
+                "AI Office Manager",
+                "AI Office Managerはタスクトレイで動作を続けます。\n"
+                "終了する場合はトレイアイコンを右クリックし、「終了」を選択してください。",
+                QSystemTrayIcon.MessageIcon.Information,
+                7000,
+            )
+
+    def _refresh_status(self) -> None:
+        backend = self.manager.status("backend")
+        frontend = self.manager.status("frontend")
+        self._last_backend_healthy = backend.healthy
+        self._last_frontend_healthy = frontend.healthy
+        self._status_labels["backend"].setText(self._status_text(backend.running, backend.healthy))
+        self._status_labels["frontend"].setText(
+            self._status_text(frontend.running, frontend.healthy)
+        )
+        self._status_labels["adapter"].setText(
+            "利用可能" if self.manager.adapter_available() else "見つかりません"
+        )
+        self._status_labels["hooks"].setText(
+            "インストール済み" if self.manager.hooks_installed() else "未インストール"
+        )
+        self._tray.setToolTip(
+            "AI Office Manager\n"
+            f"Backend: {'稼働中' if backend.healthy else '停止'}\n"
+            f"Frontend: {'稼働中' if frontend.healthy else '停止'}"
         )
 
-    def _refresh(self) -> None:
-        for service, label in self.status_labels.items():
-            if service == "hooks":
-                label.configure(
-                    text="インストール済み" if self.manager.hooks_installed() else "未インストール"
-                )
-                continue
-            status = self.manager.status(service)
-            state = "稼働中" if status.healthy else ("起動中" if status.running else "停止中")
-            label.configure(text=f"{state}  PID={status.pid or '-'}")
-        self.after(3000, self._refresh)
+    @staticmethod
+    def _status_text(running: bool, healthy: bool) -> str:
+        if healthy:
+            return "稼働中"
+        return "起動中" if running else "停止中"
+
+    def _run_manager_action(self, callback: Callable[[], None], label: str) -> None:
+        try:
+            callback()
+        except (OSError, RuntimeError, ValueError) as exc:
+            QMessageBox.critical(self, f"{label}エラー", str(exc))
+        self._refresh_status()
 
     def _start(self) -> None:
-        self.manager.start("backend")
-        self.manager.start("frontend")
+        def action() -> None:
+            self.manager.start("backend")
+            self.manager.start("frontend")
+
+        self._run_manager_action(action, "起動")
 
     def _stop(self) -> None:
-        self.manager.stop("frontend")
-        self.manager.stop("backend")
+        def action() -> None:
+            self.manager.stop("frontend")
+            self.manager.stop("backend")
+
+        self._run_manager_action(action, "停止")
 
     def _restart(self) -> None:
-        self._stop()
-        self._start()
+        def action() -> None:
+            self.manager.stop("frontend")
+            self.manager.stop("backend")
+            self.manager.start("backend")
+            self.manager.start("frontend")
 
-    def _open(self, app_mode: bool = False) -> None:
-        self.manager.open_office(app_mode)
+        self._run_manager_action(action, "再起動")
 
-    def _logs(self) -> None:
-        window = tk.Toplevel(self)
-        window.title("Claude Office ログ")
-        text = tk.Text(window, wrap=tk.NONE, width=120, height=30)
-        text.pack(fill=tk.BOTH, expand=True)
-        text.insert(
-            "1.0", self.manager.read_logs("backend") + "\n" + self.manager.read_logs("frontend")
-        )
-        text.configure(state=tk.DISABLED)
+    def _open_normal(self) -> None:
+        self.manager.open_office(False)
+
+    def _open_app(self) -> None:
+        self.manager.open_office(True)
 
     def _settings_dialog(self) -> None:
-        settings, warning = load_settings()
-        dialog = tk.Toplevel(self)
-        dialog.title("AIオフィス設定")
-        fields: dict[str, tk.Entry] = {}
-        for row, (key, label) in enumerate(
-            (
-                ("company_name", "会社名"),
-                ("owner_name", "オーナー名"),
-                ("backend_port", "Backendポート"),
-                ("frontend_port", "Frontendポート"),
-            )
-        ):
-            ttk.Label(dialog, text=label).grid(row=row, column=0, sticky=tk.W, padx=12, pady=6)
-            entry = ttk.Entry(dialog, width=32)
-            entry.insert(0, str(settings[key]))
-            entry.grid(row=row, column=1, padx=12, pady=6)
-            fields[key] = entry
-        mode = tk.StringVar(value=str(settings["browser_mode"]))
-        ttk.Label(dialog, text="ブラウザ表示").grid(row=4, column=0, sticky=tk.W, padx=12, pady=6)
-        ttk.Combobox(
-            dialog, textvariable=mode, values=("normal", "app"), state="readonly", width=29
-        ).grid(row=4, column=1, padx=12, pady=6)
+        SettingsDialog(self._icon, self).exec()
+        self._refresh_status()
 
-        def save() -> None:
-            try:
-                save_settings(
-                    {
-                        "company_name": fields["company_name"].get(),
-                        "owner_name": fields["owner_name"].get(),
-                        "backend_port": int(fields["backend_port"].get()),
-                        "frontend_port": int(fields["frontend_port"].get()),
-                        "browser_mode": mode.get(),
-                    }
-                )
-            except ValueError as exc:
-                messagebox.showerror("設定エラー", str(exc), parent=dialog)
-                return
-            dialog.destroy()
-
-        ttk.Button(dialog, text="保存", command=save).grid(
-            row=5, column=1, sticky=tk.E, padx=12, pady=12
+    def _logs_dialog(self) -> None:
+        dialog = QDialog(self)
+        dialog.setWindowTitle("Claude Office ログ")
+        dialog.setWindowIcon(self._icon)
+        dialog.resize(900, 580)
+        layout = QVBoxLayout(dialog)
+        text = QTextEdit()
+        text.setReadOnly(True)
+        text.setPlainText(
+            self.manager.read_logs("backend") + "\n\n" + self.manager.read_logs("frontend")
         )
-        if warning:
-            ttk.Label(dialog, text=f"警告: {warning}", foreground="#a00").grid(
-                row=6, column=0, columnspan=2, padx=12, pady=6
-            )
+        layout.addWidget(text)
+        close_button = QPushButton("閉じる")
+        close_button.clicked.connect(dialog.accept)
+        layout.addWidget(close_button)
+        dialog.exec()
+
+    def _quit_from_tray(self) -> None:
+        self._is_quitting = True
+        settings, _ = load_settings()
+        if settings.get("stop_servers_on_manager_exit", False):
+            self.manager.stop("frontend")
+            self.manager.stop("backend")
+        self._status_timer.stop()
+        self._tray.hide()
+        QApplication.quit()
 
 
-def run() -> None:
-    ManagerWindow().mainloop()
+def run() -> int:
+    _set_windows_app_id()
+    app = QApplication(sys.argv)
+    app.setApplicationName("AI Office Manager")
+    app.setApplicationDisplayName("AI Office Manager")
+    app.setQuitOnLastWindowClosed(False)
+    icon = QIcon(str(manager_icon_path()))
+    app.setWindowIcon(icon)
+
+    instance = SingleInstance()
+    if not instance.acquire():
+        return 0
+
+    window = ManagerWindow(icon)
+    instance.show_requested.connect(window.restore_window)
+    app.aboutToQuit.connect(instance.close)
+    window.show()
+    return app.exec()
 
 
 if __name__ == "__main__":
-    run()
+    raise SystemExit(run())

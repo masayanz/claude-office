@@ -49,6 +49,10 @@ class ServiceManager:
         except OSError:
             return False
 
+    def adapter_available(self) -> bool:
+        """Return whether the shared Codex adapter launcher exists."""
+        return (ROOT / "codex-adapter" / "hook.py").is_file()
+
     def _url(self, service: str) -> str:
         settings = self._settings()
         if service == "backend":

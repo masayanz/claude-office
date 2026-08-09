@@ -3,7 +3,7 @@ param()
 $ErrorActionPreference = "Stop"
 $root = (Resolve-Path $PSScriptRoot).Path
 Set-Location $root
-$exe = Join-Path $root "dist\manager\ClaudeOfficeManager.exe"
+$exe = Join-Path $root "dist\AI-Office-Manager.exe"
 if (Test-Path -LiteralPath $exe) {
     Start-Process -FilePath $exe -WorkingDirectory $root
 } else {

@@ -37,6 +37,7 @@ DEFAULTS: dict[str, Any] = {
     "company_name": "Claude Office",
     "owner_name": "Owner",
     "owner_image_filename": None,
+    "stop_servers_on_manager_exit": False,
 }
 
 
@@ -54,6 +55,8 @@ def _validate(values: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("browser_modeが不正です")
     if result["language"] not in {"ja", "en", "es", "pt-BR"}:
         raise ValueError("languageが不正です")
+    if not isinstance(result["stop_servers_on_manager_exit"], bool):
+        raise ValueError("stop_servers_on_manager_exitが不正です")
     return result
 
 

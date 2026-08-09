@@ -53,6 +53,7 @@ dependencies = [
 
 [project.optional-dependencies]
 manager = [
+    "pyside6>=6.8",
     "pyinstaller>=6.0",
 ]
 

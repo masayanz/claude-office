@@ -23,6 +23,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "company_name": "Claude Office",
     "owner_name": "Owner",
     "owner_image_filename": None,
+    "stop_servers_on_manager_exit": False,
 }
 
 
@@ -53,6 +54,8 @@ def validate_settings(raw: object) -> dict[str, Any]:
         result[key] = result[key].strip()
     if not isinstance(result["open_browser_on_start"], bool):
         raise ValueError("open_browser_on_start must be boolean")
+    if not isinstance(result["stop_servers_on_manager_exit"], bool):
+        raise ValueError("stop_servers_on_manager_exit must be boolean")
     image = result.get("owner_image_filename")
     if image is not None and (
         not isinstance(image, str)

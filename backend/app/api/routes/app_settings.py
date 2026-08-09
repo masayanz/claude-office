@@ -29,6 +29,7 @@ class AppSettingsUpdate(BaseModel):
     browser_mode: str | None = None
     company_name: str | None = Field(default=None, max_length=120)
     owner_name: str | None = Field(default=None, max_length=120)
+    stop_servers_on_manager_exit: bool | None = None
 
 
 def _public_settings() -> dict[str, object]:

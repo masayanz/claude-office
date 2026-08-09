@@ -100,6 +100,8 @@ config/owner-image/*
 runtime/logs/
 runtime/processes.json
 .pytest-temp/
+dist/manager/
+build/manager/
 
 # --- Build Artifacts ---
 backend/static/

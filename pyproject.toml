@@ -51,6 +51,11 @@ dependencies = [
     "requests>=2.34.2",
 ]
 
+[project.optional-dependencies]
+manager = [
+    "pyinstaller>=6.0",
+]
+
 [project.license]
 file = "LICENSE"
 

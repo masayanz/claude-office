@@ -4,11 +4,27 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+
+def _find_root() -> Path:
+    """Find the Claude Office root when running from source or a frozen EXE."""
+    start = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
+    start = start.parent if start.is_file() else start
+    for candidate in (start, *start.parents):
+        if (
+            (candidate / "config" / "app-settings.json").is_file()
+            and (candidate / "backend").is_dir()
+            and (candidate / "frontend").is_dir()
+        ):
+            return candidate
+    return start
+
+
+ROOT = _find_root()
 SETTINGS_PATH = ROOT / "config" / "app-settings.json"
 DEFAULTS: dict[str, Any] = {
     "language": "ja",

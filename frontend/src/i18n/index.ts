@@ -1,10 +1,12 @@
 import en, { type TranslationKey } from "./en";
 import ptBR from "./pt-BR";
 import es from "./es";
+import ja from "./ja";
 
-export type Locale = "en" | "pt-BR" | "es";
+export type Locale = "ja" | "en" | "pt-BR" | "es";
 
 export const locales: Record<Locale, string> = {
+  ja: "日本語",
   en: "English",
   "pt-BR": "Português (BR)",
   es: "Español",
@@ -14,7 +16,8 @@ export function isLocale(value: string): value is Locale {
   return Object.prototype.hasOwnProperty.call(locales, value);
 }
 
-const translations: Record<Locale, Record<TranslationKey, string>> = {
+const translations: Record<Locale, Partial<Record<TranslationKey, string>>> = {
+  ja,
   en,
   "pt-BR": ptBR,
   es,

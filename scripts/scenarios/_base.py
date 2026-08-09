@@ -5,14 +5,25 @@ Not part of the public API — import from ``scripts.scenarios`` instead.
 
 from __future__ import annotations
 
+import json
 import os
 import threading
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 
 import requests
 
-API_URL = os.environ.get("CLAUDE_OFFICE_API_URL", "http://localhost:8000/api/v1/events")
+_root = Path(__file__).resolve().parents[2]
+try:
+    _shared = json.loads((_root / "config" / "app-settings.json").read_text(encoding="utf-8"))
+except (OSError, ValueError, TypeError):
+    _shared = {}
+_default_api = (
+    f"http://{_shared.get('backend_host', '127.0.0.1')}:{_shared.get('backend_port', 8000)}"
+    "/api/v1/events"
+)
+API_URL = os.environ.get("CLAUDE_OFFICE_API_URL", _default_api)
 
 # Context window constants
 MAX_CONTEXT_TOKENS = 200_000
@@ -175,8 +186,7 @@ class SimulationContext:
 
         if should_trigger:
             self.log(
-                f"*** COMPACTION TRIGGERED at {utilization:.1%} "
-                f"(>= {COMPACTION_THRESHOLD:.0%}) ***"
+                f"*** COMPACTION TRIGGERED at {utilization:.1%} (>= {COMPACTION_THRESHOLD:.0%}) ***"
             )
             self.send_event("context_compaction", tokens)
             self.log(

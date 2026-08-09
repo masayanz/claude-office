@@ -5,10 +5,8 @@ import json
 from contextlib import suppress
 
 from claude_office_codex_adapter.config import (
-    EVENTS_HOST,
-    EVENTS_PATH,
-    EVENTS_PORT,
     HTTP_TIMEOUT_SECONDS,
+    get_event_endpoint,
 )
 
 
@@ -19,14 +17,11 @@ def send_event(event: dict[str, object]) -> bool:
         body = json.dumps(event, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
         # A direct HTTPConnection avoids environment proxies and never follows redirects,
         # so hook data cannot leave the fixed loopback destination.
-        connection = http.client.HTTPConnection(
-            EVENTS_HOST,
-            EVENTS_PORT,
-            timeout=HTTP_TIMEOUT_SECONDS,
-        )
+        host, port, path = get_event_endpoint()
+        connection = http.client.HTTPConnection(host, port, timeout=HTTP_TIMEOUT_SECONDS)
         connection.request(
             "POST",
-            EVENTS_PATH,
+            path,
             body=body,
             headers={"Content-Type": "application/json"},
         )

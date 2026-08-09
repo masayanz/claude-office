@@ -1,6 +1,8 @@
-import type { TranslationKey } from "./en";
+import en, { type TranslationKey } from "./en";
 
 const es: Record<TranslationKey, string> = {
+  ...en,
+  ...{
   // App
   "app.title": "Visualizador de Oficina",
   "app.initializingSystems": "Inicializando sistemas...",
@@ -284,6 +286,7 @@ const es: Record<TranslationKey, string> = {
   "settings.filterError": "Errores y paradas",
   "settings.filterTaskComplete": "Tareas completadas",
   "settings.filterArrival": "Llegadas de agentes",
+  },
 };
 
 export default es;

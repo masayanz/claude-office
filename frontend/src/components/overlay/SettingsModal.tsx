@@ -10,17 +10,19 @@ import {
 import { useTranslation } from "@/hooks/useTranslation";
 import { locales, type Locale } from "@/i18n";
 import { BuildingTab } from "@/components/settings/BuildingTab";
+import { OfficeSettingsTab } from "@/components/settings/OfficeSettingsTab";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type SettingsTab = "general" | "building";
+type SettingsTab = "general" | "building" | "office";
 
 interface SettingsModalProps {
   isOpen: boolean;
   onClose: () => void;
-  initialTab?: "general" | "building";
+  initialTab?: SettingsTab;
 }
 
 // ============================================================================
@@ -93,6 +95,7 @@ export default function SettingsModal({
   const setClockFormat = usePreferencesStore((s) => s.setClockFormat);
   const language = usePreferencesStore((s) => s.language);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
+  const updateAppSettings = useAppSettingsStore((s) => s.updateAppSettings);
   const setAutoFollowNewSessions = usePreferencesStore(
     (s) => s.setAutoFollowNewSessions,
   );
@@ -145,6 +148,7 @@ export default function SettingsModal({
 
   const handleLanguageChange = (locale: Locale) => {
     setLanguage(locale);
+    void updateAppSettings({ language: locale });
   };
 
   const handleClockTypeChange = (type: ClockType) => {
@@ -176,7 +180,7 @@ export default function SettingsModal({
     >
       {/* Tab bar */}
       <div className="flex gap-1 mb-6 p-1 bg-slate-800/50 rounded-lg border border-slate-700">
-        {(["general", "building"] as const).map((tab) => (
+        {(["general", "building", "office"] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -445,8 +449,10 @@ export default function SettingsModal({
             <p className="text-slate-500 text-xs">{t("settings.clockTip")}</p>
           </div>
         </div>
-      ) : (
+      ) : activeTab === "building" ? (
         <BuildingTab onDirtyChange={handleDirtyChange} />
+      ) : (
+        <OfficeSettingsTab />
       )}
     </Modal>
   );

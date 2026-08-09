@@ -50,6 +50,7 @@ import AttentionToasts from "@/components/attention/AttentionToasts";
 import AgentPopup from "@/components/attention/AgentPopup";
 import { useAttentionStore } from "@/stores/attentionStore";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
 
@@ -151,6 +152,9 @@ export default function V2TestPage(): React.ReactNode {
     (state) => state.loadPersistedDebugSettings,
   );
   const loadPreferences = usePreferencesStore((s) => s.loadPreferences);
+  const loadAppSettings = useAppSettingsStore((s) => s.loadAppSettings);
+  const appLanguage = useAppSettingsStore((s) => s.settings?.language);
+  const companyName = useAppSettingsStore((s) => s.settings?.company_name);
 
   // Navigation store
   const view = useNavigationStore((s) => s.view);
@@ -219,6 +223,14 @@ export default function V2TestPage(): React.ReactNode {
   useEffect(() => {
     loadPreferences();
   }, [loadPreferences]);
+
+  useEffect(() => {
+    void loadAppSettings();
+  }, [loadAppSettings]);
+
+  useEffect(() => {
+    if (appLanguage) usePreferencesStore.setState({ language: appLanguage });
+  }, [appLanguage]);
 
   useEffect(() => {
     document.documentElement.lang = language;
@@ -419,7 +431,7 @@ export default function V2TestPage(): React.ReactNode {
               isMobile ? "text-lg" : "text-2xl"
             }`}
           >
-            <span className="text-orange-500">Claude</span>{" "}
+            <span className="text-orange-500">{companyName || "Claude"}</span>{" "}
             {!isMobile && t("app.title")}
             {!isMobile && (
               <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">

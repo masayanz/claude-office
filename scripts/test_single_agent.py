@@ -14,12 +14,22 @@ Current coordinates (from frontend/src/systems/queuePositions.ts):
 - Boss slots: Left (520, 868), Right (760, 868)
 """
 
+import json
 import time
 from datetime import UTC, datetime
+from pathlib import Path
 
 import requests
 
-API_URL = "http://localhost:8000/api/v1/events"
+_root = Path(__file__).resolve().parents[1]
+try:
+    _shared = json.loads((_root / "config" / "app-settings.json").read_text(encoding="utf-8"))
+except (OSError, ValueError, TypeError):
+    _shared = {}
+API_URL = (
+    f"http://{_shared.get('backend_host', '127.0.0.1')}:{_shared.get('backend_port', 8000)}"
+    "/api/v1/events"
+)
 SESSION_ID = "test_single_agent"
 
 

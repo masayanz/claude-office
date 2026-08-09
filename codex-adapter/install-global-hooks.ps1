@@ -121,6 +121,7 @@ try {
     if (-not $root) { exit 0 }
     $hookPath = Join-Path $root "codex-adapter\hook.py"
     if (-not (Test-Path -LiteralPath $hookPath)) { exit 0 }
+    $env:CLAUDE_OFFICE_ROOT = $root
     & py -3.13 $hookPath
 } catch {
     # Claude Office is an optional observer. Never interrupt Codex.

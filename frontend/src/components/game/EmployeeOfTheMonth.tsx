@@ -2,6 +2,8 @@
 
 import { Graphics, Assets, Texture } from "pixi.js";
 import { useCallback, useState, useEffect, type ReactNode } from "react";
+import { API_BASE } from "@/utils/api";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
 
 /**
  * EmployeeOfTheMonth - Wall poster showing the employee of the month
@@ -11,9 +13,13 @@ import { useCallback, useState, useEffect, type ReactNode } from "react";
  */
 export function EmployeeOfTheMonth(): ReactNode {
   const [photoTexture, setPhotoTexture] = useState<Texture | null>(null);
+  const ownerName = useAppSettingsStore((state) => state.settings?.owner_name) || "Owner";
+  const ownerImageUrl = useAppSettingsStore((state) => state.settings?.owner_image_url);
 
   useEffect(() => {
-    const assetPath = "/sprites/employee-of-month.png";
+    const assetPath = ownerImageUrl
+      ? `${API_BASE}${ownerImageUrl}`
+      : "/sprites/employee-of-month.png";
     Assets.load(assetPath)
       .then((texture) => {
         setPhotoTexture(texture as Texture);
@@ -21,7 +27,7 @@ export function EmployeeOfTheMonth(): ReactNode {
       .catch((err) => {
         console.warn(`[EmployeeOfTheMonth] Failed to load ${assetPath}:`, err);
       });
-  }, []);
+  }, [ownerImageUrl]);
 
   const drawFrame = useCallback((g: Graphics) => {
     g.clear();
@@ -122,7 +128,7 @@ export function EmployeeOfTheMonth(): ReactNode {
       {/* Name plate text */}
       <pixiContainer x={60} y={144} scale={0.5}>
         <pixiText
-          text="PAUL R."
+          text={ownerName.toUpperCase().slice(0, 16)}
           anchor={0.5}
           style={{
             fontFamily: '"Arial Black", Arial, sans-serif',

@@ -138,6 +138,12 @@ make dev-tmux
 
 Then open [http://localhost:3000](http://localhost:3000) and run any Claude Code command to see it visualized.
 
+For everyday Windows use, launch `start_ai_office_manager.ps1`. The AI Office Manager starts,
+stops, restarts, monitors, and opens the Backend/Frontend. Its settings screen and the Web
+settings tab share `config/app-settings.json`, including configurable ports, Japanese/English
+language preference, company/owner name, owner image, and normal/app browser mode. See
+[docs/AI_OFFICE_MANAGER.md](docs/AI_OFFICE_MANAGER.md).
+
 ## Prerequisites
 
 - Python 3.13+

@@ -1,0 +1,1 @@
+"""Claude Office Windows manager."""

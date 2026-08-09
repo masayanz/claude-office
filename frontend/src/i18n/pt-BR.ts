@@ -1,6 +1,8 @@
-import type { TranslationKey } from "./en";
+import en, { type TranslationKey } from "./en";
 
 const ptBR: Record<TranslationKey, string> = {
+  ...en,
+  ...{
   // App
   "app.title": "Visualizador do Escritório",
   "app.initializingSystems": "Inicializando Sistemas...",
@@ -284,6 +286,7 @@ const ptBR: Record<TranslationKey, string> = {
   "settings.filterError": "Erros e paradas",
   "settings.filterTaskComplete": "Tarefas concluídas",
   "settings.filterArrival": "Chegadas de agentes",
+  },
 };
 
 export default ptBR;

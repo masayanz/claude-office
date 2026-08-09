@@ -11,7 +11,7 @@ Codex lifecycle hook (`~/.codex/hooks.json`)
         ↓ `py -3.13`, independent of project environments
 `codex-adapter/hook.py`
         ↓ allowlisted metadata only
-http://127.0.0.1:8000/api/v1/events
+http://127.0.0.1:<backend_port>/api/v1/events
         ↓
 Claude Office
 ```
@@ -92,10 +92,12 @@ For normal use, start everything with:
 .\start_claude_office.ps1
 ```
 
-The script starts the backend (`uv run uvicorn ... --host 127.0.0.1 --port 8000`) and frontend
-(`bun run dev`) in titled PowerShell windows, checks `/health` and `http://localhost:3000` for up
-to 30 seconds, prevents duplicate starts, and opens the browser. It never kills an unrelated
-process that owns port 8000 or 3000. Stop either server with `Ctrl+C` in its own window.
+For an always-available Windows control panel, use `.\start_ai_office_manager.ps1`. Both
+the manager and the Web settings screen use the shared `config/app-settings.json` file.
+
+The script reads the configured hosts/ports, passes the API/WS URL to the frontend, checks
+`/health` and the configured frontend URL for up to 30 seconds, prevents duplicate starts, and
+opens the selected browser mode. It never kills an unrelated process that owns a configured port.
 
 Manual fallback:
 
@@ -121,11 +123,11 @@ produced while the backend is down are not replayed.
 | `codex-adapter/uninstall-global-hooks.ps1` | Removes only Claude Office global handlers |
 | `start_claude_office.ps1` | Backend/frontend readiness check and browser launcher |
 | `event_mapper.py` | Hook mapping, metadata allowlist, and tool normalization |
-| `sender.py` | One HTTP POST to the fixed loopback destination |
-| `config.py` | Fixed host, port, path, and 0.5-second timeout |
+| `sender.py` | One HTTP POST to the configured local destination |
+| `config.py` | Shared settings reader, path, and 0.5-second timeout |
 | `main.py` | Reads one stdin JSON object and suppresses adapter failures |
 
-The sender uses a direct `HTTPConnection` to `127.0.0.1:8000`, bypasses environment proxies,
+The sender uses a direct `HTTPConnection` to the configured local backend, bypasses environment proxies,
 does not follow redirects, performs no retry, and keeps no queue.
 
 ## Events and Metadata

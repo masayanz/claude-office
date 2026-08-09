@@ -7,6 +7,36 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
 _DEFAULT_DB_PATH = _BACKEND_DIR / "visualizer.db"
+_SHARED_SETTINGS_PATH = _BACKEND_DIR.parent / "config" / "app-settings.json"
+
+
+def _shared_settings() -> dict[str, object]:
+    try:
+        import json
+
+        value = json.loads(_SHARED_SETTINGS_PATH.read_text(encoding="utf-8"))
+        return value if isinstance(value, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _default_cors_origins() -> list[str]:
+    shared = _shared_settings()
+    host = str(shared.get("frontend_host", "127.0.0.1"))
+    try:
+        port = int(shared.get("frontend_port", 3000))
+    except (TypeError, ValueError):
+        port = 3000
+    return [
+        f"http://localhost:{port}",
+        f"http://127.0.0.1:{port}",
+        f"http://{host}:{port}",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://0.0.0.0:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:8000",
+    ]
 
 
 def _resolve_version() -> str:
@@ -26,13 +56,7 @@ class Settings(BaseSettings):
     VERSION: str = _resolve_version()
     API_V1_STR: str = "/api/v1"
 
-    BACKEND_CORS_ORIGINS: list[str] = [
-        "http://localhost:3000",
-        "http://127.0.0.1:3000",
-        "http://0.0.0.0:3000",
-        "http://localhost:8000",
-        "http://127.0.0.1:8000",
-    ]
+    BACKEND_CORS_ORIGINS: list[str] = _default_cors_origins()
 
     DATABASE_URL: str = f"sqlite+aiosqlite:///{_DEFAULT_DB_PATH}"
     GIT_POLL_INTERVAL: int = 5

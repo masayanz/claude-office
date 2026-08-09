@@ -95,6 +95,11 @@ claude_scratch/
 backend/visualizer.db
 backend/visualizer.db-shm
 backend/visualizer.db-wal
+config/owner-image/*
+!config/owner-image/.gitkeep
+runtime/logs/
+runtime/processes.json
+.pytest-temp/
 
 # --- Build Artifacts ---
 backend/static/

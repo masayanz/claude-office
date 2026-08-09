@@ -16,13 +16,14 @@ from rich.logging import RichHandler
 from sqlalchemy import delete, select, update
 
 from app.api.middleware import ApiKeyMiddleware, LocalhostOnlyMiddleware
-from app.api.routes import events, floors, preferences, sessions, websockets
+from app.api.routes import app_settings, events, floors, preferences, sessions, websockets
 from app.config import get_settings
 from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema
 from app.db.models import EventRecord, SessionRecord
+from app.services.app_settings import load_settings
 from app.services.git_service import git_service
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
@@ -54,14 +55,19 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # only the launching user sees the terminal). Never echo an explicitly
     # configured key (SEC-001).
     if not settings.has_explicit_key:
+        shared_settings, _ = load_settings()
+        frontend_url = (
+            f"http://{shared_settings['frontend_host']}:{shared_settings['frontend_port']}"
+        )
         logger.info(
             "Auto-generated API key for state-changing endpoints: %s",
             settings.effective_api_key,
         )
         logger.info(
             "Open the UI with this URL to authorize destructive actions: "
-            "http://localhost:3000/?token=%s (dev) or "
+            "%s/?token=%s (dev) or "
             "http://localhost:8000/?token=%s (static)",
+            frontend_url,
             settings.effective_api_key,
             settings.effective_api_key,
         )
@@ -188,6 +194,7 @@ app.add_middleware(ApiKeyMiddleware)
 app.include_router(events.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(floors.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(preferences.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(app_settings.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")
 # WebSocket routes (no prefix). Registered before the SERVE_STATIC catch-all
 # ``@app.get("/{path:path}")`` block so WS handshakes aren't shadowed. Within

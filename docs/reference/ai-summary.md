@@ -1,6 +1,6 @@
 # AI Summary Service Documentation
 
-This document describes the AI-powered summary system used in Claude Office Visualizer to generate concise descriptions for tool calls, agent tasks, and Claude responses.
+This document describes the AI-powered summary system used in AI Office Viewer to generate concise descriptions for tool calls, agent tasks, and AI responses.
 
 ## Overview
 

@@ -1,4 +1,4 @@
-"""Map allowlisted Codex hook metadata to Claude Office events."""
+"""Map allowlisted Codex hook metadata to AI Office Viewer events."""
 
 import ntpath
 import posixpath
@@ -121,7 +121,7 @@ def map_event(
     *,
     received_at: datetime | None = None,
 ) -> dict[str, object] | None:
-    """Return a sanitized Claude Office event, or ``None`` if it cannot be sent."""
+    """Return a sanitized viewer event, or ``None`` if it cannot be sent."""
     if not isinstance(payload, Mapping):
         return None
     typed_payload = cast("Mapping[str, object]", payload)

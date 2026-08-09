@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Overview
 
-Claude Office Visualizer transforms Claude Code operations into a real-time pixel art office simulation. A "boss" character (main Claude agent) manages work, spawns "employee" agents (subagents), and orchestrates tasks visually.
+AI Office Viewer transforms Codex, Claude Code, and OpenCode activity into a real-time pixel art office simulation. A "boss" character represents the main AI agent and "employee" characters represent subagents.
 
 See [docs/architecture/ARCHITECTURE.md](docs/architecture/ARCHITECTURE.md) for system architecture and component details.
 

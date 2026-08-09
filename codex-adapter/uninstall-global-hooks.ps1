@@ -1,5 +1,5 @@
 <#
-Remove only Claude Office's Codex handlers from the current user's global layer.
+Remove only AI Office Viewer's Codex handlers from the current user's global layer.
 Existing hooks, the adapter source, and unrelated settings remain untouched.
 #>
 
@@ -22,7 +22,7 @@ function Test-ClaudeOfficeHandler([object]$handler) {
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path (Get-CodexHome) "hooks.json"))) {
-    Write-Host "Claude Officeのglobal hooksは設定されていません。"
+    Write-Host "AI Office Viewerのglobal hooksは設定されていません。"
     exit 0
 }
 
@@ -30,7 +30,7 @@ $codexHome = Get-CodexHome
 $hooksPath = Join-Path $codexHome "hooks.json"
 $config = Get-Content -LiteralPath $hooksPath -Raw | ConvertFrom-Json
 if (-not $config.PSObject.Properties["hooks"]) {
-    Write-Host "Claude Officeのglobal hooksは設定されていません。"
+    Write-Host "AI Office Viewerのglobal hooksは設定されていません。"
     exit 0
 }
 
@@ -52,5 +52,5 @@ foreach ($eventName in @(
 }
 
 $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $hooksPath -Encoding UTF8
-Write-Host "Claude Officeのglobal hooksだけを解除しました。既存の他hookは保持しています。"
+Write-Host "AI Office Viewerのglobal hooksだけを解除しました。既存の他hookは保持しています。"
 Write-Host "adapter本体とlauncherは削除していません。"

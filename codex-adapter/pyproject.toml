@@ -1,7 +1,7 @@
 [project]
 name = "claude-office-codex-adapter"
 version = "0.1.0"
-description = "Fail-open Codex lifecycle hook adapter for Claude Office"
+description = "Fail-open Codex lifecycle hook adapter for AI Office Viewer"
 requires-python = ">=3.13"
 dependencies = []
 

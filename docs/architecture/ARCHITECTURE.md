@@ -1,6 +1,6 @@
 # Architecture
 
-System architecture and design documentation for Claude Office Visualizer.
+System architecture and design documentation for AI Office Viewer.
 
 ## Table of Contents
 
@@ -30,7 +30,7 @@ System architecture and design documentation for Claude Office Visualizer.
 
 ## Overview
 
-Claude Office Visualizer transforms Claude Code operations into a real-time pixel art office simulation. A "boss" character (main Claude agent) manages work, spawns "employee" agents (subagents), and orchestrates tasks visually.
+AI Office Viewer transforms Codex, Claude Code, and OpenCode activity into a real-time pixel art office simulation. A "boss" character represents the main AI agent and "employee" characters represent subagents.
 
 **Design Principle:** The backend is the source of truth. The frontend is a "dumb" renderer that displays whatever state it receives via WebSocket.
 

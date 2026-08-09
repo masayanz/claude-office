@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Simulation entry point for the Claude Office Visualizer.
+"""Simulation entry point for AI Office Viewer.
 
 Runs one of five pre-built scenarios against the backend API:
 
@@ -42,7 +42,7 @@ DEFAULT_SESSION_ID = "sim_session_123"
 def build_parser() -> argparse.ArgumentParser:
     """Return the argument parser for the simulation entry point."""
     parser = argparse.ArgumentParser(
-        description="Run a Claude Office simulation scenario against the local backend.",
+        description="Run an AI Office Viewer simulation scenario against the local backend.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )

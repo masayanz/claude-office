@@ -1,1 +1,1 @@
-"""Shared Claude Office configuration files."""
+"""Shared AI Office Viewer configuration files."""

@@ -1125,9 +1125,9 @@ class EventProcessor:
         # family-specific fields (tool_name, prompt, task_id, ...) typecheck.
         match event.event_type:
             case EventType.SESSION_START:
-                return "Claude Office session started"
+                return "AI Office Viewer session started"
             case EventType.SESSION_END:
-                return "Claude Office session ended"
+                return "AI Office Viewer session ended"
             case EventType.PRE_TOOL_USE:
                 assert isinstance(event, ToolEvent)
                 tool = event.data.tool_name or "Unknown tool"

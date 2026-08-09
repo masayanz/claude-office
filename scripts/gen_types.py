@@ -100,7 +100,7 @@ MODELS = [
 # Generate combined JSON schema with camelCase field names (by_alias=True)
 _, full_schema = models_json_schema(
     [(m, "serialization") for m in MODELS],
-    title="Claude Office Backend Types",
+    title="AI Office Viewer Backend Types",
     by_alias=True,
 )
 

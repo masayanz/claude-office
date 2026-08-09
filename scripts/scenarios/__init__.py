@@ -1,4 +1,4 @@
-"""Simulation scenarios for the Claude Office Visualizer.
+"""Simulation scenarios for AI Office Viewer.
 
 Each module exposes a single ``run(ctx)`` function that accepts a
 :class:`~scripts.scenarios._base.SimulationContext` and drives the backend

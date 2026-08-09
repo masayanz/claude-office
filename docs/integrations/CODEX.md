@@ -1,7 +1,7 @@
 # Codex Integration
 
-Claude Office can visualize OpenAI Codex activity through user-level global lifecycle hooks. Once
-installed, the same integration works in every Codex project without copying a Claude Office hook
+AI Office Viewer can visualize OpenAI Codex activity through user-level global lifecycle hooks. Once
+installed, the same integration works in every Codex project without copying an AI Office Viewer hook
 file into each repository.
 
 ```text
@@ -13,20 +13,20 @@ Codex lifecycle hook (`~/.codex/hooks.json`)
         ↓ allowlisted metadata only
 http://127.0.0.1:<backend_port>/api/v1/events
         ↓
-Claude Office
+AI Office Viewer
 ```
 
-The adapter is local and fail-open: if Claude Office is stopped or unreachable, Codex continues
+The adapter is local and fail-open: if AI Office Viewer is stopped or unreachable, Codex continues
 normally and that visualization event is dropped.
 
 ## Global setup (recommended)
 
-Run this once from the Claude Office repository. It backs up the existing user hooks, preserves
-unrelated handlers, and adds only the eight Claude Office lifecycle events. Running it again is
-safe and updates the stored Claude Office root if the repository was moved.
+Run this once from the AI Office Viewer repository. It backs up the existing user hooks, preserves
+unrelated handlers, and adds only the eight AI Office Viewer lifecycle events. Running it again is
+safe and updates the stored AI Office Viewer root if the repository was moved.
 
 ```powershell
-cd <Claude Office root>
+cd <AI Office Viewer root>
 .\codex-adapter\install-global-hooks.ps1
 ```
 
@@ -35,14 +35,14 @@ The installer writes `~/.codex/hooks.json`, a stable launcher, and a root config
 After installation, open a new Codex session and use `/hooks` to review/trust the launcher if
 Codex requests it.
 
-Remove only Claude Office's global handlers with:
+Remove only AI Office Viewer's global handlers with:
 
 ```powershell
 .\codex-adapter\uninstall-global-hooks.ps1
 ```
 
 Codex loads matching user and project hooks together. Therefore this repository's
-`.codex/hooks.json` intentionally contains no Claude Office handler; unrelated project hooks can
+`.codex/hooks.json` intentionally contains no AI Office Viewer handler; unrelated project hooks can
 remain in place.
 
 ## Why Lifecycle Hooks
@@ -67,7 +67,7 @@ py -3.13 --version
 ```
 
 No adapter package installation is required. The global launcher always invokes the adapter from
-the configured Claude Office root with `py -3.13`; it does not use the active project's venv or
+the configured AI Office Viewer root with `py -3.13`; it does not use the active project's venv or
 Node environment.
 
 ## Starting and Stopping on Windows
@@ -89,10 +89,10 @@ cd ..
 For normal use, start everything with:
 
 ```powershell
-.\start_claude_office.ps1
+.\start_ai_office_viewer.ps1
 ```
 
-For an always-available Windows control panel, use `.\start_ai_office_manager.ps1`. Both
+For an always-available Windows control panel, use `.\start_ai_office_viewer_manager.ps1`. Both
 the manager and the Web settings screen use the shared `config/app-settings.json` file.
 
 The script reads the configured hosts/ports, passes the API/WS URL to the frontend, checks
@@ -111,7 +111,7 @@ cd frontend
 bun run dev
 ```
 
-Stopping Claude Office does not require disabling the global hooks and does not stop Codex; events
+Stopping AI Office Viewer does not require disabling the global hooks and does not stop Codex; events
 produced while the backend is down are not replayed.
 
 ## Adapter Components
@@ -120,8 +120,8 @@ produced while the backend is down are not replayed.
 | --- | --- |
 | `codex-adapter/hook.py` | Shared, fail-open Python adapter launcher |
 | `codex-adapter/install-global-hooks.ps1` | Idempotent global hook installer and backup creator |
-| `codex-adapter/uninstall-global-hooks.ps1` | Removes only Claude Office global handlers |
-| `start_claude_office.ps1` | Backend/frontend readiness check and browser launcher |
+| `codex-adapter/uninstall-global-hooks.ps1` | Removes only AI Office Viewer global handlers |
+| `start_ai_office_viewer.ps1` | Backend/frontend readiness check and browser launcher |
 | `event_mapper.py` | Hook mapping, metadata allowlist, and tool normalization |
 | `sender.py` | One HTTP POST to the configured local destination |
 | `config.py` | Shared settings reader, path, and 0.5-second timeout |
@@ -132,7 +132,7 @@ does not follow redirects, performs no retry, and keeps no queue.
 
 ## Events and Metadata
 
-| Codex hook | Claude Office `event_type` | Event-specific data |
+| Codex hook | AI Office Viewer `event_type` | Event-specific data |
 | --- | --- | --- |
 | `SessionStart` | `session_start` | safe `project_name` plus backend-only `working_dir` from `cwd` |
 | `SessionEnd` | `session_end` | none |
@@ -155,7 +155,7 @@ number remains reserved after the character leaves.
 
 Tool names are normalized as follows:
 
-| Codex tool | Claude Office tool |
+| Codex tool | AI Office Viewer tool |
 | --- | --- |
 | `collaborationspawn_agent` | `Agent` |
 | `collaborationwait_agent` | `AgentWait` |
@@ -201,7 +201,7 @@ no routine stdout or stderr and returns success to Codex even when:
 
 - stdin is empty or malformed;
 - a hook is unknown or required IDs are missing;
-- Claude Office refuses the connection;
+- AI Office Viewer refuses the connection;
 - the HTTP request exceeds 0.5 seconds;
 - the API returns 4xx or 5xx.
 
@@ -222,7 +222,7 @@ Use only non-sensitive prompts and files during verification.
 ## Uninstall
 
 Run `codex-adapter\uninstall-global-hooks.ps1`, then start a new Codex session and confirm the
-Claude Office entries are gone in `/hooks`. The project-local file is intentionally retained as an
+AI Office Viewer entries are gone in `/hooks`. The project-local file is intentionally retained as an
 empty, documented hook layer; it does not affect other integrations.
 
 ## Troubleshooting
@@ -236,7 +236,7 @@ enabled and that `~/.codex/hooks.json` contains all eight events.
 
 ```powershell
 py -3.13 --version
-'' | py -3.13 "<Claude Office root>\codex-adapter\hook.py"
+'' | py -3.13 "<AI Office Viewer root>\codex-adapter\hook.py"
 ```
 
 The empty-input command should exit successfully without output.
@@ -244,7 +244,7 @@ The empty-input command should exit successfully without output.
 ### Events appear twice
 
 Check `/hooks`, `.codex/hooks.json`, and `~/.codex/hooks.json`. Remove any old project-local
-Claude Office handlers; matching hooks from multiple scopes all run concurrently.
+AI Office Viewer handlers; matching hooks from multiple scopes all run concurrently.
 
 ### Main activity appears but subagents do not
 
@@ -254,9 +254,9 @@ not infer child lifecycle solely from the `Agent` tool event.
 ### `AgentWait` is shown as a generic tool
 
 Confirm Codex emitted `collaborationwait_agent` and the adapter normalized it to `AgentWait`.
-Restart Codex and Claude Office after updating an older adapter/backend pair.
+Restart Codex and AI Office Viewer after updating an older adapter/backend pair.
 
-### Claude Office is unavailable
+### AI Office Viewer is unavailable
 
 Codex should continue and visualization events are dropped. If Codex pauses or fails, temporarily
 run `uninstall-global-hooks.ps1` and report the adapter defect. No retry loop, popup, or queue is
@@ -269,6 +269,6 @@ Payloads vary by event and Codex version. Optional `model`, `agent_type`, `agent
 
 ## Related Documentation
 
-- [Claude Office architecture](../architecture/ARCHITECTURE.md)
-- [Claude Office quick start](../guides/quickstart.md)
+- [AI Office Viewer architecture](../architecture/ARCHITECTURE.md)
+- [AI Office Viewer quick start](../guides/quickstart.md)
 - [Codex hooks research](../research/openai-codex-hooks.md)

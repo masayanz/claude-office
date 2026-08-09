@@ -1,0 +1,8 @@
+"""User-facing AI Office Viewer brand constants."""
+
+PRODUCT_NAME = "AI Office Viewer"
+PRODUCT_SUBTITLE_JA = "AIエージェントの活動をリアルタイムで可視化"
+MANAGER_NAME = f"{PRODUCT_NAME} Manager"
+MANAGER_EXE_NAME = "AI-Office-Viewer-Manager.exe"
+APP_USER_MODEL_ID = "AI.Office.Viewer.Manager"
+SINGLE_INSTANCE_NAME = "AI.Office.Viewer.Manager.SingleInstance"

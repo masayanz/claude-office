@@ -1,4 +1,4 @@
-"""HTTP middleware for the Claude Office backend.
+"""HTTP middleware for the AI Office Viewer backend.
 
 Moved out of ``app.main`` in ARC-023. The trust boundary and auth behavior
 live here: ``LocalhostOnlyMiddleware`` restricts access to the loopback

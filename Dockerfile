@@ -1,4 +1,4 @@
-# Claude Office Visualizer - Multi-stage Dockerfile
+# AI Office Viewer - Multi-stage Dockerfile
 # Stage 1: Build frontend with Node.js
 # Stage 2: Run backend with Python/uv
 

@@ -1,4 +1,4 @@
-"""Debug logging utilities for the Claude Office hooks.
+"""Debug logging utilities for the AI Office Viewer hooks.
 
 IMPORTANT: This module must not produce any stdout/stderr output.
 Output suppression is handled in main.py before this module is imported.

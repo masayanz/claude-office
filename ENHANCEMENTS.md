@@ -1,6 +1,6 @@
 # Enhancement Ideas
 
-> **Project**: Claude Office Visualizer
+> **Project**: AI Office Viewer
 > **Date**: 2026-07-06
 > **Source**: Derived from the 2026-07-06 Fable audit (`AUDIT.md`) plus forward-looking opportunities.
 > Each item has a full implementation plan under [`docs/fable/`](docs/fable/).

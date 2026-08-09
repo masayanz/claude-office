@@ -1,1 +1,1 @@
-"""Claude Office Windows manager."""
+"""AI Office Viewer Windows manager."""

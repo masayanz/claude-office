@@ -1,6 +1,6 @@
-# Claude Office Scripts
+# AI Office Viewer Scripts
 
-Utility scripts for testing and demonstrating the Claude Office Visualizer without requiring live Claude Code sessions.
+Utility scripts for testing and demonstrating AI Office Viewer without requiring live AI agent sessions.
 
 ## Table of Contents
 

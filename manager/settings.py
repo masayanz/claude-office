@@ -11,7 +11,7 @@ from typing import Any
 
 
 def _find_root() -> Path:
-    """Find the Claude Office root when running from source or a frozen EXE."""
+    """Find the AI Office Viewer root when running from source or a frozen EXE."""
     start = Path(sys.executable if getattr(sys, "frozen", False) else __file__).resolve()
     start = start.parent if start.is_file() else start
     for candidate in (start, *start.parents):
@@ -34,7 +34,7 @@ DEFAULTS: dict[str, Any] = {
     "frontend_port": 3000,
     "open_browser_on_start": True,
     "browser_mode": "normal",
-    "company_name": "Claude Office",
+    "company_name": "",
     "owner_name": "Owner",
     "owner_image_filename": None,
     "stop_servers_on_manager_exit": False,

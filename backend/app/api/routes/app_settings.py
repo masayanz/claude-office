@@ -1,4 +1,4 @@
-"""API for shared Claude Office settings and the owner image."""
+"""API for shared AI Office Viewer settings and the owner image."""
 
 from __future__ import annotations
 

@@ -52,7 +52,7 @@ def _resolve_version() -> str:
 
 
 class Settings(BaseSettings):
-    PROJECT_NAME: str = "Claude Office Visualizer"
+    PROJECT_NAME: str = "AI Office Viewer"
     VERSION: str = _resolve_version()
     API_V1_STR: str = "/api/v1"
 

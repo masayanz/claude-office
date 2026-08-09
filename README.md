@@ -1,4 +1,8 @@
-# Claude Office Visualizer
+# AI Office Viewer
+
+**AIエージェントの活動をリアルタイムで可視化**
+
+*Visualize AI agent activity in real time*
 
 ![CI](https://github.com/paulrobello/claude-office/actions/workflows/ci.yml/badge.svg)
 ![GitHub Release](https://img.shields.io/github/v/release/paulrobello/claude-office)
@@ -37,7 +41,7 @@ The **Command Center** gathers the boss of every live terminal into one cross-se
 
 ## About
 
-Claude Office Visualizer is a real-time pixel art office simulation that visualizes Claude Code operations. Watch as a "boss" character (main Claude agent) manages work, spawns "employee" agents (subagents), and orchestrates tasks in an animated office environment.
+AI Office Viewer visualizes Codex、Claude Code、OpenCodeなどのAIエージェントの活動を、ピクセルアートの仮想オフィス上でリアルタイムに表示します。メインエージェントを「boss」、サブエージェントを「employee」として、作業・委譲・待機・完了の状態を直感的に確認できます。
 
 The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://pixijs.com/), [FastAPI](https://fastapi.tiangolo.com/), and [Zustand](https://github.com/pmndrs/zustand).
 
@@ -94,8 +98,8 @@ For the full release history, see [CHANGELOG.md](CHANGELOG.md).
 ## Features
 
 ### Core Capabilities
-- **Real-time Visualization**: Watch Claude Code operations as they happen in an animated office
-- **Boss & Employee Agents**: Main Claude agent as boss, subagents as employees
+- **Real-time Visualization**: Watch Codex, Claude Code, and OpenCode activity in an animated office
+- **Boss & Employee Agents**: Main AI agent as boss, subagents as employees
 - **Multi-Floor Building**: Navigate a multi-story building with independent offices per floor, breadcrumb navigation, and automatic session switching
 
 ![Multi-Floor Building](https://raw.githubusercontent.com/paulrobello/claude-office/main/screenshots/sc_floor_office.png)
@@ -136,9 +140,9 @@ make install-all
 make dev-tmux
 ```
 
-Then open [http://localhost:3000](http://localhost:3000) and run any Claude Code command to see it visualized.
+Then open [http://localhost:3000](http://localhost:3000) and run a supported AI agent to see its activity visualized.
 
-For everyday Windows use, launch `start_ai_office_manager.ps1`. The AI Office Manager starts,
+For everyday Windows use, launch `start_ai_office_viewer_manager.ps1`. AI Office Viewer Manager starts,
 stops, restarts, monitors, and opens the Backend/Frontend. Its settings screen and the Web
 settings tab share `config/app-settings.json`, including configurable ports, Japanese/English
 language preference, company/owner name, owner image, and normal/app browser mode. See
@@ -149,7 +153,7 @@ language preference, company/owner name, owner image, and normal/app browser mod
 - Python 3.13+
 - Node.js 20+ (Bun auto-detected if available)
 - uv (Python package manager)
-- Claude Code CLI installed and configured, **or** [OpenCode](https://opencode.ai) with Bun
+- Codex, Claude Code CLI, or [OpenCode](https://opencode.ai) with Bun
 
 ## Installation
 

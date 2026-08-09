@@ -1,6 +1,6 @@
 # Docker Deployment
 
-Guide for deploying Claude Office Visualizer using Docker containers.
+Guide for deploying AI Office Viewer using Docker containers.
 
 ## Table of Contents
 
@@ -16,7 +16,7 @@ Guide for deploying Claude Office Visualizer using Docker containers.
 
 ## Overview
 
-Claude Office Visualizer can be deployed as a single Docker container that serves both the FastAPI backend and the pre-built Next.js frontend. The container requires read access to Claude Code's data directory to extract token usage from transcript files.
+AI Office Viewer can be deployed as a single Docker container that serves both the FastAPI backend and the pre-built Next.js frontend. Claude Code transcript features require read access to Claude Code's data directory.
 
 ```mermaid
 graph TD
@@ -59,7 +59,7 @@ graph TD
 - Docker Engine 20.10+ or Docker Desktop
 - Docker Compose V2
 - Claude Code installed and configured on the host
-- Claude Office hooks installed (`make hooks-install`)
+- AI Office Viewer Claude Code hooks installed (`make hooks-install`)
 
 ## Quick Start
 

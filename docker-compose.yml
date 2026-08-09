@@ -1,4 +1,4 @@
-# Claude Office Visualizer - Docker Compose Configuration
+# AI Office Viewer - Docker Compose Configuration
 #
 # Usage:
 #   docker compose up -d          # Start in background

@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
 import { useTranslation } from "@/hooks/useTranslation";
 import { API_BASE } from "@/utils/api";
+import { PRODUCT_NAME } from "@/config/branding";
 
 export function OfficeSettingsTab(): ReactNode {
   const { t } = useTranslation();
@@ -19,6 +20,8 @@ export function OfficeSettingsTab(): ReactNode {
 
   useEffect(() => {
     if (!settings) return;
+    // The API-backed settings object is the source of truth when the dialog opens or saves.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setCompanyName(settings.company_name);
     setOwnerName(settings.owner_name);
     setBackendPort(settings.backend_port);
@@ -46,6 +49,10 @@ export function OfficeSettingsTab(): ReactNode {
   return (
     <div className="space-y-5">
       <div>
+        <h3 className="text-lg font-bold text-white">{PRODUCT_NAME}</h3>
+        <p className="text-sm text-slate-400">{t("app.subtitle")}</p>
+      </div>
+      <div>
         <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-2">
           {t("settings.office.companyName")}
         </label>
@@ -65,6 +72,7 @@ export function OfficeSettingsTab(): ReactNode {
         </label>
         {settings?.owner_image_url && (
           // The endpoint is local and may be unavailable while the backend restarts.
+          // eslint-disable-next-line @next/next/no-img-element
           <img src={`${API_BASE}${settings.owner_image_url}?v=${settings.owner_image_filename ?? ""}`} alt={ownerName}
             className="mb-2 h-20 w-20 rounded-lg object-cover border border-slate-700" />
         )}

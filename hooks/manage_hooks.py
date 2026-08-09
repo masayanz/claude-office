@@ -226,7 +226,7 @@ def convert_camel_to_snake(name: str) -> str:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Manage Claude Office hooks.")
+    parser = argparse.ArgumentParser(description="Manage AI Office Viewer hooks.")
     parser.add_argument("action", choices=["install", "uninstall"], help="Action to perform")
     parser.add_argument("--dry-run", action="store_true", help="Don't save changes")
     parser.add_argument("--hook-cmd", help="Path to claude-office-hook command", required=True)

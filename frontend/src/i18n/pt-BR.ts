@@ -4,7 +4,7 @@ const ptBR: Record<TranslationKey, string> = {
   ...en,
   ...{
   // App
-  "app.title": "Visualizador do Escritório",
+  "app.title": "AI Office Viewer",
   "app.initializingSystems": "Inicializando Sistemas...",
 
   // Header Controls
@@ -229,7 +229,7 @@ const ptBR: Record<TranslationKey, string> = {
   "tour.steps.welcome.title": "Bem-vindo",
   "tour.steps.welcome.description":
     "Este é seu centro de comando. Clique em um andar para explorar.",
-  "tour.steps.singleWelcome.title": "Bem-vindo ao Claude Office",
+  "tour.steps.singleWelcome.title": "Bem-vindo ao AI Office Viewer",
   "tour.steps.singleWelcome.description":
     "Este escritório em pixel art mostra suas sessões do Claude Code em tempo real. Vamos dar uma olhada rápida.",
   "tour.steps.simulate.title": "Iniciar Simulação",

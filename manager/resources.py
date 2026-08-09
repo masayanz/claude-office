@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
+# Kept stable so existing source distributions and references remain compatible.
 ICON_FILENAME = "claude-office-manager.ico"
 
 

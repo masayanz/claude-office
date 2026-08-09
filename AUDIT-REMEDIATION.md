@@ -1,6 +1,6 @@
 # Audit Remediation Report
 
-> **Project**: Claude Office Visualizer (claude-office)
+> **Project**: AI Office Viewer (internal repository: claude-office)
 > **Audit Date**: 2026-07-06 (see [AUDIT.md](AUDIT.md) — 69 findings)
 > **Remediation Date**: 2026-07-07
 > **Severity Filter Applied**: `all` (frontend god-object refactors deliberately deferred)

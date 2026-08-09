@@ -1,6 +1,6 @@
 # Quick Start Guide
 
-Get Claude Office Visualizer running in under 5 minutes. This guide covers the fastest path from clone to visualization.
+Get AI Office Viewer running in under 5 minutes. This guide covers the fastest path from clone to visualization.
 
 ## Table of Contents
 
@@ -15,7 +15,7 @@ Get Claude Office Visualizer running in under 5 minutes. This guide covers the f
 
 ## Overview
 
-Claude Office Visualizer transforms Claude Code operations into a real-time pixel art office simulation. Once installed, it automatically captures Claude Code events and displays them as animated office activities.
+AI Office Viewer transforms supported AI agent activity into a real-time pixel art office simulation. Once an integration is installed, it captures Codex, Claude Code, or OpenCode events and displays them as animated office activities.
 
 ```mermaid
 graph LR

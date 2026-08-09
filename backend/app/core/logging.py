@@ -1,5 +1,5 @@
 """
-Logging utilities for Claude Office backend.
+Logging utilities for the AI Office Viewer backend.
 
 Provides standardized logging helpers used across all backend modules:
 

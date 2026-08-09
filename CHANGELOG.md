@@ -1,6 +1,6 @@
 # Changelog
 
-All notable changes to Claude Office Visualizer are documented here.
+All notable changes to AI Office Viewer are documented here.
 
 ## [Unreleased]
 
@@ -288,7 +288,7 @@ See `AUDIT-REMEDIATION.md` for the full per-issue accounting. 60 of 69 audit fin
 
 ### Added
 
-- **OpenCode Plugin Integration**: New `opencode-plugin/` component sends OpenCode lifecycle events to the Claude Office backend, enabling the same pixel-art office visualization for OpenCode coding sessions
+- **OpenCode Plugin Integration**: New `opencode-plugin/` component sends OpenCode lifecycle events to the AI Office Viewer backend, enabling the same pixel-art office visualization for OpenCode coding sessions
 - **Session Labels**: Sessions can now be given custom labels via `PATCH /sessions/{id}/label`, displayed in the sidebar session list
 - **Improved Session Selection**: Auto-selects the active session with the most events (better heuristic for distinguishing main vs child sessions)
 

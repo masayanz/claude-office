@@ -1,6 +1,7 @@
 const en = {
   // App
-  "app.title": "Office Visualizer",
+  "app.title": "AI Office Viewer",
+  "app.subtitle": "Visualize AI agent activity in real time",
   "app.initializingSystems": "Initializing Systems...",
 
   // Header Controls
@@ -76,7 +77,7 @@ const en = {
   "settings.language": "Language",
   "settings.tabs.general": "General",
   "settings.tabs.building": "Building",
-  "settings.tabs.office": "AI Office",
+  "settings.tabs.office": "AI Office Viewer",
   "settings.office.companyName": "Company name",
   "settings.office.ownerName": "Owner name",
   "settings.office.ownerImage": "Owner image",
@@ -85,12 +86,12 @@ const en = {
   "settings.office.browserMode": "Browser mode",
   "settings.office.browserNormal": "Normal browser",
   "settings.office.browserApp": "App window",
-  "settings.office.save": "Save office settings",
+  "settings.office.save": "Save AI Office Viewer settings",
   "settings.office.saved": "Saved",
   "settings.office.saveFailed": "Could not save settings",
   "settings.office.imageSaved": "Owner image saved",
   "settings.office.imageFailed": "Could not save owner image",
-  "settings.office.restartHint": "Port changes take effect after restarting Claude Office.",
+  "settings.office.restartHint": "Port changes take effect after restarting AI Office Viewer.",
   "settings.building.name": "Building Name",
   "settings.building.namePlaceholder": "My Company",
   "settings.building.floors": "Floors",
@@ -239,7 +240,7 @@ const en = {
   "tour.steps.welcome.title": "Welcome",
   "tour.steps.welcome.description":
     "This is your command center. Click a floor to explore.",
-  "tour.steps.singleWelcome.title": "Welcome to Claude Office",
+  "tour.steps.singleWelcome.title": "Welcome to AI Office Viewer",
   "tour.steps.singleWelcome.description":
     "This pixel art office shows your Claude Code sessions in real time. Let's take a quick look around.",
   "tour.steps.simulate.title": "Start Simulation",

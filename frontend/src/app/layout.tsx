@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import { PRODUCT_NAME, PRODUCT_SUBTITLE_EN } from "@/config/branding";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -13,9 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Claude Office Visualizer",
-  description:
-    "Real-time pixel art visualization of Claude Code operations in a virtual office",
+  title: PRODUCT_NAME,
+  description: PRODUCT_SUBTITLE_EN,
 };
 
 export default function RootLayout({

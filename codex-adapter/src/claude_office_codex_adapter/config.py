@@ -1,4 +1,4 @@
-"""Conservative adapter settings with a shared Claude Office config file."""
+"""Conservative adapter settings with a shared AI Office Viewer config file."""
 
 from __future__ import annotations
 

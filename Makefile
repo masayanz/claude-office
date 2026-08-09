@@ -168,7 +168,7 @@ docker-build:
 
 docker-up:
 	docker compose up -d
-	@echo "Claude Office running at http://localhost:8000"
+	@echo "AI Office Viewer running at http://localhost:8000"
 
 docker-down:
 	docker compose down

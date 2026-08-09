@@ -1,4 +1,4 @@
-"""PySide6 Windows GUI and task-tray host for AI Office Manager."""
+"""PySide6 Windows GUI and task-tray host for AI Office Viewer Manager."""
 
 from __future__ import annotations
 
@@ -33,12 +33,16 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from .branding import (
+    APP_USER_MODEL_ID,
+    MANAGER_NAME,
+    PRODUCT_NAME,
+    PRODUCT_SUBTITLE_JA,
+    SINGLE_INSTANCE_NAME,
+)
 from .process_manager import ServiceManager
 from .resources import manager_icon_path
 from .settings import load_settings, save_settings
-
-APP_USER_MODEL_ID = "AI.Office.Manager"
-SINGLE_INSTANCE_NAME = "AI.Office.Manager.SingleInstance"
 
 
 def _set_windows_app_id() -> None:
@@ -94,7 +98,7 @@ class SingleInstance(QObject):
 class SettingsDialog(QDialog):
     def __init__(self, icon: QIcon, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self.setWindowTitle("AIオフィス設定")
+        self.setWindowTitle(f"{PRODUCT_NAME}設定")
         self.setWindowIcon(icon)
         settings, warning = load_settings()
 
@@ -108,7 +112,7 @@ class SettingsDialog(QDialog):
         self.frontend_port.setValue(int(settings["frontend_port"]))
         self.browser_mode = QComboBox()
         self.browser_mode.addItem("通常ブラウザ", "normal")
-        self.browser_mode.addItem("AI Office専用表示", "app")
+        self.browser_mode.addItem(f"{PRODUCT_NAME}専用表示", "app")
         index = self.browser_mode.findData(settings["browser_mode"])
         self.browser_mode.setCurrentIndex(max(index, 0))
         self.stop_on_exit = QCheckBox("Manager終了時にBackend/Frontendも停止する")
@@ -155,7 +159,7 @@ class SettingsDialog(QDialog):
 class ManagerWindow(QMainWindow):
     def __init__(self, icon: QIcon) -> None:
         super().__init__()
-        self.setWindowTitle("AI Office Manager")
+        self.setWindowTitle(MANAGER_NAME)
         self.setWindowIcon(icon)
         self.resize(820, 500)
         self.manager = ServiceManager()
@@ -176,10 +180,10 @@ class ManagerWindow(QMainWindow):
     def _build_window(self) -> None:
         central = QWidget(self)
         layout = QVBoxLayout(central)
-        title = QLabel("Claude Office")
+        title = QLabel(PRODUCT_NAME)
         title.setStyleSheet("font-size: 24px; font-weight: 700")
         layout.addWidget(title)
-        layout.addWidget(QLabel("AIオフィス管理マネージャー"))
+        layout.addWidget(QLabel(PRODUCT_SUBTITLE_JA))
 
         cards = QGridLayout()
         for column, (service, label) in enumerate(
@@ -218,16 +222,16 @@ class ManagerWindow(QMainWindow):
 
     def _build_tray(self) -> None:
         self._tray = QSystemTrayIcon(self._icon, self)
-        self._tray.setToolTip("AI Office Manager")
+        self._tray.setToolTip(MANAGER_NAME)
         menu = QMenu(self)
-        self._add_tray_action(menu, "AI Office Managerを開く", self.restore_window)
+        self._add_tray_action(menu, f"{MANAGER_NAME}を開く", self.restore_window)
         menu.addSeparator()
-        self._add_tray_action(menu, "AI Officeを起動", self._start)
-        self._add_tray_action(menu, "AI Officeを停止", self._stop)
-        self._add_tray_action(menu, "AI Officeを再起動", self._restart)
+        self._add_tray_action(menu, f"{PRODUCT_NAME}を起動", self._start)
+        self._add_tray_action(menu, f"{PRODUCT_NAME}を停止", self._stop)
+        self._add_tray_action(menu, f"{PRODUCT_NAME}を再起動", self._restart)
         menu.addSeparator()
         self._add_tray_action(menu, "通常ブラウザで開く", self._open_normal)
-        self._add_tray_action(menu, "AI Office専用表示", self._open_app)
+        self._add_tray_action(menu, f"{PRODUCT_NAME}専用表示", self._open_app)
         menu.addSeparator()
         self._add_tray_action(menu, "設定", self._settings_dialog)
         self._add_tray_action(menu, "ログ", self._logs_dialog)
@@ -263,8 +267,8 @@ class ManagerWindow(QMainWindow):
         if not self._tray_notice_shown and self._tray.isVisible():
             self._tray_notice_shown = True
             self._tray.showMessage(
-                "AI Office Manager",
-                "AI Office Managerはタスクトレイで動作を続けます。\n"
+                MANAGER_NAME,
+                f"{MANAGER_NAME}はタスクトレイで動作を続けます。\n"
                 "終了する場合はトレイアイコンを右クリックし、「終了」を選択してください。",
                 QSystemTrayIcon.MessageIcon.Information,
                 7000,
@@ -286,7 +290,7 @@ class ManagerWindow(QMainWindow):
             "インストール済み" if self.manager.hooks_installed() else "未インストール"
         )
         self._tray.setToolTip(
-            "AI Office Manager\n"
+            f"{MANAGER_NAME}\n"
             f"Backend: {'稼働中' if backend.healthy else '停止'}\n"
             f"Frontend: {'稼働中' if frontend.healthy else '停止'}"
         )
@@ -339,7 +343,7 @@ class ManagerWindow(QMainWindow):
 
     def _logs_dialog(self) -> None:
         dialog = QDialog(self)
-        dialog.setWindowTitle("Claude Office ログ")
+        dialog.setWindowTitle(f"{PRODUCT_NAME} ログ")
         dialog.setWindowIcon(self._icon)
         dialog.resize(900, 580)
         layout = QVBoxLayout(dialog)
@@ -368,8 +372,8 @@ class ManagerWindow(QMainWindow):
 def run() -> int:
     _set_windows_app_id()
     app = QApplication(sys.argv)
-    app.setApplicationName("AI Office Manager")
-    app.setApplicationDisplayName("AI Office Manager")
+    app.setApplicationName(MANAGER_NAME)
+    app.setApplicationDisplayName(MANAGER_NAME)
     app.setQuitOnLastWindowClosed(False)
     icon = QIcon(str(manager_icon_path()))
     app.setWindowIcon(icon)

@@ -1,4 +1,4 @@
-"""Event mapping logic for the Claude Office hooks.
+"""Event mapping logic for the AI Office Viewer hooks.
 
 Maps raw Claude Code hook payloads (received on stdin as JSON) to the
 structured Event model expected by the claude-office backend API.

@@ -1,5 +1,5 @@
 /**
- * OpenCode plugin for Claude Office Visualizer.
+ * OpenCode plugin for AI Office Viewer.
  *
  * Intercepts OpenCode lifecycle events (session, tool, message, permission,
  * compaction, token usage) and POSTs them to the claude-office backend API,

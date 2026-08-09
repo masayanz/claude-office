@@ -1,6 +1,6 @@
-# OpenCode Plugin for Claude Office Visualizer
+# OpenCode Plugin for AI Office Viewer
 
-An [OpenCode](https://opencode.ai) plugin that sends lifecycle events to the Claude Office Visualizer backend, enabling the same pixel-art office visualization that the Claude Code hooks provide.
+An [OpenCode](https://opencode.ai) plugin that sends lifecycle events to the AI Office Viewer backend, enabling the same pixel-art office visualization that the Claude Code hooks provide.
 
 ## Table of Contents
 
@@ -25,7 +25,7 @@ The plugin intercepts OpenCode lifecycle events (session, tool, message, permiss
 |-------------|---------|
 | OpenCode | Latest |
 | Bun | 1.0+ |
-| Claude Office backend | Running on `localhost:8000` |
+| AI Office Viewer backend | Running on `localhost:8000` |
 
 ## Installation
 

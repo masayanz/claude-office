@@ -1,6 +1,6 @@
 # Project Audit Report
 
-> **Project**: Claude Office Visualizer (claude-office)
+> **Project**: AI Office Viewer (internal repository: claude-office)
 > **Date**: 2026-07-06
 > **Stack**: Python 3 / FastAPI + SQLite (backend), Next.js / React 19 / TypeScript / PixiJS / Zustand / XState (frontend), Python CLI (hooks), Bun / TypeScript (opencode-plugin)
 > **Audited by**: Claude Code Audit System (4 parallel Fable expert agents)

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Claude Office Hooks - Event handler for Claude Code lifecycle events.
+AI Office Viewer Hooks - Event handler for Claude Code lifecycle events.
 
 CRITICAL: This hook must NEVER interfere with Claude Code:
 - Never print to stdout (would inject context into Claude's conversation)
@@ -110,7 +110,7 @@ try:
                 real_stdout.flush()
             sys.exit(0)
 
-        parser = argparse.ArgumentParser(description="Claude Office hook event handler")
+        parser = argparse.ArgumentParser(description="AI Office Viewer hook event handler")
         parser.add_argument(
             "event_type",
             nargs="?",

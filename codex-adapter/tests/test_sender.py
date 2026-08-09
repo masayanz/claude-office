@@ -45,6 +45,11 @@ def fake_connection(monkeypatch: pytest.MonkeyPatch) -> None:
     FakeConnection.failure = None
     FakeConnection.instances = []
     monkeypatch.setattr(sender.http.client, "HTTPConnection", FakeConnection)
+    monkeypatch.setattr(
+        sender,
+        "get_event_endpoint",
+        lambda: ("127.0.0.1", 8000, "/api/v1/events"),
+    )
 
 
 def test_sender_accepts_200() -> None:

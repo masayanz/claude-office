@@ -1,4 +1,4 @@
-# Claude Office Visualizer Frontend
+# AI Office Viewer Frontend
 
 Next.js application that renders a real-time pixel art office simulation using PixiJS, visualizing Claude Code operations as animated office activities.
 

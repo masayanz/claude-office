@@ -1,4 +1,4 @@
-# Claude Office Visualizer Backend
+# AI Office Viewer Backend
 
 FastAPI backend service that processes Claude Code hook events and broadcasts real-time state updates to connected frontend clients via WebSocket.
 
@@ -18,7 +18,7 @@ FastAPI backend service that processes Claude Code hook events and broadcasts re
 
 ## Overview
 
-The backend serves as the central hub for the Claude Office Visualizer:
+The backend serves as the central hub for AI Office Viewer:
 
 - **Event Ingestion**: Receives lifecycle events from Claude Code hooks via HTTP POST
 - **State Management**: Maintains office state through an event-driven state machine

@@ -1,6 +1,6 @@
 # Documentation
 
-Guides, references, and architecture notes for Claude Office Visualizer.
+Guides, references, and architecture notes for AI Office Viewer.
 
 ## Guides
 
@@ -27,7 +27,7 @@ Guides, references, and architecture notes for Claude Office Visualizer.
 | Document | Description |
 |----------|-------------|
 | [Claude Code JSONL Format](research/claude-code-jsonl-format.md) | Claude Code JSONL transcript file format |
-| [Google Gemini CLI Hooks](research/google-gemini-cli-hooks.md) | Google Gemini CLI hooks system and Claude Office integration mapping |
+| [Google Gemini CLI Hooks](research/google-gemini-cli-hooks.md) | Google Gemini CLI hooks system and AI Office Viewer integration mapping |
 | [OpenAI Codex CLI Hooks](research/openai-codex-hooks.md) | OpenAI Codex CLI hooks system research |
 
 Archived release announcements and superseded working drafts live in [archives/](archives/).

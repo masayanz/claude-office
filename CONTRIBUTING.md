@@ -1,4 +1,4 @@
-# Contributing to Claude Office Visualizer
+# Contributing to AI Office Viewer
 
 Contributions are welcome. This guide covers development setup, code style, and the pull request process.
 

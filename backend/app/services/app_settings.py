@@ -1,4 +1,4 @@
-"""Shared Claude Office settings stored outside the backend database."""
+"""Shared AI Office Viewer settings stored outside the backend database."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "frontend_port": 3000,
     "open_browser_on_start": True,
     "browser_mode": "normal",
-    "company_name": "Claude Office",
+    "company_name": "",
     "owner_name": "Owner",
     "owner_image_filename": None,
     "stop_servers_on_manager_exit": False,

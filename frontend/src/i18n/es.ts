@@ -4,7 +4,7 @@ const es: Record<TranslationKey, string> = {
   ...en,
   ...{
   // App
-  "app.title": "Visualizador de Oficina",
+  "app.title": "AI Office Viewer",
   "app.initializingSystems": "Inicializando sistemas...",
 
   // Header Controls
@@ -229,7 +229,7 @@ const es: Record<TranslationKey, string> = {
   "tour.steps.welcome.title": "Bienvenido",
   "tour.steps.welcome.description":
     "Este es tu centro de comando. Haz clic en un piso para explorar.",
-  "tour.steps.singleWelcome.title": "Bienvenido a Claude Office",
+  "tour.steps.singleWelcome.title": "Bienvenido a AI Office Viewer",
   "tour.steps.singleWelcome.description":
     "Esta oficina en pixel art muestra tus sesiones de Claude Code en tiempo real. Hagamos un recorrido rápido.",
   "tour.steps.simulate.title": "Iniciar Simulación",

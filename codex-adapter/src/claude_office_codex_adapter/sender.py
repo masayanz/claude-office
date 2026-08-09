@@ -1,4 +1,4 @@
-"""Best-effort, single-attempt delivery to the local Claude Office API."""
+"""Best-effort, single-attempt delivery to the local AI Office Viewer API."""
 
 import http.client
 import json

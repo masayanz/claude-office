@@ -1,6 +1,6 @@
 # Audit Remediation Guide
 
-> **Project**: Claude Office Visualizer (claude-office)
+> **Project**: AI Office Viewer (internal repository: claude-office)
 > **Date**: 2026-07-06
 > **Companion to**: [AUDIT.md](AUDIT.md) (2026-07-06 Fable audit — 69 findings)
 > **Audience**: Any capable coding model or human contributor. Every entry below contains the exact steps, file anchors, and verification commands needed to resolve the issue **without re-analyzing the codebase**. Follow the steps literally; where judgment is required, the entry says so explicitly.

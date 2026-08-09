@@ -1,7 +1,7 @@
 [project]
 name = "claude-office-hooks"
 version = "0.24.1"
-description = "Hooks for Claude Office Visualizer"
+description = "Claude Code hooks for AI Office Viewer"
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [

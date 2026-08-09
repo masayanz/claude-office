@@ -1,4 +1,4 @@
-"""PyInstaller entry point for the Claude Office Manager."""
+"""PyInstaller entry point for AI Office Viewer Manager."""
 
 from manager.main import run
 

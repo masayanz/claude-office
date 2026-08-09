@@ -1,6 +1,6 @@
 <#
-Start Claude Office's backend, frontend, readiness checks, and browser.
-The script is relocatable: its own directory is the Claude Office root.
+Compatibility launcher for AI Office Viewer backend, frontend, readiness checks, and browser.
+The legacy filename and CLAUDE_OFFICE_* variables remain stable for existing installations.
 #>
 
 [CmdletBinding()]
@@ -54,8 +54,8 @@ function Test-EndpointReady([ValidateSet("Backend", "Frontend")][string]$kind, [
             return [string]$health.status -eq "ok"
         }
         # A different service can also answer on the configured port. Require the
-        # Claude Office page marker before calling it already running.
-        return $response.Content -match "Claude Office"
+        # AI Office Viewer page marker before calling it already running.
+        return $response.Content -match "AI Office Viewer"
     } catch {
         return $false
     }
@@ -95,21 +95,21 @@ function Start-ClaudeOfficeProcess([string]$title, [string]$workingDirectory, [s
     }
 }
 
-Write-Host "Claude Officeを起動します。root: $root"
+Write-Host "AI Office Viewerを起動します。root: $root"
 
 $backendReady = Test-EndpointReady "Backend" $backendHealthUrl
 $backendNeedsCheck = $false
 if ($backendReady) {
     Write-Host "Backend: already running"
 } elseif (Test-PortInUse $backendHost $backendPort) {
-    Write-Warning "port $backendPort は使用中ですがClaude Officeのhealth応答ではありません。既存プロセスは終了せず、Backendは起動しません。"
+    Write-Warning "port $backendPort は使用中ですがAI Office Viewerのhealth応答ではありません。既存プロセスは終了せず、Backendは起動しません。"
 } else {
     if (-not (Get-Command uv -ErrorAction SilentlyContinue)) {
         Write-Error "uv が見つかりません。uvをインストールしてPATHを更新してから、もう一度実行してください。"
     } elseif (-not (Test-Path -LiteralPath $backendDir)) {
         Write-Error "Backendフォルダが見つかりません: $backendDir"
     } else {
-        $backendCommand = "`$env:CLAUDE_OFFICE_ROOT = '$root'; `$Host.UI.RawUI.WindowTitle = 'Claude Office - Backend'; uv run uvicorn app.main:app --host $backendHost --port $backendPort"
+        $backendCommand = "`$env:CLAUDE_OFFICE_ROOT = '$root'; `$Host.UI.RawUI.WindowTitle = 'AI Office Viewer - Backend'; uv run uvicorn app.main:app --host $backendHost --port $backendPort"
         if (Start-ClaudeOfficeProcess "Backend" $backendDir $backendCommand) {
             $backendNeedsCheck = $true
         }
@@ -121,14 +121,14 @@ $frontendNeedsCheck = $false
 if ($frontendReady) {
     Write-Host "Frontend: already running"
 } elseif (Test-PortInUse $frontendHost $frontendPort) {
-    Write-Warning "port $frontendPort は使用中ですがClaude Officeの応答ではありません。既存プロセスは終了せず、Frontendは起動しません。"
+    Write-Warning "port $frontendPort は使用中ですがAI Office Viewerの応答ではありません。既存プロセスは終了せず、Frontendは起動しません。"
 } else {
     if (-not (Get-Command bun -ErrorAction SilentlyContinue)) {
         Write-Error "bun が見つかりません。bunをインストールしてPATHを更新してから、もう一度実行してください。"
     } elseif (-not (Test-Path -LiteralPath $frontendDir)) {
         Write-Error "Frontendフォルダが見つかりません: $frontendDir"
     } else {
-        $frontendCommand = "`$env:NEXT_PUBLIC_API_URL = '$apiUrl'; `$env:NEXT_PUBLIC_WS_URL = '$wsUrl'; `$env:CLAUDE_OFFICE_ROOT = '$root'; `$Host.UI.RawUI.WindowTitle = 'Claude Office - Frontend'; bun run dev -- --hostname $frontendHost --port $frontendPort"
+        $frontendCommand = "`$env:NEXT_PUBLIC_API_URL = '$apiUrl'; `$env:NEXT_PUBLIC_WS_URL = '$wsUrl'; `$env:CLAUDE_OFFICE_ROOT = '$root'; `$Host.UI.RawUI.WindowTitle = 'AI Office Viewer - Frontend'; bun run dev -- --hostname $frontendHost --port $frontendPort"
         if (Start-ClaudeOfficeProcess "Frontend" $frontendDir $frontendCommand) {
             $frontendNeedsCheck = $true
         }
@@ -161,8 +161,8 @@ if ($backendReady -and $frontendReady) {
     } catch {
         Write-Warning "ブラウザを起動できませんでした。手動で $frontendUrl を開いてください。"
     }
-    Write-Host "Claude Officeの起動が完了しました。"
+    Write-Host "AI Office Viewerの起動が完了しました。"
 } else {
-    Write-Warning "Claude Officeは完全には起動できませんでした。Backend ready=$backendReady, Frontend ready=$frontendReady"
+    Write-Warning "AI Office Viewerは完全には起動できませんでした。Backend ready=$backendReady, Frontend ready=$frontendReady"
     Write-Host "起動したPowerShellウィンドウのログを確認し、依存関係とport使用状況を確認してください。"
 }

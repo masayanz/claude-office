@@ -1,4 +1,4 @@
-"""Safe local process control for the Claude Office backend and frontend."""
+"""Safe local process control for the AI Office Viewer backend and frontend."""
 
 from __future__ import annotations
 
@@ -41,7 +41,7 @@ class ServiceManager:
         return load_settings()[0]
 
     def hooks_installed(self) -> bool:
-        """Return whether the user-level Codex hook references Claude Office."""
+        """Return whether the user-level Codex hook references this viewer."""
         codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
         hooks_path = codex_home / "hooks.json"
         try:

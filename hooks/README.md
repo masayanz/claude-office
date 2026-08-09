@@ -1,6 +1,6 @@
-# Claude Office Hooks
+# AI Office Viewer Hooks
 
-Python package that integrates Claude Code lifecycle events with the Claude Office Visualizer backend, forwarding events via HTTP to enable real-time office visualization.
+Python package that integrates Claude Code lifecycle events with the AI Office Viewer backend, forwarding events via HTTP to enable real-time office visualization.
 
 ## Table of Contents
 

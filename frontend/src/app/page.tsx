@@ -1,5 +1,5 @@
 /**
- * Claude Office Visualizer - Main Page
+ * AI Office Viewer - Main Page
  *
  * Uses the unified Zustand store, XState machines, and OfficeGame component.
  * Layout and logic are delegated to extracted components and custom hooks.
@@ -53,6 +53,7 @@ import { usePreferencesStore } from "@/stores/preferencesStore";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
+import { PRODUCT_NAME } from "@/config/branding";
 
 // ============================================================================
 // DYNAMIC IMPORT
@@ -235,6 +236,10 @@ export default function V2TestPage(): React.ReactNode {
   useEffect(() => {
     document.documentElement.lang = language;
   }, [language]);
+
+  useEffect(() => {
+    document.title = companyName ? `${companyName} - ${PRODUCT_NAME}` : PRODUCT_NAME;
+  }, [companyName]);
 
   // ------------------------------------------------------------------
   // Mobile breakpoint detection
@@ -426,19 +431,22 @@ export default function V2TestPage(): React.ReactNode {
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
           )}
-          <h1
-            className={`font-bold text-white tracking-tight flex items-center gap-2 ${
-              isMobile ? "text-lg" : "text-2xl"
-            }`}
-          >
-            <span className="text-orange-500">{companyName || "Claude"}</span>{" "}
-            {!isMobile && t("app.title")}
-            {!isMobile && (
-              <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
-                v0.24.1
-              </span>
-            )}
-          </h1>
+          <div>
+            <h1
+              className={`font-bold text-white tracking-tight flex items-center gap-2 ${
+                isMobile ? "text-lg" : "text-2xl"
+              }`}
+            >
+              <span className="text-orange-500">{companyName || PRODUCT_NAME}</span>
+              {companyName && !isMobile && <span>- {PRODUCT_NAME}</span>}
+              {!isMobile && (
+                <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
+                  v0.24.1
+                </span>
+              )}
+            </h1>
+            {!isMobile && <p className="text-xs text-slate-400">{t("app.subtitle")}</p>}
+          </div>
 
           {/* Breadcrumb — only when in building/floor view */}
           {!isMobile && <Breadcrumb />}

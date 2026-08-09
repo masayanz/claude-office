@@ -1,4 +1,4 @@
-"""WebSocket routes for the Claude Office backend.
+"""WebSocket routes for the AI Office Viewer backend.
 
 Moved out of ``app.main`` in ARC-023. The three endpoints register on a
 dedicated ``APIRouter`` that ``app.main`` includes without a prefix.

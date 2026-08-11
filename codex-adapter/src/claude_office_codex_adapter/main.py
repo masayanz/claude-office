@@ -3,6 +3,7 @@
 import json
 import sys
 
+from claude_office_codex_adapter.event_journal import append_event
 from claude_office_codex_adapter.event_mapper import map_event
 from claude_office_codex_adapter.sender import send_event
 
@@ -13,6 +14,9 @@ def main() -> int:
         payload = json.load(sys.stdin)
         event = map_event(payload)
         if event is not None:
+            # Persist the already-sanitized metadata before delivery. If the
+            # Viewer is stopped, startup restoration can still catch up later.
+            append_event(event)
             send_event(event)
     except Exception:
         # Hook integration is deliberately fail-open. No payload or exception text is logged.

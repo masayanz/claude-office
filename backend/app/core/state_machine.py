@@ -56,6 +56,10 @@ def _empty_agent_numbers() -> dict[str, int]:
     return cast(dict[str, int], {})
 
 
+def _empty_str_set() -> set[str]:
+    return cast(set[str], set())
+
+
 def _empty_str_list() -> list[str]:
     return cast(list[str], [])
 
@@ -216,6 +220,14 @@ def parse_todos_from_event(event: AnyEvent) -> list[TodoItem]:
 
 def _handle_session_start(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle SESSION_START: initialize office state for a new session."""
+    delayed_restored_start = sm.restored_session_start_pending and event.data.source == "codex"
+    if delayed_restored_start:
+        sm.restored_session_start_pending = False
+        sm.boss_name = "Codex Main"
+        sm.boss_source = "codex"
+        sm.boss_model = event.data.model or sm.boss_model
+        sm.boss_agent_type = "main"
+        return
     sm.phase = OfficePhase.STARTING
     sm.boss_state = BossState.IDLE
     sm.turn_active = False
@@ -359,6 +371,12 @@ def _handle_subagent_start(sm: "StateMachine", event: AnyEvent) -> None:
             f"SUBAGENT_START guard failed: missing agent_id (agent_id={event.data.agent_id})"
         )
         return
+    existing = sm.agents.get(event.data.agent_id)
+    if existing is not None:
+        existing.source = existing.source or event.data.source
+        existing.model = event.data.model or existing.model
+        existing.agent_type = event.data.agent_type or existing.agent_type
+        return
     if len(sm.agents) >= sm.MAX_AGENTS:
         logger.warning(
             f"SUBAGENT_START guard failed: MAX_AGENTS reached "
@@ -392,6 +410,7 @@ def _handle_subagent_stop(sm: "StateMachine", event: AnyEvent) -> None:
 
     if resolved:
         agent_id = resolved.agent_id
+        sm.restored_agent_ids.discard(agent_id)
         stopping_agent = resolved.agent
         stopping_agent.state = AgentState.WAITING
         if agent_id not in sm.handin_queue:
@@ -599,6 +618,8 @@ class StateMachine:
     agents: dict[str, Agent] = field(default_factory=_empty_agents)
     # Stable display ordinals for Codex agents, retained after an agent leaves.
     codex_agent_numbers: dict[str, int] = field(default_factory=_empty_agent_numbers)
+    restored_agent_ids: set[str] = field(default_factory=_empty_str_set)
+    restored_session_start_pending: bool = False
     arrival_queue: list[str] = field(default_factory=_empty_str_list)
     handin_queue: list[str] = field(default_factory=_empty_str_list)
     history: list[HistoryEntry] = field(default_factory=_empty_history_list)
@@ -751,6 +772,7 @@ class StateMachine:
             self.arrival_queue.remove(agent_id)
         if agent_id in self.handin_queue:
             self.handin_queue.remove(agent_id)
+        self.restored_agent_ids.discard(agent_id)
 
     def transition(self, event: AnyEvent) -> None:
         """Process an event and update state accordingly.

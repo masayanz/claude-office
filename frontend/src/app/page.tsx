@@ -13,7 +13,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useWebSocketEvents } from "@/hooks/useWebSocketEvents";
 import { useSessions } from "@/hooks/useSessions";
 import { useSessionSwitch } from "@/hooks/useSessionSwitch";
@@ -79,6 +79,107 @@ const OfficeGame = dynamic(
   },
 );
 
+interface CodexRestoreResponse {
+  state?: string;
+  status?: string;
+  session_count?: number;
+  agent_count?: number;
+  message?: string;
+}
+
+interface NormalizedCodexRestoreResult {
+  state: "checking" | "succeeded" | "failed" | "unknown";
+  sessionCount: number;
+  agentCount: number;
+  message?: string;
+}
+
+const CODEX_RESTORE_POLL_INTERVAL_MS = 500;
+const CODEX_RESTORE_TIMEOUT_MS = 10_000;
+
+function normalizeCodexRestoreResponse(
+  payload: unknown,
+): NormalizedCodexRestoreResult {
+  const response =
+    payload && typeof payload === "object"
+      ? (payload as CodexRestoreResponse)
+      : {};
+  const rawStates = [response.state, response.status]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.toLowerCase());
+
+  let state: NormalizedCodexRestoreResult["state"] = "unknown";
+  if (
+    rawStates.some((value) => ["failed", "failure", "error"].includes(value))
+  ) {
+    state = "failed";
+  } else if (
+    rawStates.some((value) =>
+      ["succeeded", "success", "completed", "complete", "done", "ok"].includes(
+        value,
+      ),
+    )
+  ) {
+    state = "succeeded";
+  } else if (
+    rawStates.some((value) =>
+      [
+        "checking",
+        "pending",
+        "queued",
+        "running",
+        "in_progress",
+        "in-progress",
+      ].includes(value),
+    )
+  ) {
+    state = "checking";
+  }
+
+  const normalizedCount = (value: unknown): number =>
+    typeof value === "number" && Number.isFinite(value) && value >= 0
+      ? Math.floor(value)
+      : 0;
+
+  return {
+    state,
+    sessionCount: normalizedCount(response.session_count),
+    agentCount: normalizedCount(response.agent_count),
+    message:
+      typeof response.message === "string" ? response.message : undefined,
+  };
+}
+
+async function waitForCodexRestore(
+  initialPayload: unknown,
+): Promise<NormalizedCodexRestoreResult> {
+  let result = normalizeCodexRestoreResponse(initialPayload);
+  if (result.state === "succeeded") return result;
+  if (result.state === "failed") {
+    throw new Error(result.message || "Codex restore failed");
+  }
+
+  const deadline = Date.now() + CODEX_RESTORE_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, CODEX_RESTORE_POLL_INTERVAL_MS),
+    );
+    const response = await apiFetch("/api/v1/codex/restore/status");
+    if (!response.ok) {
+      throw new Error(`Restore status HTTP ${response.status}`);
+    }
+    result = normalizeCodexRestoreResponse(await response.json());
+    if (result.state === "succeeded") return result;
+    if (result.state === "failed") {
+      throw new Error(result.message || "Codex restore failed");
+    }
+  }
+
+  // The bounded scan can still take longer on slow disks. The backend keeps
+  // running it, so a client-side polling deadline is not a restore failure.
+  return { ...result, state: "checking" };
+}
+
 // ============================================================================
 // PAGE COMPONENT
 // ============================================================================
@@ -107,6 +208,9 @@ export default function V2TestPage(): React.ReactNode {
   const [aiSummaryEnabled, setAiSummaryEnabled] = useState<boolean | null>(
     null,
   );
+  const [isRestoringCodexSessions, setIsRestoringCodexSessions] =
+    useState(false);
+  const codexRestoreInFlight = useRef(false);
 
   // Session pending delete drives the delete-confirmation modal
   const [sessionPendingDelete, setSessionPendingDelete] =
@@ -128,6 +232,41 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   const { sessions, sessionsLoading, sessionId, setSessionId, fetchSessions } =
     useSessions(showStatus);
+
+  const handleRestoreCodexSessions = useCallback(async (): Promise<void> => {
+    if (codexRestoreInFlight.current) return;
+    codexRestoreInFlight.current = true;
+    setIsRestoringCodexSessions(true);
+    showStatus(t("status.restoringCodexSessions"), "info");
+
+    try {
+      const response = await apiFetch("/api/v1/codex/restore", {
+        method: "POST",
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const result = await waitForCodexRestore(await response.json());
+      if (result.state === "checking") {
+        showStatus(t("status.restoringCodexSessions"), "info");
+        return;
+      }
+      await fetchSessions();
+      showStatus(
+        t("status.codexSessionsRestored", {
+          sessionCount: result.sessionCount,
+          agentCount: result.agentCount,
+        }),
+        "success",
+      );
+    } catch (error) {
+      console.warn("[codex-restore] Failed to restore sessions:", error);
+      showStatus(t("status.failedRestoreCodexSessions"), "error");
+    } finally {
+      codexRestoreInFlight.current = false;
+      setIsRestoringCodexSessions(false);
+    }
+  }, [fetchSessions, showStatus, t]);
 
   const {
     handleSessionSelect,
@@ -238,7 +377,9 @@ export default function V2TestPage(): React.ReactNode {
   }, [language]);
 
   useEffect(() => {
-    document.title = companyName ? `${companyName} - ${PRODUCT_NAME}` : PRODUCT_NAME;
+    document.title = companyName
+      ? `${companyName} - ${PRODUCT_NAME}`
+      : PRODUCT_NAME;
   }, [companyName]);
 
   // ------------------------------------------------------------------
@@ -437,7 +578,9 @@ export default function V2TestPage(): React.ReactNode {
                 isMobile ? "text-lg" : "text-2xl"
               }`}
             >
-              <span className="text-orange-500">{companyName || PRODUCT_NAME}</span>
+              <span className="text-orange-500">
+                {companyName || PRODUCT_NAME}
+              </span>
               {companyName && !isMobile && <span>- {PRODUCT_NAME}</span>}
               {!isMobile && (
                 <span className="text-xs font-mono font-normal px-2 py-0.5 bg-slate-800 rounded text-slate-400 border border-slate-700">
@@ -445,7 +588,9 @@ export default function V2TestPage(): React.ReactNode {
                 </span>
               )}
             </h1>
-            {!isMobile && <p className="text-xs text-slate-400">{t("app.subtitle")}</p>}
+            {!isMobile && (
+              <p className="text-xs text-slate-400">{t("app.subtitle")}</p>
+            )}
           </div>
 
           {/* Breadcrumb — only when in building/floor view */}
@@ -457,8 +602,10 @@ export default function V2TestPage(): React.ReactNode {
             isConnected={isConnected}
             debugMode={debugMode}
             aiSummaryEnabled={aiSummaryEnabled}
+            isRestoringCodexSessions={isRestoringCodexSessions}
             activeSessionCount={activeSessionCount}
             onSimulate={handleSimulate}
+            onRestoreCodexSessions={handleRestoreCodexSessions}
             onReset={handleReset}
             onClearDB={() => setIsClearModalOpen(true)}
             onToggleDebug={handleToggleDebug}
@@ -492,6 +639,8 @@ export default function V2TestPage(): React.ReactNode {
         onClose={() => setMobileMenuOpen(false)}
         onSessionSelect={handleSessionSelect}
         onSimulate={handleSimulate}
+        onRestoreCodexSessions={handleRestoreCodexSessions}
+        isRestoringCodexSessions={isRestoringCodexSessions}
         onReset={handleReset}
         onClearDB={() => {
           setIsClearModalOpen(true);

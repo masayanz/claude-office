@@ -10,7 +10,9 @@ import { useTranslation } from "@/hooks/useTranslation";
 
 interface HeaderMoreMenuProps {
   debugMode: boolean;
+  isRestoringCodexSessions: boolean;
   onSimulate: () => Promise<void>;
+  onRestoreCodexSessions: () => Promise<void>;
   onReset: () => void;
   onClearDB: () => void;
   onToggleDebug: () => void;
@@ -27,7 +29,9 @@ interface HeaderMoreMenuProps {
  */
 export function HeaderMoreMenu({
   debugMode,
+  isRestoringCodexSessions,
   onSimulate,
+  onRestoreCodexSessions,
   onReset,
   onClearDB,
   onToggleDebug,
@@ -90,6 +94,22 @@ export function HeaderMoreMenu({
           >
             <Play size={14} fill="currentColor" />
             {t("header.simulate")}
+          </button>
+
+          <button
+            role="menuitem"
+            disabled={isRestoringCodexSessions}
+            onClick={() => {
+              setOpen(false);
+              void onRestoreCodexSessions();
+            }}
+            className={`${itemClass} text-sky-400 hover:bg-sky-500/15 disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            <RefreshCw
+              size={14}
+              className={isRestoringCodexSessions ? "animate-spin" : ""}
+            />
+            {t("header.restoreCodexSessions")}
           </button>
 
           <button

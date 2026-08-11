@@ -80,6 +80,9 @@ export default function SettingsModal({
 }: SettingsModalProps): ReactNode {
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
   const [buildingDirty, setBuildingDirty] = useState(false);
+  const [restoreWindowMinutes, setRestoreWindowMinutes] = useState(30);
+  const [isSavingRestoreSettings, setIsSavingRestoreSettings] = useState(false);
+  const [restoreSettingsMessage, setRestoreSettingsMessage] = useState("");
 
   // Sync tab when initialTab changes (e.g. edit-building request).
   useEffect(() => {
@@ -95,6 +98,7 @@ export default function SettingsModal({
   const setClockFormat = usePreferencesStore((s) => s.setClockFormat);
   const language = usePreferencesStore((s) => s.language);
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
+  const appSettings = useAppSettingsStore((s) => s.settings);
   const updateAppSettings = useAppSettingsStore((s) => s.updateAppSettings);
   const setAutoFollowNewSessions = usePreferencesStore(
     (s) => s.setAutoFollowNewSessions,
@@ -130,6 +134,12 @@ export default function SettingsModal({
 
   const { t } = useTranslation();
 
+  useEffect(() => {
+    if (appSettings) {
+      setRestoreWindowMinutes(appSettings.restore_window_minutes);
+    }
+  }, [appSettings]);
+
   const handleDirtyChange = useCallback((dirty: boolean) => {
     setBuildingDirty(dirty);
   }, []);
@@ -161,6 +171,42 @@ export default function SettingsModal({
 
   const handleAutoFollowToggle = () => {
     setAutoFollowNewSessions(!autoFollowNewSessions);
+  };
+
+  const handleRestoreEnabledToggle = async (): Promise<void> => {
+    if (!appSettings || isSavingRestoreSettings) return;
+    setIsSavingRestoreSettings(true);
+    setRestoreSettingsMessage("");
+    const updated = await updateAppSettings({
+      restore_codex_sessions: !appSettings.restore_codex_sessions,
+    });
+    setRestoreSettingsMessage(
+      updated ? t("settings.restoreSaved") : t("settings.restoreSaveFailed"),
+    );
+    setIsSavingRestoreSettings(false);
+  };
+
+  const saveRestoreWindowMinutes = async (): Promise<void> => {
+    if (!appSettings || isSavingRestoreSettings) return;
+    const normalized = Math.min(
+      1440,
+      Math.max(1, Math.round(restoreWindowMinutes || 30)),
+    );
+    setRestoreWindowMinutes(normalized);
+    if (normalized === appSettings.restore_window_minutes) return;
+
+    setIsSavingRestoreSettings(true);
+    setRestoreSettingsMessage("");
+    const updated = await updateAppSettings({
+      restore_window_minutes: normalized,
+    });
+    setRestoreSettingsMessage(
+      updated ? t("settings.restoreSaved") : t("settings.restoreSaveFailed"),
+    );
+    if (!updated) {
+      setRestoreWindowMinutes(appSettings.restore_window_minutes);
+    }
+    setIsSavingRestoreSettings(false);
   };
 
   return (
@@ -398,6 +444,93 @@ export default function SettingsModal({
                   }`}
                 />
               </div>
+            </div>
+
+            <div className="mt-3 space-y-3 rounded-lg border border-slate-700 bg-slate-800 p-3">
+              <div
+                role="switch"
+                aria-checked={appSettings?.restore_codex_sessions ?? true}
+                aria-disabled={!appSettings || isSavingRestoreSettings}
+                aria-label={t("settings.restoreCodexSessions")}
+                tabIndex={!appSettings || isSavingRestoreSettings ? -1 : 0}
+                onClick={() => void handleRestoreEnabledToggle()}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    void handleRestoreEnabledToggle();
+                  }
+                }}
+                className={`flex items-center justify-between gap-3 rounded-lg transition-opacity ${
+                  !appSettings || isSavingRestoreSettings
+                    ? "cursor-not-allowed opacity-60"
+                    : "cursor-pointer"
+                }`}
+              >
+                <div>
+                  <p className="text-sm font-medium text-slate-300">
+                    {t("settings.restoreCodexSessions")}
+                  </p>
+                  <p className="mt-0.5 text-xs text-slate-500">
+                    {t("settings.restoreCodexSessionsDesc")}
+                  </p>
+                </div>
+                <div
+                  className={`relative h-6 w-11 flex-shrink-0 rounded-full transition-colors ${
+                    (appSettings?.restore_codex_sessions ?? true)
+                      ? "bg-purple-500"
+                      : "bg-slate-600"
+                  }`}
+                >
+                  <div
+                    className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow-md transition-transform ${
+                      (appSettings?.restore_codex_sessions ?? true)
+                        ? "translate-x-6"
+                        : "translate-x-1"
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <label className="block text-xs font-bold text-slate-400">
+                {t("settings.restoreWindowMinutes")}
+                <input
+                  type="number"
+                  min={1}
+                  max={1440}
+                  value={restoreWindowMinutes}
+                  disabled={
+                    !appSettings ||
+                    !appSettings.restore_codex_sessions ||
+                    isSavingRestoreSettings
+                  }
+                  onChange={(e) =>
+                    setRestoreWindowMinutes(Number(e.target.value))
+                  }
+                  onBlur={() => void saveRestoreWindowMinutes()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      e.currentTarget.blur();
+                    }
+                  }}
+                  className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50"
+                />
+                <span className="mt-1 block font-normal text-slate-500">
+                  {t("settings.restoreWindowMinutesDesc")}
+                </span>
+              </label>
+
+              {restoreSettingsMessage && (
+                <p
+                  className={`text-xs ${
+                    restoreSettingsMessage === t("settings.restoreSaved")
+                      ? "text-emerald-400"
+                      : "text-rose-400"
+                  }`}
+                >
+                  {restoreSettingsMessage}
+                </p>
+              )}
             </div>
           </div>
 

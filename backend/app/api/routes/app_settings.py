@@ -30,6 +30,8 @@ class AppSettingsUpdate(BaseModel):
     company_name: str | None = Field(default=None, max_length=120)
     owner_name: str | None = Field(default=None, max_length=120)
     stop_servers_on_manager_exit: bool | None = None
+    restore_codex_sessions: bool | None = None
+    restore_window_minutes: int | None = Field(default=None, ge=1, le=1440)
 
 
 def _public_settings() -> dict[str, object]:

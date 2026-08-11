@@ -11,11 +11,20 @@ const ja: Record<TranslationKey, string> = {
   "header.connected": "接続中",
   "header.disconnected": "切断",
   "header.agents": "エージェント",
+  "header.restoreCodexSessions": "Codexセッションを復元",
   "settings.title": "設定",
   "settings.language": "言語",
   "settings.tabs.general": "全般",
   "settings.tabs.building": "建物",
   "settings.tabs.office": "AI Office Viewer",
+  "settings.restoreCodexSessions": "起動時に進行中のCodexセッションを復元する",
+  "settings.restoreCodexSessionsDesc":
+    "直近のCodexセッションを検出し、現在の状態から表示を再開します",
+  "settings.restoreWindowMinutes": "復元対象（直近の分数）",
+  "settings.restoreWindowMinutesDesc":
+    "この時間より古いセッションは復元しません（1～1440分）。",
+  "settings.restoreSaved": "復元設定を保存しました",
+  "settings.restoreSaveFailed": "復元設定を保存できませんでした",
   "settings.office.companyName": "会社名",
   "settings.office.ownerName": "オーナー名",
   "settings.office.ownerImage": "オーナー画像",
@@ -29,7 +38,8 @@ const ja: Record<TranslationKey, string> = {
   "settings.office.saveFailed": "設定を保存できませんでした",
   "settings.office.imageSaved": "オーナー画像を保存しました",
   "settings.office.imageFailed": "オーナー画像を保存できませんでした",
-  "settings.office.restartHint": "ポート変更はAI Office Viewerの再起動後に反映されます。",
+  "settings.office.restartHint":
+    "ポート変更はAI Office Viewerの再起動後に反映されます。",
   "modal.close": "閉じる",
   "modal.cancel": "キャンセル",
   "sessions.title": "セッション",
@@ -39,6 +49,11 @@ const ja: Record<TranslationKey, string> = {
   "sidebar.conversation": "会話",
   "eventLog.title": "イベントログ",
   "eventLog.waiting": "イベントを待っています…",
+  "status.restoringCodexSessions": "Codexセッションを確認しています…",
+  "status.codexSessionsRestored":
+    "Codexセッションを{sessionCount}件、エージェントを{agentCount}件復元しました。",
+  "status.failedRestoreCodexSessions":
+    "Codexセッションの復元に失敗しました。Codex自体の動作には影響ありません。",
   "loading.office": "オフィスを読み込んでいます…",
 };
 

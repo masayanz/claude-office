@@ -71,6 +71,10 @@ async def handle_subagent_start(
         return
 
     agent_id = event.data.agent_id
+    if agent_id in sm.restored_agent_ids:
+        sm.restored_agent_ids.discard(agent_id)
+        await broadcast_state(event.session_id, sm)
+        return
     logger.info(
         f"SUBAGENT_START: agent_id={agent_id} "
         f"agent_name={event.data.agent_name!r} "

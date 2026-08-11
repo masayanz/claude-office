@@ -21,6 +21,8 @@ _EVENT_TYPES = {
 _TOOL_NAMES = {
     "collaborationspawn_agent": "Agent",
     "collaborationwait_agent": "AgentWait",
+    "spawn_agent": "Agent",
+    "wait_agent": "AgentWait",
 }
 
 _SESSION_ID_PATTERN = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
@@ -70,13 +72,13 @@ def _base_data(payload: Mapping[str, object]) -> dict[str, str]:
 
 def _tool_data(payload: Mapping[str, object]) -> dict[str, str]:
     data = _base_data(payload)
-    tool_name = _nonempty_string(payload.get("tool_name"))
+    tool_name = _safe_metadata(payload.get("tool_name"))
     if tool_name is not None:
         data["tool_name"] = _TOOL_NAMES.get(tool_name, tool_name)
-    tool_use_id = _nonempty_string(payload.get("tool_use_id"))
+    tool_use_id = _safe_metadata(payload.get("tool_use_id"))
     if tool_use_id is not None:
         data["tool_use_id"] = tool_use_id
-    agent_id = _nonempty_string(payload.get("agent_id"))
+    agent_id = _safe_metadata(payload.get("agent_id"))
     if agent_id is not None:
         data["agent_id"] = agent_id
     agent_type = _safe_metadata(payload.get("agent_type"))
@@ -88,9 +90,6 @@ def _tool_data(payload: Mapping[str, object]) -> dict[str, str]:
 def _event_data(hook_name: str, payload: Mapping[str, object]) -> dict[str, str]:
     data = _base_data(payload)
     if hook_name == "SessionStart":
-        cwd = _nonempty_string(payload.get("cwd"))
-        if cwd is not None:
-            data["working_dir"] = cwd
         return data
     if hook_name == "UserPromptSubmit":
         data["message"] = "Codex user prompt"
@@ -98,7 +97,7 @@ def _event_data(hook_name: str, payload: Mapping[str, object]) -> dict[str, str]
     if hook_name in {"PreToolUse", "PostToolUse"}:
         return _tool_data(payload)
     if hook_name == "SubagentStart":
-        agent_id = _nonempty_string(payload.get("agent_id"))
+        agent_id = _safe_metadata(payload.get("agent_id"))
         if agent_id is not None:
             data["agent_id"] = agent_id
         agent_type = _safe_metadata(payload.get("agent_type"))
@@ -106,7 +105,7 @@ def _event_data(hook_name: str, payload: Mapping[str, object]) -> dict[str, str]
             data["agent_type"] = agent_type
         return data
     if hook_name == "SubagentStop":
-        agent_id = _nonempty_string(payload.get("agent_id"))
+        agent_id = _safe_metadata(payload.get("agent_id"))
         if agent_id is not None:
             data["agent_id"] = agent_id
         agent_type = _safe_metadata(payload.get("agent_type"))

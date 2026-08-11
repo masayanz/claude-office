@@ -16,7 +16,15 @@ from rich.logging import RichHandler
 from sqlalchemy import delete, select, update
 
 from app.api.middleware import ApiKeyMiddleware, LocalhostOnlyMiddleware
-from app.api.routes import app_settings, events, floors, preferences, sessions, websockets
+from app.api.routes import (
+    app_settings,
+    codex_restore,
+    events,
+    floors,
+    preferences,
+    sessions,
+    websockets,
+)
 from app.config import get_settings
 from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.summary_service import get_summary_service
@@ -74,6 +82,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     git_service.start()
 
+    # Restoration is intentionally backgrounded so health checks and the UI
+    # become available immediately while bounded Codex metadata is scanned.
+    shared_settings, _ = load_settings()
+    codex_restorer = None
+    if bool(shared_settings.get("restore_codex_sessions", True)):
+        from app.core.codex_session_restorer import get_codex_session_restorer
+
+        codex_restorer = get_codex_session_restorer()
+        codex_restorer.start(get_event_processor())
+
     # Periodic idle-session eviction (ARC-015). Drops in-memory StateMachine
     # instances that have not seen activity for ``SESSION_IDLE_EVICT_SECONDS``
     # (default 6h); state is replayable from the DB on next access. Mirrors
@@ -89,6 +107,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     yield
 
+    if codex_restorer is not None:
+        await codex_restorer.cancel()
     # Cancel any pending debounced overview broadcast so shutdown is clean.
     await get_event_processor().shutdown()
     idle_evictor.cancel()
@@ -195,6 +215,7 @@ app.include_router(events.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(floors.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(preferences.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(app_settings.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(codex_restore.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")
 # WebSocket routes (no prefix). Registered before the SERVE_STATIC catch-all
 # ``@app.get("/{path:path}")`` block so WS handshakes aren't shadowed. Within

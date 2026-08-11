@@ -31,7 +31,7 @@ def test_maps_all_supported_hooks(hook_name: str, event_type: str) -> None:
     assert event["timestamp"] == "2026-08-08T03:04:05+00:00"
 
 
-def test_session_start_maps_safe_metadata_and_cwd_only() -> None:
+def test_session_start_maps_safe_metadata_without_full_cwd() -> None:
     event = map_event(
         {
             "hook_event_name": "SessionStart",
@@ -48,7 +48,6 @@ def test_session_start_maps_safe_metadata_and_cwd_only() -> None:
         "source": "codex",
         "model": "gpt-5.6-sol",
         "project_name": "project",
-        "working_dir": "D:/safe/project",
     }
 
 
@@ -82,7 +81,6 @@ def test_project_name_drops_unsafe_path_basename() -> None:
     assert event is not None
     assert event["data"] == {
         "source": "codex",
-        "working_dir": r"C:\Users\admin\project with spaces",
     }
 
 
@@ -106,6 +104,8 @@ def test_user_prompt_uses_fixed_message_and_drops_content() -> None:
     [
         ("collaborationspawn_agent", "Agent"),
         ("collaborationwait_agent", "AgentWait"),
+        ("spawn_agent", "Agent"),
+        ("wait_agent", "AgentWait"),
         ("Bash", "Bash"),
     ],
 )
@@ -229,6 +229,22 @@ def test_arbitrary_model_and_agent_type_text_are_not_forwarded() -> None:
             "session_id": "session-1",
             "model": "secret model text with spaces",
             "agent_type": "secret\ncontent",
+        },
+        received_at=NOW,
+    )
+
+    assert event is not None
+    assert event["data"] == {"source": "codex"}
+
+
+def test_arbitrary_tool_and_identity_text_are_not_forwarded() -> None:
+    event = map_event(
+        {
+            "hook_event_name": "PreToolUse",
+            "session_id": "session-1",
+            "tool_name": "secret tool with spaces",
+            "tool_use_id": "x" * 129,
+            "agent_id": "agent\nsecret",
         },
         received_at=NOW,
     )

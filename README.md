@@ -148,6 +148,11 @@ settings tab share `config/app-settings.json`, including configurable ports, Jap
 language preference, company/owner name, owner image, and normal/app browser mode. See
 [docs/AI_OFFICE_MANAGER.md](docs/AI_OFFICE_MANAGER.md).
 
+Codex作業開始後にAI Office Viewerを起動した場合も、既定では直近30分の保存済み
+session metadataを確認し、進行中のCodex Main / Codex Agentとtool状態を自動復元します。
+復元後は通常のglobal lifecycle hooksへそのまま合流します。ManagerとWeb設定から
+自動復元のON/OFF・対象時間を変更でき、手動で再読込することもできます。
+
 ## Prerequisites
 
 - Python 3.13+

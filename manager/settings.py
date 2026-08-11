@@ -38,6 +38,8 @@ DEFAULTS: dict[str, Any] = {
     "owner_name": "Owner",
     "owner_image_filename": None,
     "stop_servers_on_manager_exit": False,
+    "restore_codex_sessions": True,
+    "restore_window_minutes": 30,
 }
 
 
@@ -57,6 +59,15 @@ def _validate(values: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("languageが不正です")
     if not isinstance(result["stop_servers_on_manager_exit"], bool):
         raise ValueError("stop_servers_on_manager_exitが不正です")
+    if not isinstance(result["restore_codex_sessions"], bool):
+        raise ValueError("restore_codex_sessionsが不正です")
+    restore_window = result["restore_window_minutes"]
+    if (
+        not isinstance(restore_window, int)
+        or isinstance(restore_window, bool)
+        or not 1 <= restore_window <= 1440
+    ):
+        raise ValueError("復元対象時間は1分から1440分の範囲で指定してください")
     return result
 
 

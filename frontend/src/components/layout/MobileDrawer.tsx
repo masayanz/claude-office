@@ -68,6 +68,8 @@ interface MobileDrawerProps {
   onClose: () => void;
   onSessionSelect: (id: string) => Promise<void>;
   onSimulate: () => Promise<void>;
+  onRestoreCodexSessions: () => Promise<void>;
+  isRestoringCodexSessions: boolean;
   onReset: () => void;
   onClearDB: () => void;
 }
@@ -89,6 +91,8 @@ export function MobileDrawer({
   onClose,
   onSessionSelect,
   onSimulate,
+  onRestoreCodexSessions,
+  isRestoringCodexSessions,
   onReset,
   onClearDB,
 }: MobileDrawerProps): React.ReactNode {
@@ -120,6 +124,11 @@ export function MobileDrawer({
 
   const handleReset = (): void => {
     onReset();
+    onClose();
+  };
+
+  const handleRestoreCodexSessions = async (): Promise<void> => {
+    await onRestoreCodexSessions();
     onClose();
   };
 
@@ -160,6 +169,17 @@ export function MobileDrawer({
             >
               <Play size={16} fill="currentColor" />
               {t("header.simulate")}
+            </button>
+            <button
+              onClick={() => void handleRestoreCodexSessions()}
+              disabled={isRestoringCodexSessions}
+              className="flex items-center gap-2 px-3 py-2 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 rounded text-sm font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <RefreshCw
+                size={16}
+                className={isRestoringCodexSessions ? "animate-spin" : ""}
+              />
+              {t("header.restoreCodexSessions")}
             </button>
             <button
               onClick={handleReset}

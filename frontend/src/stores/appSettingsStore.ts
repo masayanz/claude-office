@@ -12,6 +12,8 @@ export interface AppSettings {
   frontend_port: number;
   open_browser_on_start: boolean;
   browser_mode: "normal" | "app";
+  restore_codex_sessions: boolean;
+  restore_window_minutes: number;
   company_name: string;
   owner_name: string;
   owner_image_filename: string | null;
@@ -23,7 +25,9 @@ interface AppSettingsState {
   settings: AppSettings | null;
   isLoaded: boolean;
   loadAppSettings: () => Promise<void>;
-  updateAppSettings: (updates: Partial<AppSettings>) => Promise<AppSettings | null>;
+  updateAppSettings: (
+    updates: Partial<AppSettings>,
+  ) => Promise<AppSettings | null>;
   uploadOwnerImage: (file: File) => Promise<AppSettings | null>;
 }
 

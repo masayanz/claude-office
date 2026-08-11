@@ -5,17 +5,28 @@ import pytest
 from claude_office_codex_adapter import main as main_module
 
 
+@pytest.fixture(autouse=True)
+def _isolate_event_journal(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests must never append recovery events to the user's CODEX_HOME."""
+    monkeypatch.setattr(main_module, "append_event", lambda _event: True)
+
+
 def test_main_sends_normal_json(monkeypatch: pytest.MonkeyPatch) -> None:
     sent: list[dict[str, object]] = []
+    journaled: list[dict[str, object]] = []
     monkeypatch.setattr(
         main_module.sys,
         "stdin",
         io.StringIO('{"hook_event_name":"Stop","session_id":"session-1"}'),
     )
     monkeypatch.setattr(main_module, "send_event", lambda event: sent.append(event) or True)
+    monkeypatch.setattr(
+        main_module, "append_event", lambda event: journaled.append(event) or True
+    )
 
     assert main_module.main() == 0
     assert len(sent) == 1
+    assert journaled == sent
     assert sent[0]["event_type"] == "stop"
 
 

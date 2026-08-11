@@ -25,6 +25,7 @@ const es: Record<TranslationKey, string> = {
   "header.commandCenter": "MANDO",
   "header.more": "MÁS",
   "header.moreMenu": "Más acciones",
+  "header.restoreCodexSessions": "RESTAURAR SESIONES DE CODEX",
   "help.tour": "Hacer el tour",
 
   // Command Center
@@ -75,6 +76,17 @@ const es: Record<TranslationKey, string> = {
   "settings.autoFollow": "Seguir nuevas sesiones automáticamente",
   "settings.autoFollowDesc":
     "Cambiar automáticamente a nuevas sesiones en el proyecto actual",
+  "settings.restoreCodexSessions":
+    "Restaurar sesiones activas de Codex al iniciar",
+  "settings.restoreCodexSessionsDesc":
+    "Detecta sesiones recientes de Codex y continúa mostrando su estado actual",
+  "settings.restoreWindowMinutes":
+    "Restaurar sesiones activas en los últimos (minutos)",
+  "settings.restoreWindowMinutesDesc":
+    "Las sesiones anteriores a este intervalo no se restauran (1–1440 minutos).",
+  "settings.restoreSaved": "Configuración de restauración guardada",
+  "settings.restoreSaveFailed":
+    "No se pudo guardar la configuración de restauración",
   "settings.clockTip":
     "Consejo: Haz clic en el reloj de la oficina para alternar rápidamente entre modos.",
   "settings.language": "Idioma",
@@ -221,6 +233,11 @@ const es: Record<TranslationKey, string> = {
     "Sesión eliminada. No hay otras sesiones disponibles.",
   "status.connectedTo": "Conectado a {sessionName}",
   "status.autoFollowed": "Siguiendo nueva sesión: {sessionName}",
+  "status.restoringCodexSessions": "Comprobando sesiones activas de Codex...",
+  "status.codexSessionsRestored":
+    "Se restauraron {sessionCount} sesión(es) de Codex y {agentCount} agente(s).",
+  "status.failedRestoreCodexSessions":
+    "No se pudieron restaurar las sesiones de Codex. Codex no se ve afectado.",
 
   // Navigation
   "navigation.building": "Edificio",

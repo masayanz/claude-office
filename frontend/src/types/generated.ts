@@ -13,7 +13,7 @@ export type Number = number;
 /**
  * Visual states for agent characters.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "AgentState".
  */
 export type AgentState =
@@ -33,7 +33,7 @@ export type Desk = number | null;
 /**
  * Type of speech/thought bubble content.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "BubbleType".
  */
 export type BubbleType = "thought" | "speech";
@@ -67,6 +67,7 @@ export type FloorId = string | null;
 export type RoomId = string | null;
 export type Source1 = string | null;
 export type Model1 = string | null;
+export type Restored = boolean;
 export type AgentName = string | null;
 export type AgentType = string | null;
 export type TaskDescription = string | null;
@@ -107,6 +108,7 @@ export type FloorId1 = string | null;
 export type RoomId1 = string | null;
 export type Source2 = string | null;
 export type Model2 = string | null;
+export type Restored1 = boolean;
 export type BackgroundTaskId = string | null;
 export type BackgroundTaskOutputFile = string | null;
 export type BackgroundTaskStatus = string | null;
@@ -114,7 +116,7 @@ export type BackgroundTaskSummary = string | null;
 /**
  * Visual states for the boss character.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "BossState".
  */
 export type BossState =
@@ -136,7 +138,7 @@ export type Path = string;
 /**
  * Git file status codes.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "FileStatus".
  */
 export type FileStatus = "M" | "A" | "D" | "R" | "C" | "?" | "!";
@@ -164,14 +166,14 @@ export type Toolname = string;
 /**
  * Visual states for the elevator.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "ElevatorState".
  */
 export type ElevatorState = "closed" | "arriving" | "open" | "departing";
 /**
  * Types of events sent from Claude Code hooks.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "EventType".
  */
 export type EventType =
@@ -237,6 +239,7 @@ export type FloorId2 = string | null;
 export type RoomId2 = string | null;
 export type Source4 = string | null;
 export type Model4 = string | null;
+export type Restored2 = boolean;
 export type TeamName2 = string | null;
 export type TeammateName2 = string | null;
 export type TaskId = string | null;
@@ -261,6 +264,7 @@ export type FloorId3 = string | null;
 export type RoomId3 = string | null;
 export type Source5 = string | null;
 export type Model5 = string | null;
+export type Restored3 = boolean;
 export type Filepath = string;
 export type Editcount = number;
 export type Sessionid = string;
@@ -289,7 +293,7 @@ export type Content = string;
 /**
  * Status of a todo list item.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "TodoStatus".
  */
 export type TodoStatus = "pending" | "in_progress" | "completed";
@@ -371,6 +375,7 @@ export type FloorId4 = string | null;
 export type RoomId4 = string | null;
 export type Source6 = string | null;
 export type Model6 = string | null;
+export type Restored4 = boolean;
 export type NotificationType1 = string | null;
 export type ErrorType1 = string | null;
 export type Reason1 = string | null;
@@ -385,7 +390,7 @@ export type Lastupdated1 = string;
 /**
  * Visual states for the boss's phone.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "PhoneState".
  */
 export type PhoneState1 = "idle" | "ringing" | "in_use";
@@ -409,6 +414,7 @@ export type FloorId5 = string | null;
 export type RoomId5 = string | null;
 export type Source7 = string | null;
 export type Model7 = string | null;
+export type Restored5 = boolean;
 export type Prompt1 = string | null;
 export type Id3 = string;
 export type CreatedAt = string;
@@ -436,6 +442,7 @@ export type FloorId6 = string | null;
 export type RoomId6 = string | null;
 export type Source8 = string | null;
 export type Model8 = string | null;
+export type Restored6 = boolean;
 export type Reason2 = string | null;
 export type ProjectName7 = string | null;
 export type ProjectDir7 = string | null;
@@ -457,6 +464,7 @@ export type FloorId7 = string | null;
 export type RoomId7 = string | null;
 export type Source9 = string | null;
 export type Model9 = string | null;
+export type Restored7 = boolean;
 export type TaskId2 = string | null;
 export type TaskSubject1 = string | null;
 export type ProjectName8 = string | null;
@@ -479,6 +487,7 @@ export type FloorId8 = string | null;
 export type RoomId8 = string | null;
 export type Source10 = string | null;
 export type Model10 = string | null;
+export type Restored8 = boolean;
 export type ToolName1 = string | null;
 export type ToolUseId2 = string | null;
 export type ToolInput1 = {
@@ -490,13 +499,13 @@ export type ErrorType2 = string | null;
 export type Thinking2 = string | null;
 export type AgentType2 = string | null;
 
-export interface ClaudeOfficeBackendTypes {
+export interface AIOfficeViewerBackendTypes {
   [k: string]: unknown;
 }
 /**
  * Represents a subagent in the office visualization.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "Agent".
  */
 export interface Agent {
@@ -521,7 +530,7 @@ export interface Agent {
 /**
  * Content for speech or thought bubbles.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "BubbleContent".
  */
 export interface BubbleContent {
@@ -542,7 +551,7 @@ export interface Position {
  * appears here (and on ToolEventData) because the SUBAGENT_STOP formatter
  * reads it for the native-hook success/failure marker.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "AgentEventData".
  */
 export interface AgentEventData {
@@ -566,6 +575,7 @@ export interface AgentEventData {
   room_id?: RoomId;
   source?: Source1;
   model?: Model1;
+  restored?: Restored;
   agent_name?: AgentName;
   agent_type?: AgentType;
   task_description?: TaskDescription;
@@ -580,7 +590,7 @@ export interface AgentEventData {
 /**
  * Speech content for different characters.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "SpeechContent".
  */
 export interface SpeechContent {
@@ -592,7 +602,7 @@ export interface SpeechContent {
 /**
  * Timeline entry for agent lifespan tracking.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "AgentLifespan".
  */
 export interface AgentLifespan {
@@ -606,7 +616,7 @@ export interface AgentLifespan {
 /**
  * Background task tracking for remote workers display.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "BackgroundTask".
  */
 export interface BackgroundTask {
@@ -620,7 +630,7 @@ export interface BackgroundTask {
 /**
  * Payload for BACKGROUND_TASK_NOTIFICATION.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "BackgroundTaskEventData".
  */
 export interface BackgroundTaskEventData {
@@ -644,6 +654,7 @@ export interface BackgroundTaskEventData {
   room_id?: RoomId1;
   source?: Source2;
   model?: Model2;
+  restored?: Restored1;
   background_task_id?: BackgroundTaskId;
   background_task_output_file?: BackgroundTaskOutputFile;
   background_task_status?: BackgroundTaskStatus;
@@ -653,7 +664,7 @@ export interface BackgroundTaskEventData {
 /**
  * Represents the main Claude agent (boss) in the office visualization.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "Boss".
  */
 export interface Boss1 {
@@ -673,7 +684,7 @@ export interface Position1 {
 /**
  * A file with changes in the working tree or index.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "ChangedFile".
  */
 export interface ChangedFile {
@@ -685,7 +696,7 @@ export interface ChangedFile {
 /**
  * A git commit summary.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "Commit".
  */
 export interface Commit {
@@ -699,7 +710,7 @@ export interface Commit {
 /**
  * A single turn in the conversation history.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "ConversationEntry".
  */
 export interface ConversationEntry {
@@ -721,7 +732,7 @@ export interface ConversationEntry {
  * parsing; it will be removed once any remaining test/construction sites
  * are migrated. Do not add new production usages.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "Event".
  */
 export interface Event {
@@ -740,7 +751,7 @@ export interface Event {
  * classes (``EventDataBase`` and its subclasses) instead. Deletion is
  * follow-up QA work once no remaining production path constructs this.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "EventData".
  */
 export interface EventData {
@@ -781,6 +792,7 @@ export interface EventData {
   room_id?: RoomId2;
   source?: Source4;
   model?: Model4;
+  restored?: Restored2;
   team_name?: TeamName2;
   teammate_name?: TeammateName2;
   task_id?: TaskId;
@@ -793,7 +805,7 @@ export interface EventData {
  * Covers routing/project context, token accounting, room assignment, and
  * team context — all read by code paths that run regardless of event_type.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "EventDataBase".
  */
 export interface EventDataBase {
@@ -817,12 +829,13 @@ export interface EventDataBase {
   room_id?: RoomId3;
   source?: Source5;
   model?: Model5;
+  restored?: Restored3;
   [k: string]: unknown;
 }
 /**
  * File edit tracking for heat map display.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "FileEdit".
  */
 export interface FileEdit {
@@ -833,7 +846,7 @@ export interface FileEdit {
 /**
  * Complete state of the office visualization for frontend rendering.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "GameState".
  */
 export interface GameState {
@@ -855,7 +868,7 @@ export interface GameState {
 /**
  * Represents the overall state of the office environment.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "OfficeState".
  */
 export interface OfficeState {
@@ -870,7 +883,7 @@ export interface OfficeState {
 /**
  * A single entry in the event history log.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "HistoryEntry".
  */
 export interface HistoryEntry {
@@ -888,7 +901,7 @@ export interface Detail {
 /**
  * A single item from the TodoWrite tool or task file system.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "TodoItem".
  */
 export interface TodoItem {
@@ -906,7 +919,7 @@ export interface TodoItem {
 /**
  * Data for whiteboard display modes.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "WhiteboardData".
  */
 export interface WhiteboardData {
@@ -934,7 +947,7 @@ export interface Toolusage {
 /**
  * A single kanban board task.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "KanbanTask".
  */
 export interface KanbanTask {
@@ -948,7 +961,7 @@ export interface KanbanTask {
 /**
  * News ticker item for the whiteboard.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "NewsItem".
  */
 export interface NewsItem {
@@ -963,7 +976,7 @@ export interface Fileedits {
 /**
  * Current git repository status.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "GitStatus".
  */
 export interface GitStatus {
@@ -980,7 +993,7 @@ export interface GitStatus {
  * Payload for STOP, NOTIFICATION, CONTEXT_COMPACTION, REPORTING,
  * WALKING_TO_DESK, WAITING, LEAVING, ERROR, TEAMMATE_IDLE.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "LifecycleEventData".
  */
 export interface LifecycleEventData {
@@ -1004,6 +1017,7 @@ export interface LifecycleEventData {
   room_id?: RoomId4;
   source?: Source6;
   model?: Model6;
+  restored?: Restored4;
   notification_type?: NotificationType1;
   error_type?: ErrorType1;
   reason?: Reason1;
@@ -1014,7 +1028,7 @@ export interface LifecycleEventData {
 /**
  * A single session's boss snapshot for the Command Center.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "OverviewEntry".
  */
 export interface OverviewEntry {
@@ -1030,7 +1044,7 @@ export interface OverviewEntry {
 /**
  * The full cross-session overview broadcast over ``/ws/overview``.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "OverviewState".
  */
 export interface OverviewState {
@@ -1041,7 +1055,7 @@ export interface OverviewState {
 /**
  * Payload for USER_PROMPT_SUBMIT.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "PromptEventData".
  */
 export interface PromptEventData {
@@ -1065,13 +1079,14 @@ export interface PromptEventData {
   room_id?: RoomId5;
   source?: Source7;
   model?: Model7;
+  restored?: Restored5;
   prompt?: Prompt1;
   [k: string]: unknown;
 }
 /**
  * A Claude Code session summary.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "Session".
  */
 export interface Session {
@@ -1086,7 +1101,7 @@ export interface Session {
 /**
  * Payload for SESSION_START, SESSION_END.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "SessionEventData".
  */
 export interface SessionEventData {
@@ -1110,13 +1125,14 @@ export interface SessionEventData {
   room_id?: RoomId6;
   source?: Source8;
   model?: Model8;
+  restored?: Restored6;
   reason?: Reason2;
   [k: string]: unknown;
 }
 /**
  * Payload for TASK_CREATED, TASK_COMPLETED.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "TaskEventData".
  */
 export interface TaskEventData {
@@ -1140,6 +1156,7 @@ export interface TaskEventData {
   room_id?: RoomId7;
   source?: Source9;
   model?: Model9;
+  restored?: Restored7;
   task_id?: TaskId2;
   task_subject?: TaskSubject1;
   [k: string]: unknown;
@@ -1147,7 +1164,7 @@ export interface TaskEventData {
 /**
  * Payload for PRE_TOOL_USE, POST_TOOL_USE, PERMISSION_REQUEST.
  *
- * This interface was referenced by `ClaudeOfficeBackendTypes`'s JSON-Schema
+ * This interface was referenced by `AIOfficeViewerBackendTypes`'s JSON-Schema
  * via the `definition` "ToolEventData".
  */
 export interface ToolEventData {
@@ -1171,6 +1188,7 @@ export interface ToolEventData {
   room_id?: RoomId8;
   source?: Source10;
   model?: Model10;
+  restored?: Restored8;
   tool_name?: ToolName1;
   tool_use_id?: ToolUseId2;
   tool_input?: ToolInput1;

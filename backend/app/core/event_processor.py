@@ -56,10 +56,11 @@ from app.core.task_persistence import load_tasks, save_tasks
 from app.core.transcript_poller import init_transcript_poller
 from app.db.database import AsyncSessionLocal
 from app.db.models import EventRecord, SessionRecord
-from app.models.agents import AgentState
+from app.models.agents import AgentState, BossState, ElevatorState
 from app.models.common import TodoItem
 from app.models.events import (
     AgentEvent,
+    AgentEventData,
     AnyEvent,
     BackgroundTaskEvent,
     EventAdapter,
@@ -67,8 +68,11 @@ from app.models.events import (
     EventType,
     LifecycleEvent,
     PromptEvent,
+    SessionEvent,
+    SessionEventData,
     TaskEvent,
     ToolEvent,
+    ToolEventData,
 )
 from app.models.overview import OverviewState
 from app.models.sessions import ConversationEntry, GameState, HistoryEntry
@@ -98,6 +102,7 @@ _HISTORY_DETAIL_FIELDS = (
     ("source", "source"),
     ("model", "model"),
     ("prompt", "prompt"),
+    ("restored", "restored"),
 )
 
 
@@ -106,6 +111,8 @@ def _build_history_detail(event: AnyEvent) -> dict[str, Any]:
     detail: dict[str, Any] = {}
     for source_name, destination_name in _HISTORY_DETAIL_FIELDS:
         value = getattr(event.data, source_name, None)
+        if source_name == "restored" and value is not True:
+            continue
         if value is not None:
             detail[destination_name] = value
     return detail
@@ -209,6 +216,12 @@ class EventProcessor:
         self.sessions: dict[str, StateMachine] = {}
         self.orchestrators: dict[str, RoomOrchestrator] = {}
         self._sessions_lock = asyncio.Lock()
+        self._session_event_locks: dict[str, asyncio.Lock] = {}
+        self._overflow_session_event_lock = asyncio.Lock()
+        self._live_sequence = 0
+        self._session_last_live_sequence: dict[str, int] = {}
+        self._agent_stop_sequences: dict[tuple[str, str], int] = {}
+        self._agent_post_sequences: dict[tuple[str, str, str], int] = {}
         self._transcript_poller_initialized = False
         self._task_poller_initialized = False
         self._beads_poller_initialized = False
@@ -325,6 +338,16 @@ class EventProcessor:
     # Session management
     # ------------------------------------------------------------------
 
+    def _get_session_event_lock(self, session_id: str) -> asyncio.Lock:
+        lock = self._session_event_locks.get(session_id)
+        if lock is not None:
+            return lock
+        if len(self._session_event_locks) >= 4096:
+            return self._overflow_session_event_lock
+        lock = asyncio.Lock()
+        self._session_event_locks[session_id] = lock
+        return lock
+
     async def remove_session(self, session_id: str) -> None:
         """Remove a session's in-memory state.
 
@@ -340,11 +363,25 @@ class EventProcessor:
                     if orchestrator.is_empty:
                         del self.orchestrators[sm.room_id]
             self.sessions.pop(session_id, None)
+            self._session_last_live_sequence.pop(session_id, None)
+            self._agent_stop_sequences = {
+                key: sequence
+                for key, sequence in self._agent_stop_sequences.items()
+                if key[0] != session_id
+            }
+            self._agent_post_sequences = {
+                key: sequence
+                for key, sequence in self._agent_post_sequences.items()
+                if key[0] != session_id
+            }
 
     async def clear_all_sessions(self) -> None:
         """Clear all in-memory session state."""
         async with self._sessions_lock:
             self.sessions.clear()
+            self._session_last_live_sequence.clear()
+            self._agent_stop_sequences.clear()
+            self._agent_post_sequences.clear()
 
     async def evict_idle_sessions(self, max_idle_seconds: float) -> int:
         """Drop in-memory StateMachines idle longer than ``max_idle_seconds``.
@@ -365,6 +402,17 @@ class EventProcessor:
             ]
             for sid in stale:
                 self.sessions.pop(sid, None)
+                self._session_last_live_sequence.pop(sid, None)
+                self._agent_stop_sequences = {
+                    key: sequence
+                    for key, sequence in self._agent_stop_sequences.items()
+                    if key[0] != sid
+                }
+                self._agent_post_sequences = {
+                    key: sequence
+                    for key, sequence in self._agent_post_sequences.items()
+                    if key[0] != sid
+                }
         return len(stale)
 
     async def get_current_state(self, session_id: str) -> GameState | None:
@@ -414,7 +462,26 @@ class EventProcessor:
         )
 
         try:
-            await self._process_event_internal(event)
+            session_lock = self._get_session_event_lock(event.session_id)
+            async with session_lock:
+                self._live_sequence += 1
+                self._session_last_live_sequence[event.session_id] = self._live_sequence
+                if event.event_type == EventType.SUBAGENT_STOP and event.data.agent_id:
+                    self._agent_stop_sequences[(event.session_id, event.data.agent_id)] = (
+                        self._live_sequence
+                    )
+                    if len(self._agent_stop_sequences) > 10_000:
+                        self._agent_stop_sequences.pop(next(iter(self._agent_stop_sequences)))
+                if event.event_type == EventType.POST_TOOL_USE:
+                    tool_name = getattr(event.data, "tool_name", None)
+                    if tool_name:
+                        agent_id = event.data.agent_id or "main"
+                        self._agent_post_sequences[(event.session_id, agent_id, tool_name)] = (
+                            self._live_sequence
+                        )
+                        if len(self._agent_post_sequences) > 10_000:
+                            self._agent_post_sequences.pop(next(iter(self._agent_post_sequences)))
+                await self._process_event_internal(event)
         except Exception as e:
             logger.exception(f"Error processing event {event.event_type}: {e}")
             with contextlib.suppress(Exception):
@@ -423,6 +490,202 @@ class EventProcessor:
                     f"Error processing {event.event_type}: {e!s}",
                     event.timestamp.isoformat(),
                 )
+
+    def begin_codex_restore(self) -> int:
+        """Return the live-ingest sequence at a restoration scan boundary."""
+        return self._live_sequence
+
+    async def _persist_codex_restore_marker(self, snapshot: Any) -> None:
+        """Upsert a session row and add at most one restored start marker."""
+        async with AsyncSessionLocal() as db:
+            now = datetime.now(UTC)
+            stmt = sqlite_insert(SessionRecord).values(
+                id=snapshot.session_id,
+                project_name=snapshot.project_name,
+                status="active",
+                created_at=now,
+                updated_at=now,
+            )
+            stmt = stmt.on_conflict_do_update(
+                index_elements=["id"],
+                set_={"status": "active", "updated_at": now},
+            )
+            await db.execute(stmt)
+            result = await db.execute(
+                select(SessionRecord).where(SessionRecord.id == snapshot.session_id)
+            )
+            session_rec = result.scalar_one()
+            if snapshot.project_name and not session_rec.project_name:
+                session_rec.project_name = snapshot.project_name
+            if snapshot.project_name and not session_rec.display_name:
+                session_rec.display_name = snapshot.project_name
+
+            existing_start = await db.execute(
+                select(EventRecord.id)
+                .where(
+                    EventRecord.session_id == snapshot.session_id,
+                    EventRecord.event_type == EventType.SESSION_START.value,
+                )
+                .limit(1)
+            )
+            if existing_start.scalar_one_or_none() is None:
+                db.add(
+                    EventRecord(
+                        session_id=snapshot.session_id,
+                        timestamp=snapshot.captured_at,
+                        event_type=EventType.SESSION_START.value,
+                        data={
+                            "source": "codex",
+                            "project_name": snapshot.project_name,
+                            "model": snapshot.model,
+                            "restored": True,
+                        },
+                    )
+                )
+            await db.commit()
+
+    async def merge_codex_restored_session(
+        self, snapshot: Any, *, start_sequence: int
+    ) -> bool:
+        """Idempotently merge a snapshot without overwriting newer live state."""
+        session_lock = self._get_session_event_lock(snapshot.session_id)
+        async with session_lock:
+            existing = self.sessions.get(snapshot.session_id)
+            # A live SessionEnd that won the per-session lock is authoritative.
+            if existing is not None and existing.phase.name == "ENDED":
+                return False
+
+            async with AsyncSessionLocal() as db:
+                persisted_status = await db.scalar(
+                    select(SessionRecord.status).where(
+                        SessionRecord.id == snapshot.session_id
+                    )
+                )
+            if persisted_status == "completed":
+                return False
+
+            await self._persist_codex_restore_marker(snapshot)
+            is_new = existing is None
+            sm = existing or StateMachine()
+            preserved_history = list(sm.history)
+            if is_new:
+                sm.transition(
+                    SessionEvent(
+                        event_type=EventType.SESSION_START,
+                        session_id=snapshot.session_id,
+                        timestamp=snapshot.captured_at,
+                        data=SessionEventData(
+                            source="codex",
+                            project_name=snapshot.project_name,
+                            model=snapshot.model,
+                            restored=True,
+                        ),
+                    )
+                )
+            else:
+                # Manual re-scan keeps history/tasks and all current entities.
+                sm.boss_name = sm.boss_name or "Codex Main"
+                sm.boss_source = sm.boss_source or "codex"
+                sm.boss_model = sm.boss_model or snapshot.model
+                sm.boss_agent_type = sm.boss_agent_type or "main"
+
+            if is_new:
+                if snapshot.last_tool_name:
+                    sm.transition(
+                        ToolEvent(
+                            event_type=EventType.PRE_TOOL_USE,
+                            session_id=snapshot.session_id,
+                            timestamp=snapshot.captured_at,
+                            data=ToolEventData(
+                                source="codex",
+                                model=snapshot.model,
+                                tool_name=snapshot.last_tool_name,
+                            ),
+                        )
+                    )
+                else:
+                    sm.boss_state = BossState(snapshot.boss_state)
+
+            for restored_agent in snapshot.agents:
+                stop_sequence = self._agent_stop_sequences.get(
+                    (snapshot.session_id, restored_agent.agent_id), 0
+                )
+                if stop_sequence > start_sequence:
+                    continue
+                if restored_agent.agent_id in sm.agents:
+                    continue
+                sm.transition(
+                    AgentEvent(
+                        event_type=EventType.SUBAGENT_START,
+                        session_id=snapshot.session_id,
+                        timestamp=restored_agent.started_at or snapshot.captured_at,
+                        data=AgentEventData(
+                            source="codex",
+                            model=restored_agent.model,
+                            agent_id=restored_agent.agent_id,
+                            agent_type=restored_agent.agent_type,
+                        ),
+                    )
+                )
+                post_sequence = self._agent_post_sequences.get(
+                    (
+                        snapshot.session_id,
+                        restored_agent.agent_id,
+                        restored_agent.last_tool_name or "",
+                    ),
+                    0,
+                )
+                if restored_agent.last_tool_name:
+                    if post_sequence <= start_sequence:
+                        sm.transition(
+                            ToolEvent(
+                                event_type=EventType.PRE_TOOL_USE,
+                                session_id=snapshot.session_id,
+                                timestamp=snapshot.captured_at,
+                                data=ToolEventData(
+                                    source="codex",
+                                    model=restored_agent.model,
+                                    agent_id=restored_agent.agent_id,
+                                    agent_type=restored_agent.agent_type,
+                                    tool_name=restored_agent.last_tool_name,
+                                ),
+                            )
+                        )
+                    elif restored_agent.agent_id in sm.agents:
+                        sm.agents[restored_agent.agent_id].state = AgentState.WORKING
+                elif restored_agent.agent_id in sm.agents:
+                    sm.agents[restored_agent.agent_id].state = AgentState(restored_agent.state)
+                sm.restored_agent_ids.add(restored_agent.agent_id)
+            # Restored characters should appear in-place, not replay arrival.
+            sm.arrival_queue.clear()
+            if is_new:
+                sm.elevator_state = ElevatorState.CLOSED
+                sm.restored_session_start_pending = True
+            # Lifecycle/tool transitions above are only a convenient way to
+            # build current state. They are not replayed history: retain all
+            # existing entries and expose only one explicit restore marker.
+            sm.history[:] = preserved_history
+            already_marked = any(
+                bool(entry.get("detail", {}).get("restored")) for entry in sm.history
+            )
+            if not already_marked:
+                sm.history.append(
+                    {
+                        "id": f"restore-{snapshot.captured_at.timestamp()}",
+                        "type": EventType.SESSION_START.value,
+                        "agentId": "main",
+                        "summary": "Codexセッションを復元しました",
+                        "timestamp": snapshot.captured_at.isoformat(),
+                        "detail": {"source": "codex", "restored": True},
+                    }
+                )
+
+            sm.last_event_at = datetime.now(UTC)
+            async with self._sessions_lock:
+                self.sessions[snapshot.session_id] = sm
+            await broadcast_state(snapshot.session_id, sm)
+            self._schedule_overview_broadcast()
+            return True
 
     # ------------------------------------------------------------------
     # Post-broadcast async enrichment (one method per event type)
@@ -801,7 +1064,11 @@ class EventProcessor:
                         "agentId": agent_id,
                         "summary": self._get_event_summary(evt),
                         "timestamp": evt.timestamp.isoformat(),
-                        "detail": {},
+                        "detail": (
+                            {"source": "codex", "restored": True}
+                            if evt.data.restored
+                            else {}
+                        ),
                     }
                     sm.history.append(history_entry)
 
@@ -1125,6 +1392,8 @@ class EventProcessor:
         # family-specific fields (tool_name, prompt, task_id, ...) typecheck.
         match event.event_type:
             case EventType.SESSION_START:
+                if event.data.restored:
+                    return "Codexセッションを復元しました"
                 return "AI Office Viewer session started"
             case EventType.SESSION_END:
                 return "AI Office Viewer session ended"

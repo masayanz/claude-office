@@ -118,6 +118,7 @@ class EventData(BaseModel):
     room_id: str | None = None
     source: str | None = None
     model: str | None = None
+    restored: bool = False
     # Agent Teams fields (Phase 4)
     team_name: str | None = None
     teammate_name: str | None = None
@@ -215,6 +216,7 @@ class EventDataBase(BaseModel):
     # Producer metadata. Optional so Claude Code/OpenCode wire payloads remain unchanged.
     source: str | None = None
     model: str | None = None
+    restored: bool = False
 
 
 class SessionEventData(EventDataBase):

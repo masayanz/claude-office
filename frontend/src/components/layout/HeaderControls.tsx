@@ -14,9 +14,11 @@ interface HeaderControlsProps {
   isConnected: boolean;
   debugMode: boolean;
   aiSummaryEnabled: boolean | null;
+  isRestoringCodexSessions: boolean;
   /** Number of active sessions — gates the Command Center button (>= 2). */
   activeSessionCount: number;
   onSimulate: () => Promise<void>;
+  onRestoreCodexSessions: () => Promise<void>;
   onReset: () => void;
   onClearDB: () => void;
   onToggleDebug: () => void;
@@ -40,8 +42,10 @@ export function HeaderControls({
   isConnected,
   debugMode,
   aiSummaryEnabled,
+  isRestoringCodexSessions,
   activeSessionCount,
   onSimulate,
+  onRestoreCodexSessions,
   onReset,
   onClearDB,
   onToggleDebug,
@@ -105,7 +109,9 @@ export function HeaderControls({
       {/* Rarely-used developer/maintenance actions */}
       <HeaderMoreMenu
         debugMode={debugMode}
+        isRestoringCodexSessions={isRestoringCodexSessions}
         onSimulate={onSimulate}
+        onRestoreCodexSessions={onRestoreCodexSessions}
         onReset={onReset}
         onClearDB={onClearDB}
         onToggleDebug={onToggleDebug}

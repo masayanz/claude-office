@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import sys
 from collections.abc import Callable
+from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 
 from PySide6.QtCore import QIODevice, QObject, QTimer, Signal
@@ -40,7 +41,7 @@ from .branding import (
     PRODUCT_SUBTITLE_JA,
     SINGLE_INSTANCE_NAME,
 )
-from .process_manager import ServiceManager
+from .process_manager import CodexRestoreStatus, ServiceManager
 from .resources import manager_icon_path
 from .settings import load_settings, save_settings
 
@@ -117,6 +118,16 @@ class SettingsDialog(QDialog):
         self.browser_mode.setCurrentIndex(max(index, 0))
         self.stop_on_exit = QCheckBox("Manager終了時にBackend/Frontendも停止する")
         self.stop_on_exit.setChecked(bool(settings.get("stop_servers_on_manager_exit", False)))
+        self.restore_codex_sessions = QCheckBox(
+            "起動時に進行中のCodexセッションを復元する"
+        )
+        self.restore_codex_sessions.setChecked(bool(settings.get("restore_codex_sessions", True)))
+        self.restore_window_minutes = QSpinBox()
+        self.restore_window_minutes.setRange(1, 1440)
+        self.restore_window_minutes.setSuffix(" 分")
+        self.restore_window_minutes.setValue(int(settings.get("restore_window_minutes", 30)))
+        self.restore_window_minutes.setEnabled(self.restore_codex_sessions.isChecked())
+        self.restore_codex_sessions.toggled.connect(self.restore_window_minutes.setEnabled)
 
         form = QFormLayout()
         form.addRow("会社名", self.company_name)
@@ -124,6 +135,8 @@ class SettingsDialog(QDialog):
         form.addRow("Backendポート", self.backend_port)
         form.addRow("Frontendポート", self.frontend_port)
         form.addRow("ブラウザ表示", self.browser_mode)
+        form.addRow("", self.restore_codex_sessions)
+        form.addRow("復元対象（直近）", self.restore_window_minutes)
         form.addRow("", self.stop_on_exit)
         if warning:
             warning_label = QLabel(f"設定警告: {warning}")
@@ -148,6 +161,8 @@ class SettingsDialog(QDialog):
                     "frontend_port": self.frontend_port.value(),
                     "browser_mode": self.browser_mode.currentData(),
                     "stop_servers_on_manager_exit": self.stop_on_exit.isChecked(),
+                    "restore_codex_sessions": self.restore_codex_sessions.isChecked(),
+                    "restore_window_minutes": self.restore_window_minutes.value(),
                 }
             )
         except ValueError as exc:
@@ -157,6 +172,9 @@ class SettingsDialog(QDialog):
 
 
 class ManagerWindow(QMainWindow):
+    _restore_status_received = Signal(object)
+    _restore_request_finished = Signal(object)
+
     def __init__(self, icon: QIcon) -> None:
         super().__init__()
         self.setWindowTitle(MANAGER_NAME)
@@ -169,6 +187,12 @@ class ManagerWindow(QMainWindow):
         self._status_labels: dict[str, QLabel] = {}
         self._last_backend_healthy = False
         self._last_frontend_healthy = False
+        self._executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="manager-api")
+        self._restore_status_in_flight = False
+        self._restore_request_in_flight = False
+        self._is_quitting = False
+        self._restore_status_received.connect(self._apply_restore_status)
+        self._restore_request_finished.connect(self._apply_restore_request)
         self._build_window()
         self._build_tray()
 
@@ -192,6 +216,7 @@ class ManagerWindow(QMainWindow):
                 ("frontend", "Frontend"),
                 ("adapter", "Codex Adapter"),
                 ("hooks", "Codex global hooks"),
+                ("codex_restore", "Codexセッション"),
             )
         ):
             card = QGroupBox(label)
@@ -216,6 +241,12 @@ class ManagerWindow(QMainWindow):
             button.clicked.connect(lambda _checked=False, fn=callback: fn())
             buttons.addWidget(button)
         layout.addLayout(buttons)
+        restore_actions = QHBoxLayout()
+        self._restore_button = QPushButton("Codexセッションを再読込")
+        self._restore_button.clicked.connect(self._restore_codex_sessions)
+        restore_actions.addWidget(self._restore_button)
+        restore_actions.addStretch(1)
+        layout.addLayout(restore_actions)
         layout.addWidget(QLabel("× / Alt+F4: タスクトレイへ収納　　終了: トレイメニューから"))
         layout.addStretch(1)
         self.setCentralWidget(central)
@@ -229,6 +260,7 @@ class ManagerWindow(QMainWindow):
         self._add_tray_action(menu, f"{PRODUCT_NAME}を起動", self._start)
         self._add_tray_action(menu, f"{PRODUCT_NAME}を停止", self._stop)
         self._add_tray_action(menu, f"{PRODUCT_NAME}を再起動", self._restart)
+        self._add_tray_action(menu, "Codexセッションを再読込", self._restore_codex_sessions)
         menu.addSeparator()
         self._add_tray_action(menu, "通常ブラウザで開く", self._open_normal)
         self._add_tray_action(menu, f"{PRODUCT_NAME}専用表示", self._open_app)
@@ -294,6 +326,10 @@ class ManagerWindow(QMainWindow):
             f"Backend: {'稼働中' if backend.healthy else '停止'}\n"
             f"Frontend: {'稼働中' if frontend.healthy else '停止'}"
         )
+        if backend.healthy:
+            self._poll_restore_status()
+        else:
+            self._status_labels["codex_restore"].setText("Backend停止中")
 
     @staticmethod
     def _status_text(running: bool, healthy: bool) -> str:
@@ -307,6 +343,94 @@ class ManagerWindow(QMainWindow):
         except (OSError, RuntimeError, ValueError) as exc:
             QMessageBox.critical(self, f"{label}エラー", str(exc))
         self._refresh_status()
+
+    @staticmethod
+    def _restore_status_text(status: CodexRestoreStatus) -> str:
+        if status.state in {"checking", "running", "pending"}:
+            return "確認中…"
+        if status.state in {"succeeded", "completed", "success"}:
+            return f"{status.session_count}件復元" if status.session_count else "復元対象なし"
+        if status.state == "disabled":
+            return "自動復元: OFF"
+        if status.state in {"failed", "error"}:
+            return "復元に失敗しました\nCodex自体の動作には影響ありません"
+        return "待機中"
+
+    @staticmethod
+    def _future_result(future: Future[CodexRestoreStatus]) -> object:
+        try:
+            return future.result()
+        except Exception as exc:  # The exception is rendered on the GUI thread.
+            return exc
+
+    def _poll_restore_status(self) -> None:
+        if self._restore_status_in_flight or self._restore_request_in_flight:
+            return
+        self._restore_status_in_flight = True
+        future = self._executor.submit(self.manager.codex_restore_status)
+        future.add_done_callback(
+            lambda completed: (
+                self._restore_status_received.emit(self._future_result(completed))
+                if not self._is_quitting
+                else None
+            )
+        )
+
+    def _apply_restore_status(self, result: object) -> None:
+        if self._is_quitting:
+            return
+        self._restore_status_in_flight = False
+        if self._restore_request_in_flight:
+            return
+        if not self._last_backend_healthy:
+            self._status_labels["codex_restore"].setText("Backend停止中")
+            return
+        if isinstance(result, CodexRestoreStatus):
+            self._status_labels["codex_restore"].setText(self._restore_status_text(result))
+        else:
+            self._status_labels["codex_restore"].setText(
+                "状態を取得できません\nCodex自体の動作には影響ありません"
+            )
+
+    def _restore_codex_sessions(self) -> None:
+        if self._restore_request_in_flight:
+            return
+        if not self._last_backend_healthy:
+            QMessageBox.information(
+                self,
+                "Codexセッション復元",
+                "Backendを起動してから再読込してください。",
+            )
+            return
+        self._restore_request_in_flight = True
+        self._restore_button.setEnabled(False)
+        self._status_labels["codex_restore"].setText("確認中…")
+        future = self._executor.submit(self.manager.restore_codex_sessions)
+        future.add_done_callback(
+            lambda completed: (
+                self._restore_request_finished.emit(self._future_result(completed))
+                if not self._is_quitting
+                else None
+            )
+        )
+
+    def _apply_restore_request(self, result: object) -> None:
+        if self._is_quitting:
+            return
+        self._restore_request_in_flight = False
+        self._restore_button.setEnabled(True)
+        if isinstance(result, CodexRestoreStatus):
+            self._status_labels["codex_restore"].setText(self._restore_status_text(result))
+            QTimer.singleShot(500, self._poll_restore_status)
+            return
+        self._status_labels["codex_restore"].setText(
+            "復元に失敗しました\nCodex自体の動作には影響ありません"
+        )
+        QMessageBox.warning(
+            self,
+            "Codexセッション復元",
+            "Codexセッションの復元に失敗しました。\nCodex自体の動作には影響ありません。",
+        )
 
     def _start(self) -> None:
         def action() -> None:
@@ -364,7 +488,9 @@ class ManagerWindow(QMainWindow):
         if settings.get("stop_servers_on_manager_exit", False):
             self.manager.stop("frontend")
             self.manager.stop("backend")
+        self._is_quitting = True
         self._status_timer.stop()
+        self._executor.shutdown(wait=False, cancel_futures=True)
         self._tray.hide()
         QApplication.quit()
 

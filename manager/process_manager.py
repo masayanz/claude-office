@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import urllib.error
 import urllib.request
 import webbrowser
 from dataclasses import dataclass
@@ -27,6 +28,15 @@ class ServiceStatus:
     running: bool
     healthy: bool
     pid: int | None = None
+    detail: str = ""
+
+
+@dataclass
+class CodexRestoreStatus:
+    """Normalized result returned by the backend Codex restore API."""
+
+    state: str
+    session_count: int = 0
     detail: str = ""
 
 
@@ -52,6 +62,72 @@ class ServiceManager:
     def adapter_available(self) -> bool:
         """Return whether the shared Codex adapter launcher exists."""
         return (ROOT / "codex-adapter" / "hook.py").is_file()
+
+    def _backend_api_request(
+        self, path: str, *, method: str = "GET", timeout: float = 0.75
+    ) -> dict[str, Any]:
+        """Call a local backend API with a short timeout.
+
+        The Manager never persists or displays the API key. When the user has
+        explicitly configured one, forwarding it from the environment keeps
+        the manual restore action compatible with the backend middleware.
+        """
+        settings = self._settings()
+        url = f"http://{settings['backend_host']}:{settings['backend_port']}{path}"
+        headers = {"Accept": "application/json"}
+        api_key = os.environ.get("CLAUDE_OFFICE_API_KEY", "")
+        if api_key:
+            headers["X-API-Key"] = api_key
+        data = b"{}" if method == "POST" else None
+        if data is not None:
+            headers["Content-Type"] = "application/json"
+        request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        try:
+            with urllib.request.urlopen(request, timeout=timeout) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except urllib.error.HTTPError as exc:
+            raise RuntimeError(f"Backend APIがHTTP {exc.code}を返しました") from exc
+        except (OSError, ValueError) as exc:
+            raise RuntimeError("Backend APIへ接続できませんでした") from exc
+        if not isinstance(payload, dict):
+            raise RuntimeError("Backend APIから不正な応答を受信しました")
+        return payload
+
+    @staticmethod
+    def _restore_status(payload: dict[str, Any], default_state: str) -> CodexRestoreStatus:
+        raw_state = str(payload.get("state", payload.get("status", default_state))).lower()
+        state_aliases = {
+            "accepted": "checking",
+            "pending": "checking",
+            "running": "checking",
+            "in_progress": "checking",
+            "completed": "succeeded",
+            "complete": "succeeded",
+            "success": "succeeded",
+            "error": "failed",
+            "failure": "failed",
+        }
+        state = state_aliases.get(raw_state, raw_state)
+        count_value = payload.get(
+            "session_count",
+            payload.get("restored_sessions", payload.get("restored_count", 0)),
+        )
+        session_count = (
+            count_value
+            if isinstance(count_value, int) and not isinstance(count_value, bool)
+            else 0
+        )
+        detail_value = payload.get("message", payload.get("detail", payload.get("error", "")))
+        detail = detail_value if isinstance(detail_value, str) else ""
+        return CodexRestoreStatus(state=state, session_count=max(session_count, 0), detail=detail)
+
+    def codex_restore_status(self) -> CodexRestoreStatus:
+        payload = self._backend_api_request("/api/v1/codex/restore/status")
+        return self._restore_status(payload, "idle")
+
+    def restore_codex_sessions(self) -> CodexRestoreStatus:
+        payload = self._backend_api_request("/api/v1/codex/restore", method="POST")
+        return self._restore_status(payload, "checking")
 
     def _url(self, service: str) -> str:
         settings = self._settings()

@@ -24,6 +24,8 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "owner_name": "Owner",
     "owner_image_filename": None,
     "stop_servers_on_manager_exit": False,
+    "restore_codex_sessions": True,
+    "restore_window_minutes": 30,
 }
 
 
@@ -56,6 +58,15 @@ def validate_settings(raw: object) -> dict[str, Any]:
         raise ValueError("open_browser_on_start must be boolean")
     if not isinstance(result["stop_servers_on_manager_exit"], bool):
         raise ValueError("stop_servers_on_manager_exit must be boolean")
+    if not isinstance(result["restore_codex_sessions"], bool):
+        raise ValueError("restore_codex_sessions must be boolean")
+    restore_window = result["restore_window_minutes"]
+    if (
+        not isinstance(restore_window, int)
+        or isinstance(restore_window, bool)
+        or not 1 <= restore_window <= 1440
+    ):
+        raise ValueError("restore_window_minutes must be an integer between 1 and 1440")
     image = result.get("owner_image_filename")
     if image is not None and (
         not isinstance(image, str)

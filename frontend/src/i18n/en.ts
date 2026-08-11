@@ -22,6 +22,7 @@ const en = {
   "header.commandCenter": "COMMAND",
   "header.more": "MORE",
   "header.moreMenu": "More actions",
+  "header.restoreCodexSessions": "RESTORE CODEX SESSIONS",
   "help.tour": "Take the Tour",
 
   // Command Center
@@ -72,6 +73,14 @@ const en = {
   "settings.autoFollow": "Auto-follow new sessions",
   "settings.autoFollowDesc":
     "Automatically switch to new sessions in the current project",
+  "settings.restoreCodexSessions": "Restore active Codex sessions on startup",
+  "settings.restoreCodexSessionsDesc":
+    "Detect recent Codex sessions and continue displaying their current state",
+  "settings.restoreWindowMinutes": "Restore sessions active within (minutes)",
+  "settings.restoreWindowMinutesDesc":
+    "Sessions older than this window are not restored (1–1440 minutes).",
+  "settings.restoreSaved": "Restore settings saved",
+  "settings.restoreSaveFailed": "Could not save restore settings",
   "settings.clockTip":
     "Tip: Click the clock in the office to quickly cycle between modes.",
   "settings.language": "Language",
@@ -91,7 +100,8 @@ const en = {
   "settings.office.saveFailed": "Could not save settings",
   "settings.office.imageSaved": "Owner image saved",
   "settings.office.imageFailed": "Could not save owner image",
-  "settings.office.restartHint": "Port changes take effect after restarting AI Office Viewer.",
+  "settings.office.restartHint":
+    "Port changes take effect after restarting AI Office Viewer.",
   "settings.building.name": "Building Name",
   "settings.building.namePlaceholder": "My Company",
   "settings.building.floors": "Floors",
@@ -232,6 +242,11 @@ const en = {
     "Session deleted. No other sessions available.",
   "status.connectedTo": "Connected to {sessionName}",
   "status.autoFollowed": "Auto-followed new session: {sessionName}",
+  "status.restoringCodexSessions": "Checking active Codex sessions...",
+  "status.codexSessionsRestored":
+    "Restored {sessionCount} Codex session(s) and {agentCount} agent(s).",
+  "status.failedRestoreCodexSessions":
+    "Could not restore Codex sessions. Codex itself is not affected.",
 
   // Navigation
   "navigation.building": "Building",

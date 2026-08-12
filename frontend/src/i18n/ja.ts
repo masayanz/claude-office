@@ -17,6 +17,7 @@ const ja: Record<TranslationKey, string> = {
   "settings.tabs.general": "全般",
   "settings.tabs.building": "建物",
   "settings.tabs.office": "AI Office Viewer",
+  "settings.tabs.board": "ホワイトボード",
   "settings.restoreCodexSessions": "起動時に進行中のCodexセッションを復元する",
   "settings.restoreCodexSessionsDesc":
     "直近のCodexセッションを検出し、現在の状態から表示を再開します",
@@ -27,6 +28,10 @@ const ja: Record<TranslationKey, string> = {
   "settings.restoreSaveFailed": "復元設定を保存できませんでした",
   "settings.office.companyName": "会社名",
   "settings.office.ownerName": "オーナー名",
+  "settings.office.owner": "オーナー",
+  "settings.office.ownerTitle": "肩書き（任意）",
+  "settings.office.ownerMessage": "一言メッセージ（任意）",
+  "settings.office.resetOwnerImage": "デフォルトに戻す",
   "settings.office.ownerImage": "オーナー画像",
   "settings.office.backendPort": "Backendポート",
   "settings.office.frontendPort": "Frontendポート",

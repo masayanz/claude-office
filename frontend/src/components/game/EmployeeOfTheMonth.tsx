@@ -1,7 +1,13 @@
 "use client";
 
 import { Graphics, Assets, Texture } from "pixi.js";
-import { useCallback, useState, useEffect, type ReactNode } from "react";
+import {
+  useCallback,
+  useState,
+  useEffect,
+  useRef,
+  type ReactNode,
+} from "react";
 import { API_BASE } from "@/utils/api";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
 
@@ -13,12 +19,25 @@ import { useAppSettingsStore } from "@/stores/appSettingsStore";
  */
 export function EmployeeOfTheMonth(): ReactNode {
   const [photoTexture, setPhotoTexture] = useState<Texture | null>(null);
-  const ownerName = useAppSettingsStore((state) => state.settings?.owner_name) || "Owner";
-  const ownerImageUrl = useAppSettingsStore((state) => state.settings?.owner_image_url);
+  const [photoMask, setPhotoMask] = useState<Graphics | null>(null);
+  const [showOwnerDetails, setShowOwnerDetails] = useState(false);
+  const photoMaskRef = useRef<Graphics | null>(null);
+  const ownerName =
+    useAppSettingsStore((state) => state.settings?.owner_name) || "Owner";
+  const ownerTitle =
+    useAppSettingsStore((state) => state.settings?.owner_title) || "";
+  const ownerMessage =
+    useAppSettingsStore((state) => state.settings?.owner_message) || "";
+  const ownerImageUrl = useAppSettingsStore(
+    (state) => state.settings?.owner_image_url,
+  );
+  const ownerImageFilename = useAppSettingsStore(
+    (state) => state.settings?.owner_image_filename,
+  );
 
   useEffect(() => {
     const assetPath = ownerImageUrl
-      ? `${API_BASE}${ownerImageUrl}`
+      ? `${API_BASE}${ownerImageUrl}?v=${encodeURIComponent(ownerImageFilename ?? "")}`
       : "/sprites/employee-of-month.png";
     Assets.load(assetPath)
       .then((texture) => {
@@ -27,7 +46,17 @@ export function EmployeeOfTheMonth(): ReactNode {
       .catch((err) => {
         console.warn(`[EmployeeOfTheMonth] Failed to load ${assetPath}:`, err);
       });
-  }, [ownerImageUrl]);
+  }, [ownerImageFilename, ownerImageUrl]);
+
+  const drawPhotoMask = useCallback((g: Graphics) => {
+    g.clear();
+    g.rect(15, 42, 90, 90);
+    g.fill(0xffffff);
+  }, []);
+
+  const photoScale = photoTexture
+    ? Math.max(90 / photoTexture.width, 90 / photoTexture.height)
+    : 1;
 
   const drawFrame = useCallback((g: Graphics) => {
     g.clear();
@@ -80,12 +109,17 @@ export function EmployeeOfTheMonth(): ReactNode {
   }, []);
 
   return (
-    <pixiContainer>
+    <pixiContainer
+      eventMode={ownerMessage ? "static" : "none"}
+      cursor={ownerMessage ? "pointer" : undefined}
+      onPointerOver={() => setShowOwnerDetails(true)}
+      onPointerOut={() => setShowOwnerDetails(false)}
+    >
       <pixiGraphics draw={drawFrame} />
       {/* Header text - rendered at 2x and scaled for sharpness */}
       <pixiContainer x={60} y={14} scale={0.5}>
         <pixiText
-          text="EMPLOYEE"
+          text="OWNER"
           anchor={0.5}
           style={{
             fontFamily: '"Arial Black", Arial, sans-serif',
@@ -102,28 +136,41 @@ export function EmployeeOfTheMonth(): ReactNode {
           resolution={2}
         />
       </pixiContainer>
-      <pixiContainer x={60} y={26} scale={0.5}>
-        <pixiText
-          text="OF THE MONTH"
-          anchor={0.5}
-          style={{
-            fontFamily: '"Arial Black", Arial, sans-serif',
-            fontSize: 16,
-            fontWeight: "bold",
-            fill: "#ffffff",
-          }}
-          resolution={2}
-        />
-      </pixiContainer>
+      {ownerTitle && (
+        <pixiContainer x={60} y={26} scale={0.5}>
+          <pixiText
+            text={ownerTitle.toUpperCase().slice(0, 18)}
+            anchor={0.5}
+            style={{
+              fontFamily: '"Arial Black", Arial, sans-serif',
+              fontSize: 16,
+              fontWeight: "bold",
+              fill: "#ffffff",
+            }}
+            resolution={2}
+          />
+        </pixiContainer>
+      )}
       {/* Photo */}
+      <pixiGraphics
+        draw={drawPhotoMask}
+        ref={(graphics) => {
+          if (graphics && graphics !== photoMaskRef.current) {
+            photoMaskRef.current = graphics;
+            setPhotoMask(graphics);
+          }
+        }}
+      />
       {photoTexture && (
-        <pixiSprite
-          texture={photoTexture}
-          x={60}
-          y={87}
-          anchor={0.5}
-          scale={0.082}
-        />
+        <pixiContainer mask={photoMask}>
+          <pixiSprite
+            texture={photoTexture}
+            x={60}
+            y={87}
+            anchor={0.5}
+            scale={photoScale}
+          />
+        </pixiContainer>
       )}
       {/* Name plate text */}
       <pixiContainer x={60} y={144} scale={0.5}>
@@ -139,6 +186,31 @@ export function EmployeeOfTheMonth(): ReactNode {
           resolution={2}
         />
       </pixiContainer>
+      {showOwnerDetails && ownerMessage && (
+        <pixiContainer x={128} y={18}>
+          <pixiGraphics
+            draw={(g: Graphics) => {
+              g.clear();
+              g.roundRect(0, 0, 150, 42, 4);
+              g.fill({ color: 0x172033, alpha: 0.95 });
+              g.stroke({ width: 2, color: 0xdaa520 });
+            }}
+          />
+          <pixiText
+            text={ownerMessage}
+            x={7}
+            y={6}
+            style={{
+              fontFamily: '"Courier New", monospace',
+              fontSize: 9,
+              fill: "#ffffff",
+              wordWrap: true,
+              wordWrapWidth: 136,
+              breakWords: true,
+            }}
+          />
+        </pixiContainer>
+      )}
     </pixiContainer>
   );
 }

@@ -11,13 +11,14 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { locales, type Locale } from "@/i18n";
 import { BuildingTab } from "@/components/settings/BuildingTab";
 import { OfficeSettingsTab } from "@/components/settings/OfficeSettingsTab";
+import { BoardSettingsTab } from "@/components/settings/BoardSettingsTab";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-type SettingsTab = "general" | "building" | "office";
+export type SettingsTab = "general" | "building" | "office" | "board";
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -226,7 +227,7 @@ export default function SettingsModal({
     >
       {/* Tab bar */}
       <div className="flex gap-1 mb-6 p-1 bg-slate-800/50 rounded-lg border border-slate-700">
-        {(["general", "building", "office"] as const).map((tab) => (
+        {(["general", "building", "office", "board"] as const).map((tab) => (
           <button
             key={tab}
             type="button"
@@ -584,8 +585,10 @@ export default function SettingsModal({
         </div>
       ) : activeTab === "building" ? (
         <BuildingTab onDirtyChange={handleDirtyChange} />
-      ) : (
+      ) : activeTab === "office" ? (
         <OfficeSettingsTab />
+      ) : (
+        <BoardSettingsTab />
       )}
     </Modal>
   );

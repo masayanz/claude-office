@@ -36,7 +36,17 @@ DEFAULTS: dict[str, Any] = {
     "browser_mode": "normal",
     "company_name": "",
     "owner_name": "Owner",
+    "owner_title": "",
+    "owner_message": "",
     "owner_image_filename": None,
+    "board_mode": "todo",
+    "daily_goals": [],
+    "weekly_goals": [],
+    "board_memo": "",
+    "custom_board_title": "",
+    "custom_board_message": "",
+    "board_auto_rotate": False,
+    "board_rotate_seconds": 10,
     "stop_servers_on_manager_exit": False,
     "restore_codex_sessions": True,
     "restore_window_minutes": 30,
@@ -57,6 +67,53 @@ def _validate(values: dict[str, Any]) -> dict[str, Any]:
         raise ValueError("browser_modeが不正です")
     if result["language"] not in {"ja", "en", "es", "pt-BR"}:
         raise ValueError("languageが不正です")
+    for key, maximum in (
+        ("company_name", 120),
+        ("owner_name", 50),
+        ("owner_title", 50),
+        ("owner_message", 200),
+        ("board_memo", 500),
+        ("custom_board_title", 50),
+        ("custom_board_message", 500),
+    ):
+        if (
+            not isinstance(result[key], str)
+            or len(result[key].strip()) > maximum
+            or (key == "owner_name" and not result[key].strip())
+        ):
+            raise ValueError(f"{key}が不正です")
+        result[key] = result[key].strip()
+    if result["board_mode"] not in {
+        "todo",
+        "daily_goals",
+        "weekly_goals",
+        "memo",
+        "custom",
+    }:
+        raise ValueError("board_modeが不正です")
+    for key in ("daily_goals", "weekly_goals"):
+        goals = result[key]
+        if (
+            not isinstance(goals, list)
+            or len(goals) > 50
+            or any(
+                not isinstance(goal, str)
+                or not goal.strip()
+                or len(goal.strip()) > 100
+                for goal in goals
+            )
+        ):
+            raise ValueError(f"{key}が不正です")
+        result[key] = [goal.strip() for goal in goals]
+    if not isinstance(result["board_auto_rotate"], bool):
+        raise ValueError("board_auto_rotateが不正です")
+    rotate_seconds = result["board_rotate_seconds"]
+    if (
+        not isinstance(rotate_seconds, int)
+        or isinstance(rotate_seconds, bool)
+        or not 5 <= rotate_seconds <= 3600
+    ):
+        raise ValueError("board_rotate_secondsが不正です")
     if not isinstance(result["stop_servers_on_manager_exit"], bool):
         raise ValueError("stop_servers_on_manager_exitが不正です")
     if not isinstance(result["restore_codex_sessions"], bool):

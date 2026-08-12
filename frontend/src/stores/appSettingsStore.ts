@@ -16,10 +16,23 @@ export interface AppSettings {
   restore_window_minutes: number;
   company_name: string;
   owner_name: string;
+  owner_title: string;
+  owner_message: string;
   owner_image_filename: string | null;
   owner_image_url: string | null;
+  board_mode: BoardMode;
+  daily_goals: string[];
+  weekly_goals: string[];
+  board_memo: string;
+  custom_board_title: string;
+  custom_board_message: string;
+  board_auto_rotate: boolean;
+  board_rotate_seconds: number;
   warning?: string;
 }
+
+export type BoardMode =
+  "todo" | "daily_goals" | "weekly_goals" | "memo" | "custom";
 
 interface AppSettingsState {
   settings: AppSettings | null;
@@ -29,9 +42,17 @@ interface AppSettingsState {
     updates: Partial<AppSettings>,
   ) => Promise<AppSettings | null>;
   uploadOwnerImage: (file: File) => Promise<AppSettings | null>;
+  resetOwnerImage: () => Promise<AppSettings | null>;
 }
 
-export const useAppSettingsStore = create<AppSettingsState>((set) => ({
+function hasSameSettings(
+  current: AppSettings | null,
+  next: AppSettings,
+): boolean {
+  return current !== null && JSON.stringify(current) === JSON.stringify(next);
+}
+
+export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
   settings: null,
   isLoaded: false,
 
@@ -40,7 +61,9 @@ export const useAppSettingsStore = create<AppSettingsState>((set) => ({
       const response = await apiFetch("/api/v1/settings");
       if (!response.ok) return;
       const settings = (await response.json()) as AppSettings;
-      set({ settings, isLoaded: true });
+      if (!hasSameSettings(get().settings, settings)) {
+        set({ settings, isLoaded: true });
+      }
       usePreferencesStore.setState({ language: settings.language });
     } catch (error) {
       console.warn("[app-settings] Failed to fetch:", error);
@@ -79,6 +102,21 @@ export const useAppSettingsStore = create<AppSettingsState>((set) => ({
       return settings;
     } catch (error) {
       console.warn("[app-settings] Failed to upload owner image:", error);
+      return null;
+    }
+  },
+
+  resetOwnerImage: async () => {
+    try {
+      const response = await apiFetch("/api/v1/settings/owner-image", {
+        method: "DELETE",
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const settings = (await response.json()) as AppSettings;
+      set({ settings, isLoaded: true });
+      return settings;
+    } catch (error) {
+      console.warn("[app-settings] Failed to reset owner image:", error);
       return null;
     }
   },

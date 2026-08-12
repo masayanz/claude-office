@@ -39,6 +39,7 @@ import {
 } from "@/components/layout/StatusToast";
 import Modal from "@/components/overlay/Modal";
 import SettingsModal from "@/components/overlay/SettingsModal";
+import type { SettingsTab } from "@/components/overlay/SettingsModal";
 import { Breadcrumb } from "@/components/navigation/Breadcrumb";
 import { ViewTransition } from "@/components/navigation/ViewTransition";
 import { BuildingView } from "@/components/views/BuildingView";
@@ -196,9 +197,8 @@ export default function V2TestPage(): React.ReactNode {
   const [isClearModalOpen, setIsClearModalOpen] = useState(false);
   const [isHelpModalOpen, setIsHelpModalOpen] = useState(false);
   const [isSettingsModalOpen, setIsSettingsModalOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<
-    "general" | "building"
-  >("general");
+  const [settingsInitialTab, setSettingsInitialTab] =
+    useState<SettingsTab>("general");
   const [statusMessage, setStatusMessage] = useState<StatusMessage | null>(
     null,
   );
@@ -366,6 +366,25 @@ export default function V2TestPage(): React.ReactNode {
 
   useEffect(() => {
     void loadAppSettings();
+  }, [loadAppSettings]);
+
+  // Manager launches the Viewer with ?settings=office or ?settings=board.
+  // Keep the URL usable as a deep link without retaining the command on refresh.
+  useEffect(() => {
+    const requestedTab = new URLSearchParams(window.location.search).get(
+      "settings",
+    );
+    if (requestedTab === "office" || requestedTab === "board") {
+      setSettingsInitialTab(requestedTab);
+      setIsSettingsModalOpen(true);
+    }
+  }, []);
+
+  // The Manager writes the same app-settings JSON directly. Polling keeps an
+  // already-open Viewer in sync without requiring a browser reload.
+  useEffect(() => {
+    const interval = window.setInterval(() => void loadAppSettings(), 3000);
+    return () => window.clearInterval(interval);
   }, [loadAppSettings]);
 
   useEffect(() => {

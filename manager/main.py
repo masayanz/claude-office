@@ -104,7 +104,9 @@ class SettingsDialog(QDialog):
         settings, warning = load_settings()
 
         self.company_name = QLineEdit(str(settings["company_name"]))
+        self.company_name.setMaxLength(120)
         self.owner_name = QLineEdit(str(settings["owner_name"]))
+        self.owner_name.setMaxLength(50)
         self.backend_port = QSpinBox()
         self.backend_port.setRange(1024, 65535)
         self.backend_port.setValue(int(settings["backend_port"]))
@@ -235,6 +237,7 @@ class ManagerWindow(QMainWindow):
             ("AIオフィスを開く", self._open_normal),
             ("専用表示", self._open_app),
             ("設定", self._settings_dialog),
+            ("Web設定を開く", self._open_web_settings),
             ("ログ", self._logs_dialog),
         ):
             button = QPushButton(text)
@@ -245,6 +248,9 @@ class ManagerWindow(QMainWindow):
         self._restore_button = QPushButton("Codexセッションを再読込")
         self._restore_button.clicked.connect(self._restore_codex_sessions)
         restore_actions.addWidget(self._restore_button)
+        board_settings_button = QPushButton("ホワイトボード設定")
+        board_settings_button.clicked.connect(self._open_board_settings)
+        restore_actions.addWidget(board_settings_button)
         restore_actions.addStretch(1)
         layout.addLayout(restore_actions)
         layout.addWidget(QLabel("× / Alt+F4: タスクトレイへ収納　　終了: トレイメニューから"))
@@ -264,6 +270,8 @@ class ManagerWindow(QMainWindow):
         menu.addSeparator()
         self._add_tray_action(menu, "通常ブラウザで開く", self._open_normal)
         self._add_tray_action(menu, f"{PRODUCT_NAME}専用表示", self._open_app)
+        self._add_tray_action(menu, "Web設定を開く", self._open_web_settings)
+        self._add_tray_action(menu, "ホワイトボード設定", self._open_board_settings)
         menu.addSeparator()
         self._add_tray_action(menu, "設定", self._settings_dialog)
         self._add_tray_action(menu, "ログ", self._logs_dialog)
@@ -460,6 +468,12 @@ class ManagerWindow(QMainWindow):
 
     def _open_app(self) -> None:
         self.manager.open_office(True)
+
+    def _open_web_settings(self) -> None:
+        self.manager.open_web_settings("office")
+
+    def _open_board_settings(self) -> None:
+        self.manager.open_web_settings("board")
 
     def _settings_dialog(self) -> None:
         SettingsDialog(self._icon, self).exec()

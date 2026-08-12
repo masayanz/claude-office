@@ -5,8 +5,9 @@ from __future__ import annotations
 import json
 import os
 import tempfile
+from copy import deepcopy
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 SETTINGS_PATH = ROOT_DIR / "config" / "app-settings.json"
@@ -22,7 +23,17 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "browser_mode": "normal",
     "company_name": "",
     "owner_name": "Owner",
+    "owner_title": "",
+    "owner_message": "",
     "owner_image_filename": None,
+    "board_mode": "todo",
+    "daily_goals": [],
+    "weekly_goals": [],
+    "board_memo": "",
+    "custom_board_title": "",
+    "custom_board_message": "",
+    "board_auto_rotate": False,
+    "board_rotate_seconds": 10,
     "stop_servers_on_manager_exit": False,
     "restore_codex_sessions": True,
     "restore_window_minutes": 30,
@@ -33,12 +44,34 @@ def _valid_port(value: object) -> bool:
     return isinstance(value, int) and not isinstance(value, bool) and 1024 <= value <= 65535
 
 
+def _validate_text(value: object, key: str, maximum: int, *, required: bool = False) -> str:
+    """Validate a user-facing text setting and return its trimmed value."""
+    if not isinstance(value, str):
+        raise ValueError(f"{key} must be a string")
+    normalized = value.strip()
+    if len(normalized) > maximum or (required and not normalized):
+        qualifier = f"between 1 and {maximum}" if required else f"at most {maximum}"
+        raise ValueError(f"{key} must be a string of {qualifier} characters")
+    return normalized
+
+
+def _validate_goals(value: object, key: str) -> list[str]:
+    """Validate a bounded list of plain-text board goals."""
+    if not isinstance(value, list):
+        raise ValueError(f"{key} must be a list with at most 50 items")
+    goals = cast(list[object], value)
+    if len(goals) > 50:
+        raise ValueError(f"{key} must be a list with at most 50 items")
+    return [_validate_text(goal, key, 100, required=True) for goal in goals]
+
+
 def validate_settings(raw: object) -> dict[str, Any]:
     """Validate and normalize a settings object, raising ValueError on bad data."""
     if not isinstance(raw, dict):
         raise ValueError("settings must be a JSON object")
-    result = dict(DEFAULT_SETTINGS)
-    result.update(raw)
+    raw_settings = cast(dict[str, Any], raw)
+    result = deepcopy(DEFAULT_SETTINGS)
+    result.update(raw_settings)
     if result["language"] not in {"ja", "en", "es", "pt-BR"}:
         raise ValueError("language must be ja, en, es, or pt-BR")
     if not _valid_port(result["backend_port"]) or not _valid_port(result["frontend_port"]):
@@ -50,10 +83,30 @@ def validate_settings(raw: object) -> dict[str, Any]:
             raise ValueError(f"{key} must be a non-empty string")
     if result["browser_mode"] not in {"normal", "app"}:
         raise ValueError("browser_mode must be normal or app")
-    for key in ("company_name", "owner_name"):
-        if not isinstance(result[key], str) or len(result[key].strip()) > 120:
-            raise ValueError(f"{key} must be a string of at most 120 characters")
-        result[key] = result[key].strip()
+    result["company_name"] = _validate_text(result["company_name"], "company_name", 120)
+    result["owner_name"] = _validate_text(result["owner_name"], "owner_name", 50, required=True)
+    result["owner_title"] = _validate_text(result["owner_title"], "owner_title", 50)
+    result["owner_message"] = _validate_text(result["owner_message"], "owner_message", 200)
+    if result["board_mode"] not in {"todo", "daily_goals", "weekly_goals", "memo", "custom"}:
+        raise ValueError("board_mode must be todo, daily_goals, weekly_goals, memo, or custom")
+    result["daily_goals"] = _validate_goals(result["daily_goals"], "daily_goals")
+    result["weekly_goals"] = _validate_goals(result["weekly_goals"], "weekly_goals")
+    result["board_memo"] = _validate_text(result["board_memo"], "board_memo", 500)
+    result["custom_board_title"] = _validate_text(
+        result["custom_board_title"], "custom_board_title", 50
+    )
+    result["custom_board_message"] = _validate_text(
+        result["custom_board_message"], "custom_board_message", 500
+    )
+    if not isinstance(result["board_auto_rotate"], bool):
+        raise ValueError("board_auto_rotate must be boolean")
+    rotate_seconds = result["board_rotate_seconds"]
+    if (
+        not isinstance(rotate_seconds, int)
+        or isinstance(rotate_seconds, bool)
+        or not 5 <= rotate_seconds <= 3600
+    ):
+        raise ValueError("board_rotate_seconds must be an integer between 5 and 3600")
     if not isinstance(result["open_browser_on_start"], bool):
         raise ValueError("open_browser_on_start must be boolean")
     if not isinstance(result["stop_servers_on_manager_exit"], bool):
@@ -83,7 +136,7 @@ def load_settings(path: Path = SETTINGS_PATH) -> tuple[dict[str, Any], str | Non
         raw = json.loads(path.read_text(encoding="utf-8"))
         return validate_settings(raw), None
     except (OSError, json.JSONDecodeError, TypeError, ValueError) as exc:
-        return dict(DEFAULT_SETTINGS), f"Using default app settings: {exc}"
+        return deepcopy(DEFAULT_SETTINGS), f"Using default app settings: {exc}"
 
 
 def save_settings(updates: dict[str, Any], path: Path = SETTINGS_PATH) -> dict[str, Any]:

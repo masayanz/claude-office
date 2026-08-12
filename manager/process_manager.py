@@ -216,7 +216,14 @@ class ServiceManager:
         process = self.processes.pop(service, None)
         if process is not None and process.poll() is None:
             if os.name == "nt":
-                process.send_signal(signal.CTRL_BREAK_EVENT)
+                try:
+                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                except OSError:
+                    # A detached/frozen Windows process can reject CTRL_BREAK
+                    # even though its process handle is still alive. Fall back
+                    # to the normal terminate path so Manager restart remains
+                    # usable instead of surfacing WinError 6 to the user.
+                    process.terminate()
             else:
                 process.terminate()
             try:
@@ -238,6 +245,22 @@ class ServiceManager:
             if browser:
                 subprocess.Popen([browser, f"--app={url}"])
                 return
+        webbrowser.open(url)
+
+    def open_web_settings(self, section: str = "office") -> None:
+        """Open a stable deep link to the Web settings screen.
+
+        Settings themselves remain in the shared app-settings.json file; this
+        only gives Manager users access to settings that require the Web UI,
+        such as an owner image and whiteboard content.
+        """
+        if section not in {"office", "board"}:
+            raise ValueError("設定画面の種類が不正です")
+        settings = self._settings()
+        url = (
+            f"http://{settings['frontend_host']}:{settings['frontend_port']}"
+            f"?settings={section}"
+        )
         webbrowser.open(url)
 
     def read_logs(self, service: str, lines: int = 200) -> str:

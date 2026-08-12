@@ -21,7 +21,13 @@
  */
 
 import { Graphics } from "pixi.js";
-import { useCallback, useEffect, useMemo, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+} from "react";
 import type { TodoItem, WhiteboardMode, Agent } from "@/types";
 import { useGameStore } from "@/stores/gameStore";
 import { TodoListMode } from "./whiteboard/TodoListMode";
@@ -37,6 +43,13 @@ import { CoffeeMode } from "./whiteboard/CoffeeMode";
 import { HeatMapMode } from "./whiteboard/HeatMapMode";
 import { KanbanMode } from "./whiteboard/KanbanMode";
 import { MODE_INFO } from "./whiteboard/WhiteboardModeRegistry";
+import {
+  getPersonalBoardHeader,
+  getAutoRotateModes,
+  PersonalBoardMode,
+  type PersonalBoardContent,
+} from "./whiteboard/PersonalBoardMode";
+import { useAppSettingsStore, type BoardMode } from "@/stores/appSettingsStore";
 
 // ============================================================================
 // WHITEBOARD FRAME
@@ -46,6 +59,62 @@ interface WhiteboardFrameProps {
   children: ReactNode;
   onPointerDown: () => void;
   mode: WhiteboardMode;
+  header?: string;
+}
+
+interface AutoRotatingPersonalBoardProps {
+  content: PersonalBoardContent;
+  configuredMode: BoardMode;
+  rotateSeconds: number;
+  whiteboardMode: WhiteboardMode;
+  todoContent: ReactNode;
+}
+
+function AutoRotatingPersonalBoard({
+  content,
+  configuredMode,
+  rotateSeconds,
+  whiteboardMode,
+  todoContent,
+}: AutoRotatingPersonalBoardProps): ReactNode {
+  const modes = useMemo(() => getAutoRotateModes(content), [content]);
+  const configuredModeIndex = Math.max(0, modes.indexOf(configuredMode));
+  const [rotationStep, setRotationStep] = useState(0);
+
+  useEffect(() => {
+    if (modes.length < 2) return;
+    const interval = window.setInterval(
+      () => setRotationStep((step) => (step + 1) % modes.length),
+      Math.max(5, Math.min(3600, rotateSeconds)) * 1000,
+    );
+    return () => window.clearInterval(interval);
+  }, [modes.length, rotateSeconds]);
+
+  const activeBoardMode =
+    modes[(configuredModeIndex + rotationStep) % modes.length];
+  const isPersonalBoard = activeBoardMode !== "todo";
+  const activePersonalContent = {
+    ...content,
+    mode: activeBoardMode === "todo" ? "daily_goals" : activeBoardMode,
+  } as PersonalBoardContent;
+
+  return (
+    <WhiteboardFrame
+      onPointerDown={() => undefined}
+      mode={whiteboardMode}
+      header={
+        isPersonalBoard
+          ? getPersonalBoardHeader(activePersonalContent.mode)
+          : undefined
+      }
+    >
+      {isPersonalBoard ? (
+        <PersonalBoardMode content={activePersonalContent} />
+      ) : (
+        todoContent
+      )}
+    </WhiteboardFrame>
+  );
 }
 
 /** Marker colors drawn in the whiteboard tray (red, green, blue). */
@@ -55,6 +124,7 @@ function WhiteboardFrame({
   children,
   onPointerDown,
   mode,
+  header,
 }: WhiteboardFrameProps): ReactNode {
   const drawWhiteboard = useCallback((g: Graphics) => {
     g.clear();
@@ -99,7 +169,7 @@ function WhiteboardFrame({
       {/* Header - rendered at 2x for sharpness */}
       <pixiContainer x={165} y={22} scale={0.5}>
         <pixiText
-          text={`${modeInfo.icon} ${modeInfo.name}`}
+          text={header ?? `${modeInfo.icon} ${modeInfo.name}`}
           anchor={0.5}
           style={{
             fontFamily: '"Courier New", monospace',
@@ -147,6 +217,23 @@ export function Whiteboard({ todos }: WhiteboardProps): ReactNode {
   const setMode = useGameStore((s) => s.setWhiteboardMode);
   const agentsMap = useGameStore((s) => s.agents);
   const bossTask = useGameStore((s) => s.boss.currentTask);
+  const boardSettings = useAppSettingsStore((s) => s.settings);
+
+  const configuredBoardMode = boardSettings?.board_mode ?? "todo";
+  const personalContent = useMemo<PersonalBoardContent>(
+    () => ({
+      mode: (configuredBoardMode === "todo"
+        ? "daily_goals"
+        : configuredBoardMode) as PersonalBoardContent["mode"],
+      dailyGoals: boardSettings?.daily_goals ?? [],
+      weeklyGoals: boardSettings?.weekly_goals ?? [],
+      memo: boardSettings?.board_memo ?? "",
+      customTitle: boardSettings?.custom_board_title ?? "",
+      customMessage: boardSettings?.custom_board_message ?? "",
+    }),
+    [boardSettings, configuredBoardMode],
+  );
+  const personalContentSignature = JSON.stringify(personalContent);
 
   // Keyboard hotkeys: T = Todo List (0), B = Background Tasks (1), 0-9 = modes
   useEffect(() => {
@@ -237,9 +324,41 @@ export function Whiteboard({ todos }: WhiteboardProps): ReactNode {
     }
   };
 
+  if (boardSettings?.board_auto_rotate) {
+    return (
+      <AutoRotatingPersonalBoard
+        key={personalContentSignature}
+        content={personalContent}
+        configuredMode={configuredBoardMode}
+        rotateSeconds={boardSettings.board_rotate_seconds ?? 10}
+        whiteboardMode={whiteboardMode}
+        todoContent={renderMode()}
+      />
+    );
+  }
+
+  const activeBoardMode = configuredBoardMode;
+  const isPersonalBoard = activeBoardMode !== "todo";
+  const activePersonalContent = {
+    ...personalContent,
+    mode: activeBoardMode === "todo" ? "daily_goals" : activeBoardMode,
+  } as PersonalBoardContent;
+
   return (
-    <WhiteboardFrame onPointerDown={handleClick} mode={whiteboardMode}>
-      {renderMode()}
+    <WhiteboardFrame
+      onPointerDown={isPersonalBoard ? () => undefined : handleClick}
+      mode={whiteboardMode}
+      header={
+        isPersonalBoard
+          ? getPersonalBoardHeader(activePersonalContent.mode)
+          : undefined
+      }
+    >
+      {isPersonalBoard ? (
+        <PersonalBoardMode content={activePersonalContent} />
+      ) : (
+        renderMode()
+      )}
     </WhiteboardFrame>
   );
 }

@@ -145,7 +145,8 @@ Then open [http://localhost:3000](http://localhost:3000) and run a supported AI 
 For everyday Windows use, launch `start_ai_office_viewer_manager.ps1`. AI Office Viewer Manager starts,
 stops, restarts, monitors, and opens the Backend/Frontend. Its settings screen and the Web
 settings tab share `config/app-settings.json`, including configurable ports, Japanese/English
-language preference, company/owner name, owner image, and normal/app browser mode. See
+language preference, company/owner profile and image, personal whiteboard goals/memos, and
+normal/app browser mode. See
 [docs/AI_OFFICE_MANAGER.md](docs/AI_OFFICE_MANAGER.md).
 
 Codex作業開始後にAI Office Viewerを起動した場合も、既定では直近30分の保存済み

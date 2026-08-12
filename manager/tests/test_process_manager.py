@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import json
+import os
 import urllib.request
+import webbrowser
 from typing import Any
 
 import pytest
@@ -30,7 +32,12 @@ def _manager(monkeypatch: pytest.MonkeyPatch) -> ServiceManager:
     monkeypatch.setattr(
         manager,
         "_settings",
-        lambda: {"backend_host": "127.0.0.1", "backend_port": 8123},
+        lambda: {
+            "backend_host": "127.0.0.1",
+            "backend_port": 8123,
+            "frontend_host": "127.0.0.1",
+            "frontend_port": 3123,
+        },
     )
     return manager
 
@@ -104,3 +111,53 @@ def test_invalid_backend_response_is_reported(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(RuntimeError, match="不正な応答"):
         manager.codex_restore_status()
+
+
+@pytest.mark.parametrize("section", ["office", "board"])
+def test_open_web_settings_uses_frontend_deep_link(
+    monkeypatch: pytest.MonkeyPatch, section: str
+) -> None:
+    manager = _manager(monkeypatch)
+    opened: list[str] = []
+    monkeypatch.setattr(webbrowser, "open", opened.append)
+
+    manager.open_web_settings(section)
+
+    assert opened == [f"http://127.0.0.1:3123?settings={section}"]
+
+
+def test_open_web_settings_rejects_unknown_section(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+
+    with pytest.raises(ValueError, match="種類"):
+        manager.open_web_settings("unknown")
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows CTRL_BREAK fallback")
+def test_stop_falls_back_when_ctrl_break_handle_is_invalid(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+
+    class Process:
+        terminated = False
+
+        def poll(self) -> None:
+            return None
+
+        def send_signal(self, _signal: int) -> None:
+            raise OSError(6, "The handle is invalid")
+
+        def terminate(self) -> None:
+            self.terminated = True
+
+        def wait(self, timeout: int) -> None:
+            assert timeout == 5
+
+    process = Process()
+    manager.processes = {"backend": process}  # type: ignore[dict-item]
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+    monkeypatch.setattr(manager, "status", lambda service: service)
+
+    assert manager.stop("backend") == "backend"
+    assert process.terminated is True

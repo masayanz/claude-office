@@ -11,12 +11,14 @@
 import { Graphics } from "pixi.js";
 import { useCallback, useMemo, type ReactNode } from "react";
 import type { WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface TimelineModeProps {
   data: WhiteboardData;
 }
 
 export function TimelineMode({ data }: TimelineModeProps): ReactNode {
+  const { t } = useTranslation();
   const lifespans = (data.agentLifespans ?? []).slice(-5); // Show last 5
 
   // Get coffee break timestamps from news items
@@ -118,7 +120,7 @@ export function TimelineMode({ data }: TimelineModeProps): ReactNode {
     return (
       <pixiContainer x={165} y={50} scale={0.5}>
         <pixiText
-          text="No agent activity yet"
+          text={t("whiteboard.noAgentActivity")}
           anchor={0.5}
           style={{
             fontFamily: '"Courier New", monospace',

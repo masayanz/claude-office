@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from app.core import state_machine
 from app.core.event_processor import _build_history_detail  # pyright: ignore[reportPrivateUsage]
 from app.core.handlers import agent_handler
 from app.core.state_machine import StateMachine
@@ -66,10 +67,63 @@ def test_non_codex_session_keeps_legacy_empty_identity() -> None:
     sm.transition(_session_start())
 
     boss = sm.to_game_state("claude-session").boss
-    assert boss.name is None
+    assert boss.name == "AI Main"
     assert boss.source is None
     assert boss.model is None
     assert boss.agent_type is None
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        ("codex", "Codex Main"),
+        ("claude", "Claude Main"),
+        ("claude-code", "Claude Main"),
+        ("claude_code", "Claude Main"),
+        ("opencode", "OpenCode Main"),
+        ("other", "AI Main"),
+        (None, "AI Main"),
+    ],
+)
+def test_main_name_comes_only_from_session_source_metadata(
+    source: str | None, expected: str
+) -> None:
+    sm = StateMachine()
+    sm.transition(_session_start(source=source))
+    assert sm.boss_source == source
+    assert sm.boss_name == expected
+
+
+def test_custom_main_name_applies_to_each_session(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        state_machine,
+        "load_settings",
+        lambda: (
+            {
+                "main_agent_name_mode": "custom",
+                "main_agent_custom_name": "Office AI",
+            },
+            None,
+        ),
+    )
+    sm = StateMachine()
+    sm.transition(_session_start(source="claude"))
+    assert sm.boss_name == "Office AI"
+    assert sm.to_game_state("claude-session").boss.name == "Office AI"
+
+
+def test_subagent_stop_enters_leaving_before_cleanup() -> None:
+    sm = StateMachine()
+    sm.transition(_subagent_start("agent-a"))
+    sm.transition(
+        AgentEvent(
+            event_type=EventType.SUBAGENT_STOP,
+            session_id="codex-session",
+            data=AgentEventData(agent_id="agent-a", source="codex"),
+        )
+    )
+    assert sm.agents["agent-a"].state == AgentState.LEAVING
+    assert sm.handin_queue == ["agent-a"]
 
 
 def test_codex_subagent_names_are_stable_and_monotonic() -> None:

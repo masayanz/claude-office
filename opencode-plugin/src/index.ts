@@ -123,6 +123,7 @@ type EventType =
   | "background_task_notification";
 
 interface EventData {
+  source: string;
   project_name?: string;
   project_dir?: string;
   working_dir?: string;
@@ -155,6 +156,27 @@ export interface BackendEvent {
   session_id: string;
   timestamp: string;
   data: EventData;
+}
+
+/**
+ * Build an OpenCode event with producer metadata applied last.
+ *
+ * Keeping the source assignment after `extra` makes the producer identity
+ * explicit for every event and prevents event-specific fields from replacing
+ * it accidentally.
+ */
+export function buildOpenCodeEvent(
+  eventType: EventType,
+  sessionId: string,
+  commonData: Pick<EventData, "project_name" | "project_dir" | "working_dir">,
+  extra?: Partial<EventData>,
+): BackendEvent {
+  return {
+    event_type: eventType,
+    session_id: sessionId || "unknown_session",
+    timestamp: isoNow(),
+    data: { ...commonData, ...extra, source: "opencode" },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -296,12 +318,7 @@ const plugin: Plugin = async (ctx: PluginInput): Promise<Hooks> => {
     sessionId: string,
     extra?: Partial<EventData>
   ): BackendEvent {
-    return {
-      event_type: eventType,
-      session_id: sessionId || "unknown_session",
-      timestamp: isoNow(),
-      data: { ...baseData(), ...extra },
-    };
+    return buildOpenCodeEvent(eventType, sessionId, baseData(), extra);
   }
 
   // -------------------------------------------------------------------------

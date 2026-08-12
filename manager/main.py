@@ -138,10 +138,44 @@ class SettingsDialog(QDialog):
         self.restore_window_minutes.setValue(int(settings.get("restore_window_minutes", 30)))
         self.restore_window_minutes.setEnabled(self.restore_codex_sessions.isChecked())
         self.restore_codex_sessions.toggled.connect(self.restore_window_minutes.setEnabled)
+        self.clock_timezone_mode = QComboBox()
+        self.clock_timezone_mode.addItem("PCのローカル時刻", "local")
+        self.clock_timezone_mode.addItem("IANAタイムゾーン", "iana")
+        timezone_mode_index = self.clock_timezone_mode.findData(
+            settings.get("clock_timezone_mode", "local")
+        )
+        self.clock_timezone_mode.setCurrentIndex(max(timezone_mode_index, 0))
+        self.clock_timezone = QLineEdit(str(settings.get("clock_timezone", "")))
+        self.clock_timezone.setPlaceholderText("例: Asia/Tokyo")
+        self.clock_timezone.setMaxLength(100)
+        self.main_agent_name_mode = QComboBox()
+        self.main_agent_name_mode.addItem("自動", "auto")
+        self.main_agent_name_mode.addItem("カスタム", "custom")
+        name_mode_index = self.main_agent_name_mode.findData(
+            settings.get("main_agent_name_mode", "auto")
+        )
+        self.main_agent_name_mode.setCurrentIndex(max(name_mode_index, 0))
+        self.main_agent_custom_name = QLineEdit(
+            str(settings.get("main_agent_custom_name", ""))
+        )
+        self.main_agent_custom_name.setMaxLength(50)
+        self.main_agent_custom_name.setPlaceholderText("例: My AI")
+        self.main_agent_custom_name.setEnabled(
+            self.main_agent_name_mode.currentData() == "custom"
+        )
+        self.main_agent_name_mode.currentIndexChanged.connect(
+            lambda _index: self.main_agent_custom_name.setEnabled(
+                self.main_agent_name_mode.currentData() == "custom"
+            )
+        )
 
         form = QFormLayout()
         form.addRow("会社名", self.company_name)
         form.addRow("オーナー名", self.owner_name)
+        form.addRow("時計のタイムゾーン", self.clock_timezone_mode)
+        form.addRow("IANAタイムゾーン", self.clock_timezone)
+        form.addRow("メインAI名", self.main_agent_name_mode)
+        form.addRow("カスタムメインAI名", self.main_agent_custom_name)
         owner_image_hint = QLabel(
             "オーナー画像はWeb設定から変更できます。\n"
             "推奨: 512×512px / 形式: PNG・JPEG・WebP / 最大: 5MB"
@@ -179,6 +213,10 @@ class SettingsDialog(QDialog):
                     "stop_servers_on_manager_exit": self.stop_on_exit.isChecked(),
                     "restore_codex_sessions": self.restore_codex_sessions.isChecked(),
                     "restore_window_minutes": self.restore_window_minutes.value(),
+                    "clock_timezone_mode": self.clock_timezone_mode.currentData(),
+                    "clock_timezone": self.clock_timezone.text(),
+                    "main_agent_name_mode": self.main_agent_name_mode.currentData(),
+                    "main_agent_custom_name": self.main_agent_custom_name.text(),
                 }
             )
         except ValueError as exc:

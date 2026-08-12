@@ -4,6 +4,7 @@ import { Graphics } from "pixi.js";
 import { useState, useCallback, useEffect, type ReactNode } from "react";
 import { usePreferencesStore } from "@/stores/preferencesStore";
 import { DigitalClock } from "./DigitalClock";
+import { getClockHands } from "@/utils/clock";
 
 /**
  * WallClock - Animated clock for the office wall
@@ -15,6 +16,7 @@ export function WallClock(): ReactNode {
   const [time, setTime] = useState(new Date());
   const clockType = usePreferencesStore((s) => s.clockType);
   const clockFormat = usePreferencesStore((s) => s.clockFormat);
+  const clockTimezone = usePreferencesStore((s) => s.clockTimezone);
   const cycleClockMode = usePreferencesStore((s) => s.cycleClockMode);
 
   useEffect(() => {
@@ -45,29 +47,30 @@ export function WallClock(): ReactNode {
       }
 
       // Hands
-      const hours = time.getHours() % 12;
-      const mins = time.getMinutes();
-      const secs = time.getSeconds();
+      const { hourAngle, minuteAngle, secondAngle } = getClockHands(
+        time,
+        clockTimezone,
+      );
 
       // Hour hand
-      const hAngle = (hours * 30 + mins * 0.5) * (Math.PI / 180);
+      const hAngle = hourAngle * (Math.PI / 180);
       g.moveTo(0, 0);
       g.lineTo(Math.sin(hAngle) * 20, -Math.cos(hAngle) * 20);
       g.stroke({ width: 4, color: 0x2d3748 });
 
       // Minute hand
-      const mAngle = mins * 6 * (Math.PI / 180);
+      const mAngle = minuteAngle * (Math.PI / 180);
       g.moveTo(0, 0);
       g.lineTo(Math.sin(mAngle) * 30, -Math.cos(mAngle) * 30);
       g.stroke({ width: 3, color: 0x2d3748 });
 
       // Second hand
-      const sAngle = secs * 6 * (Math.PI / 180);
+      const sAngle = secondAngle * (Math.PI / 180);
       g.moveTo(0, 0);
       g.lineTo(Math.sin(sAngle) * 35, -Math.cos(sAngle) * 35);
       g.stroke({ width: 1, color: 0xef4444 });
     },
-    [time],
+    [clockTimezone, time],
   );
 
   // Draw a clickable hit area (sized for the larger of analog/digital)
@@ -94,7 +97,7 @@ export function WallClock(): ReactNode {
       {clockType === "analog" ? (
         <pixiGraphics draw={drawAnalogClock} />
       ) : (
-        <DigitalClock format={clockFormat} />
+        <DigitalClock format={clockFormat} timeZone={clockTimezone} />
       )}
       {/* Invisible hit area to ensure clicks register */}
       <pixiGraphics draw={drawHitArea} />

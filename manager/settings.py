@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import tempfile
 from pathlib import Path
 from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 
 def _find_root() -> Path:
@@ -26,6 +28,7 @@ def _find_root() -> Path:
 
 ROOT = _find_root()
 SETTINGS_PATH = ROOT / "config" / "app-settings.json"
+_IANA_TIMEZONE_RE = re.compile(r"[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)+$")
 DEFAULTS: dict[str, Any] = {
     "language": "ja",
     "backend_host": "127.0.0.1",
@@ -50,6 +53,10 @@ DEFAULTS: dict[str, Any] = {
     "stop_servers_on_manager_exit": False,
     "restore_codex_sessions": True,
     "restore_window_minutes": 30,
+    "clock_timezone_mode": "local",
+    "clock_timezone": "",
+    "main_agent_name_mode": "auto",
+    "main_agent_custom_name": "",
 }
 
 
@@ -125,6 +132,26 @@ def _validate(values: dict[str, Any]) -> dict[str, Any]:
         or not 1 <= restore_window <= 1440
     ):
         raise ValueError("復元対象時間は1分から1440分の範囲で指定してください")
+    if result["clock_timezone_mode"] not in {"local", "iana"}:
+        raise ValueError("clock_timezone_modeが不正です")
+    timezone = result["clock_timezone"]
+    if not isinstance(timezone, str) or len(timezone.strip()) > 100:
+        raise ValueError("clock_timezoneが不正です")
+    timezone = timezone.strip()
+    if timezone:
+        try:
+            valid_timezone = bool(ZoneInfo(timezone))
+        except (ZoneInfoNotFoundError, ValueError):
+            valid_timezone = bool(_IANA_TIMEZONE_RE.fullmatch(timezone))
+        if not valid_timezone:
+            raise ValueError("clock_timezoneが不正です")
+    result["clock_timezone"] = timezone
+    if result["main_agent_name_mode"] not in {"auto", "custom"}:
+        raise ValueError("main_agent_name_modeが不正です")
+    custom_name = result["main_agent_custom_name"]
+    if not isinstance(custom_name, str) or len(custom_name.strip()) > 50:
+        raise ValueError("main_agent_custom_nameが不正です")
+    result["main_agent_custom_name"] = custom_name.strip()
     return result
 
 

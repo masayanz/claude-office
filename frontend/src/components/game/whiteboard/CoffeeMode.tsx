@@ -9,6 +9,7 @@
 
 import { type ReactNode } from "react";
 import type { WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface CoffeeModeProps {
   data: WhiteboardData;
@@ -17,6 +18,7 @@ export interface CoffeeModeProps {
 const MAX_DISPLAY = 15;
 
 export function CoffeeMode({ data }: CoffeeModeProps): ReactNode {
+  const { t } = useTranslation();
   const cups = data.coffeeCups ?? 0;
   const displayCups = Math.min(cups, MAX_DISPLAY);
 
@@ -24,7 +26,7 @@ export function CoffeeMode({ data }: CoffeeModeProps): ReactNode {
     <pixiContainer>
       {/* Title */}
       <pixiText
-        text="☕ COFFEE TRACKER"
+        text={t("whiteboard.coffeeTracker")}
         x={165}
         y={5}
         anchor={0.5}
@@ -53,7 +55,7 @@ export function CoffeeMode({ data }: CoffeeModeProps): ReactNode {
       />
 
       <pixiText
-        text="cups consumed"
+        text={t("whiteboard.cupsConsumed")}
         x={165}
         y={60}
         anchor={0.5}

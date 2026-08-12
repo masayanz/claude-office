@@ -162,7 +162,7 @@ export function HeaderControls({
               size={12}
               className={isConnected ? "animate-pulse" : ""}
             />
-            {isConnected ? t("header.connected") : t("header.disconnected")}
+            {isConnected ? t("connection.connected") : t("connection.disconnected")}
           </div>
           <div
             className={`flex items-center gap-1.5 font-mono text-xs ${

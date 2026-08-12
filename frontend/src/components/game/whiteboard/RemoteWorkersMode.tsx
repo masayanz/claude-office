@@ -10,6 +10,7 @@
 import { Graphics } from "pixi.js";
 import { useCallback, type ReactNode } from "react";
 import type { WhiteboardData, BackgroundTask } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface RemoteWorkersModeProps {
   data: WhiteboardData;
@@ -29,6 +30,7 @@ function getStatusColor(status: string): number {
 }
 
 export function RemoteWorkersMode({ data }: RemoteWorkersModeProps): ReactNode {
+  const { t } = useTranslation();
   const backgroundTasks = data.backgroundTasks ?? [];
   const tasks = backgroundTasks.slice(0, 6);
 
@@ -62,7 +64,7 @@ export function RemoteWorkersMode({ data }: RemoteWorkersModeProps): ReactNode {
         {/* Position text below the grid (grid ends at ~109px) */}
         <pixiContainer x={165} y={115} scale={0.5}>
           <pixiText
-            text="No remote workers"
+            text={t("whiteboard.noRemoteWorkers")}
             anchor={0.5}
             style={{
               fontFamily: '"Courier New", monospace',
@@ -93,7 +95,11 @@ export function RemoteWorkersMode({ data }: RemoteWorkersModeProps): ReactNode {
           ? task.summary.length > 12
             ? task.summary.slice(0, 10) + ".."
             : task.summary
-          : task.status;
+          : task.status === "completed"
+            ? t("agentStatus.status.idle")
+            : task.status === "failed"
+              ? t("agentStatus.status.error")
+              : task.status;
 
         return (
           <pixiContainer key={task.taskId} x={x} y={y}>
@@ -155,7 +161,7 @@ export function RemoteWorkersMode({ data }: RemoteWorkersModeProps): ReactNode {
       {/* Overflow indicator */}
       {backgroundTasks.length > 6 && (
         <pixiText
-          text={`+${backgroundTasks.length - 6} more`}
+          text={t("whiteboard.more", { count: backgroundTasks.length - 6 })}
           x={165}
           y={115}
           anchor={0.5}

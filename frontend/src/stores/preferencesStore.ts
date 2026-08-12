@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { isLocale, type Locale } from "@/i18n";
 import { apiFetch } from "@/utils/api";
+import { getLocalTimeZone, isValidTimeZone } from "@/utils/clock";
 
 // ============================================================================
 // TYPES
@@ -10,10 +11,13 @@ import { apiFetch } from "@/utils/api";
 
 export type ClockType = "analog" | "digital";
 export type ClockFormat = "12h" | "24h";
+export type ClockTimezoneMode = "automatic" | "custom";
 
 export interface PreferencesState {
   clockType: ClockType;
   clockFormat: ClockFormat;
+  clockTimezone: string;
+  clockTimezoneMode: ClockTimezoneMode;
   autoFollowNewSessions: boolean;
   language: Locale;
   isLoaded: boolean;
@@ -32,6 +36,8 @@ export interface PreferencesState {
   loadPreferences: () => Promise<void>;
   setClockType: (type: ClockType) => Promise<void>;
   setClockFormat: (format: ClockFormat) => Promise<void>;
+  setClockTimezone: (timeZone: string) => Promise<void>;
+  setClockTimezoneMode: (mode: ClockTimezoneMode) => Promise<void>;
   setAutoFollowNewSessions: (enabled: boolean) => Promise<void>;
   setLanguage: (language: Locale) => Promise<void>;
   cycleClockMode: () => Promise<void>;
@@ -53,6 +59,7 @@ const PREFS_PATH = "/api/v1/preferences";
 
 const DEFAULT_CLOCK_TYPE: ClockType = "analog";
 const DEFAULT_CLOCK_FORMAT: ClockFormat = "12h";
+const DEFAULT_CLOCK_TIMEZONE = getLocalTimeZone();
 const DEFAULT_AUTO_FOLLOW_NEW_SESSIONS = true;
 const DEFAULT_LANGUAGE: Locale = "ja";
 const DEFAULT_COMMAND_BAR_ENABLED = true;
@@ -99,6 +106,8 @@ async function setPreference(key: string, value: string): Promise<void> {
 export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   clockType: DEFAULT_CLOCK_TYPE,
   clockFormat: DEFAULT_CLOCK_FORMAT,
+  clockTimezone: DEFAULT_CLOCK_TIMEZONE,
+  clockTimezoneMode: "automatic",
   autoFollowNewSessions: DEFAULT_AUTO_FOLLOW_NEW_SESSIONS,
   language: DEFAULT_LANGUAGE,
   commandBarEnabled: DEFAULT_COMMAND_BAR_ENABLED,
@@ -116,6 +125,10 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 
     const clockTypeRaw = prefs.clock_type || DEFAULT_CLOCK_TYPE;
     const clockFormatRaw = prefs.clock_format || DEFAULT_CLOCK_FORMAT;
+    const clockTimezoneRaw = prefs.clock_timezone || "";
+    const clockTimezone = isValidTimeZone(clockTimezoneRaw)
+      ? clockTimezoneRaw
+      : DEFAULT_CLOCK_TIMEZONE;
     const autoFollowRaw = prefs.auto_follow_new_sessions;
     const autoFollowNewSessions =
       autoFollowRaw === undefined
@@ -132,6 +145,8 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
         clockFormatRaw === "12h" || clockFormatRaw === "24h"
           ? clockFormatRaw
           : DEFAULT_CLOCK_FORMAT,
+      clockTimezone,
+      clockTimezoneMode: clockTimezoneRaw ? "custom" : "automatic",
       autoFollowNewSessions,
       language: isLocale(language) ? language : DEFAULT_LANGUAGE,
       commandBarEnabled: prefs.commandBarEnabled !== "false",
@@ -158,6 +173,18 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   setClockFormat: async (clockFormat) => {
     set({ clockFormat });
     await setPreference("clock_format", clockFormat);
+  },
+
+  setClockTimezone: async (clockTimezone) => {
+    if (!isValidTimeZone(clockTimezone)) return;
+    set({ clockTimezone, clockTimezoneMode: "custom" });
+    await setPreference("clock_timezone", clockTimezone);
+  },
+
+  setClockTimezoneMode: async (mode) => {
+    const clockTimezone = mode === "automatic" ? getLocalTimeZone() : get().clockTimezone;
+    set({ clockTimezone, clockTimezoneMode: mode });
+    await setPreference("clock_timezone", mode === "automatic" ? "" : clockTimezone);
   },
 
   setAutoFollowNewSessions: async (enabled) => {
@@ -244,6 +271,8 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
 
 export const selectClockType = (state: PreferencesState) => state.clockType;
 export const selectClockFormat = (state: PreferencesState) => state.clockFormat;
+export const selectClockTimezone = (state: PreferencesState) => state.clockTimezone;
+export const selectClockTimezoneMode = (state: PreferencesState) => state.clockTimezoneMode;
 export const selectAutoFollowNewSessions = (state: PreferencesState) =>
   state.autoFollowNewSessions;
 export const selectLanguage = (state: PreferencesState) => state.language;

@@ -9,6 +9,7 @@
 
 import { type ReactNode } from "react";
 import type { WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface WeatherModeProps {
   data: WhiteboardData;
@@ -16,7 +17,11 @@ export interface WeatherModeProps {
 
 interface WeatherCondition {
   icon: string;
-  label: string;
+  labelKey:
+    | "whiteboard.weather.stormy"
+    | "whiteboard.weather.rainy"
+    | "whiteboard.weather.cloudy"
+    | "whiteboard.weather.sunny";
   color: string;
 }
 
@@ -28,18 +33,19 @@ function getWeatherCondition(data: WhiteboardData): WeatherCondition {
   const successRate = totalOps > 0 ? recentSuccessCount / totalOps : 1;
 
   if (recentErrorCount > 5) {
-    return { icon: "⛈️", label: "STORMY", color: "#7c3aed" };
+    return { icon: "⛈️", labelKey: "whiteboard.weather.stormy", color: "#7c3aed" };
   }
   if (successRate < 0.7) {
-    return { icon: "🌧️", label: "RAINY", color: "#3b82f6" };
+    return { icon: "🌧️", labelKey: "whiteboard.weather.rainy", color: "#3b82f6" };
   }
   if (activityLevel < 0.3) {
-    return { icon: "⛅", label: "CLOUDY", color: "#6b7280" };
+    return { icon: "⛅", labelKey: "whiteboard.weather.cloudy", color: "#6b7280" };
   }
-  return { icon: "☀️", label: "SUNNY", color: "#f59e0b" };
+  return { icon: "☀️", labelKey: "whiteboard.weather.sunny", color: "#f59e0b" };
 }
 
 export function WeatherMode({ data }: WeatherModeProps): ReactNode {
+  const { t } = useTranslation();
   const recentSuccessCount = data.recentSuccessCount ?? 0;
   const recentErrorCount = data.recentErrorCount ?? 0;
   const totalOps = recentSuccessCount + recentErrorCount;
@@ -60,7 +66,7 @@ export function WeatherMode({ data }: WeatherModeProps): ReactNode {
 
       {/* Weather label */}
       <pixiText
-        text={weather.label}
+        text={t(weather.labelKey)}
         x={80}
         y={95}
         anchor={0.5}
@@ -76,7 +82,7 @@ export function WeatherMode({ data }: WeatherModeProps): ReactNode {
       {/* Stats */}
       <pixiContainer x={170} y={10}>
         <pixiText
-          text={`Success: ${(successRate * 100).toFixed(0)}%`}
+          text={`${t("whiteboard.success")}: ${(successRate * 100).toFixed(0)}%`}
           style={{
             fontFamily: '"Courier New", monospace',
             fontSize: 10,
@@ -85,7 +91,7 @@ export function WeatherMode({ data }: WeatherModeProps): ReactNode {
           resolution={2}
         />
         <pixiText
-          text={`Errors: ${recentErrorCount}`}
+          text={`${t("whiteboard.errors")}: ${recentErrorCount}`}
           y={16}
           style={{
             fontFamily: '"Courier New", monospace',
@@ -95,7 +101,7 @@ export function WeatherMode({ data }: WeatherModeProps): ReactNode {
           resolution={2}
         />
         <pixiText
-          text={`Activity: ${((data.activityLevel ?? 0) * 100).toFixed(0)}%`}
+          text={`${t("whiteboard.activity")}: ${((data.activityLevel ?? 0) * 100).toFixed(0)}%`}
           y={32}
           style={{
             fontFamily: '"Courier New", monospace',
@@ -105,7 +111,7 @@ export function WeatherMode({ data }: WeatherModeProps): ReactNode {
           resolution={2}
         />
         <pixiText
-          text={`Total ops: ${totalOps}`}
+          text={`${t("whiteboard.totalOps")}: ${totalOps}`}
           y={48}
           style={{
             fontFamily: '"Courier New", monospace',

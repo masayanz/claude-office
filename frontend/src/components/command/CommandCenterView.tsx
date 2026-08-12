@@ -146,7 +146,7 @@ export function CommandCenterView({
                 connected ? "bg-emerald-400 animate-pulse" : "bg-rose-500"
               }`}
             />
-            {connected ? t("header.connected") : t("header.disconnected")}
+            {connected ? t("connection.connected") : t("connection.disconnected")}
           </span>
         </div>
 

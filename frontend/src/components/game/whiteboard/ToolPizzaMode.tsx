@@ -9,6 +9,7 @@
 
 import { Graphics } from "pixi.js";
 import { useCallback, type ReactNode } from "react";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface ToolPizzaModeProps {
   toolUsage: Record<string, number>;
@@ -26,6 +27,7 @@ export const PIZZA_COLORS: Record<string, number> = {
 };
 
 export function ToolPizzaMode({ toolUsage }: ToolPizzaModeProps): ReactNode {
+  const { t } = useTranslation();
   const total = Object.values(toolUsage).reduce((a, b) => a + b, 0);
 
   const drawPizza = useCallback(
@@ -105,7 +107,7 @@ export function ToolPizzaMode({ toolUsage }: ToolPizzaModeProps): ReactNode {
         ))}
         {total === 0 && (
           <pixiText
-            text="No tools used"
+            text={t("whiteboard.noToolsUsed")}
             style={{
               fontFamily: '"Courier New", monospace',
               fontSize: 10,

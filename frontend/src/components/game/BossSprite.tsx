@@ -17,6 +17,7 @@ import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
 import { truncateBubbleText } from "@/utils/bubbleText";
 import { codexSecondaryLabel } from "@/utils/codexPresentation";
+import { getMainAgentName } from "@/utils/displayLabels";
 
 // ============================================================================
 // TYPES
@@ -217,6 +218,7 @@ function BossSpriteComponent({
     model,
     state === "reviewing",
   );
+  const displayName = name?.trim() || getMainAgentName(source);
   // Animation state for typing
   const [typingTime, setTypingTime] = useState(0);
 
@@ -359,7 +361,7 @@ function BossSpriteComponent({
       {!isAway && (
         <pixiContainer y={secondaryLabel ? -75 : -63} scale={0.5}>
           <pixiText
-            text={name ?? "Claude"}
+            text={displayName}
             anchor={0.5}
             style={{
               fontFamily: "monospace",
@@ -439,6 +441,7 @@ function MobileBossComponent({
     model,
     state === "reviewing",
   );
+  const displayName = name?.trim() || getMainAgentName(source);
   const drawBossCallback = useMemo(
     () => (g: Graphics) => drawBossBody(g, "working"),
     [],
@@ -475,7 +478,7 @@ function MobileBossComponent({
       {/* Boss label */}
       <pixiContainer y={secondaryLabel ? -75 : -63} scale={0.5}>
         <pixiText
-          text={name ?? "Claude"}
+          text={displayName}
           anchor={0.5}
           style={{
             fontFamily: "monospace",

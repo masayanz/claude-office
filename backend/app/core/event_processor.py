@@ -50,7 +50,7 @@ from app.core.handlers import (
 from app.core.jsonl_parser import get_last_assistant_response
 from app.core.product_mapper import get_product_mapper
 from app.core.room_orchestrator import RoomOrchestrator
-from app.core.state_machine import StateMachine
+from app.core.state_machine import StateMachine, main_agent_name_for_source
 from app.core.task_file_poller import init_task_file_poller
 from app.core.task_persistence import load_tasks, save_tasks
 from app.core.transcript_poller import init_transcript_poller
@@ -584,7 +584,7 @@ class EventProcessor:
                 )
             else:
                 # Manual re-scan keeps history/tasks and all current entities.
-                sm.boss_name = sm.boss_name or "Codex Main"
+                sm.boss_name = sm.boss_name or main_agent_name_for_source("codex")
                 sm.boss_source = sm.boss_source or "codex"
                 sm.boss_model = sm.boss_model or snapshot.model
                 sm.boss_agent_type = sm.boss_agent_type or "main"

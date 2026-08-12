@@ -6,6 +6,12 @@ import { useAttentionStore, selectFocusPopup } from "@/stores/attentionStore";
 import { useGameStore, selectSessionId } from "@/stores/gameStore";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { AgentAnimationState } from "@/stores/gameStore";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
+import {
+  getDisplayAgentStatus,
+  getMainAgentName,
+  translateAgentStatus,
+} from "@/utils/displayLabels";
 
 const POPUP_WIDTH = 260;
 const POPUP_MARGIN = 16;
@@ -18,6 +24,12 @@ export default function AgentPopup(): ReactNode {
   const boss = useGameStore((s) => s.boss);
   const sessionId = useGameStore(selectSessionId);
   const { t } = useTranslation();
+  const customMainAgentName = useAppSettingsStore(
+    (state) =>
+      state.settings?.main_agent_name_mode === "custom"
+        ? state.settings.main_agent_custom_name
+        : null,
+  );
 
   const handleFocusTerminal = useCallback(() => {
     if (!sessionId) return;
@@ -55,11 +67,14 @@ export default function AgentPopup(): ReactNode {
   if (y + 200 > vh - POPUP_MARGIN) y = vh - 200 - POPUP_MARGIN;
   if (y < POPUP_MARGIN) y = POPUP_MARGIN;
 
-  const displayName = isBoss ? "Boss" : (agent?.name ?? focusPopup.agentId);
+  const displayName = isBoss
+    ? getMainAgentName(boss.source, customMainAgentName)
+    : (agent?.name ?? focusPopup.agentId);
   const displayColor = isBoss ? "#f59e0b" : (agent?.color ?? "#888");
   const displayState = isBoss
     ? boss.backendState
     : (agent?.backendState ?? "unknown");
+  const bossState = String(boss.backendState);
   const displayTask = isBoss ? boss.currentTask : agent?.currentTask;
   const displayType = isBoss ? "lead" : (agent?.characterType ?? "subagent");
   const displayDesk = isBoss ? null : agent?.desk;
@@ -96,7 +111,26 @@ export default function AgentPopup(): ReactNode {
             <span className="text-neutral-600">
               {t("attention.popup.state")}:
             </span>{" "}
-            {displayState}
+            {displayState === "unknown"
+              ? displayState
+              : translateAgentStatus(
+                  t,
+                  isBoss
+                    ? bossState === "error"
+                      ? "error"
+                      : bossState === "waiting" ||
+                          bossState === "waiting_permission"
+                        ? "waiting"
+                        : bossState === "reviewing"
+                          ? "reviewing"
+                          : bossState === "idle"
+                            ? "idle"
+                            : "working"
+                    : getDisplayAgentStatus(
+                        agent?.backendState ?? "unknown",
+                        agent?.phase ?? "idle",
+                      ),
+                )}
           </div>
           {displayTask && (
             <div className="truncate">

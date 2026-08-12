@@ -63,6 +63,10 @@ class AppSettingsUpdate(BaseModel):
     stop_servers_on_manager_exit: bool | None = None
     restore_codex_sessions: bool | None = None
     restore_window_minutes: int | None = Field(default=None, ge=1, le=1440)
+    clock_timezone_mode: Literal["local", "iana"] | None = None
+    clock_timezone: str | None = Field(default=None, max_length=100)
+    main_agent_name_mode: Literal["auto", "custom"] | None = None
+    main_agent_custom_name: str | None = Field(default=None, max_length=50)
 
 
 def _public_settings() -> dict[str, object]:

@@ -9,6 +9,7 @@
 
 import { type ReactNode } from "react";
 import type { WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface SafetyBoardModeProps {
   data: WhiteboardData;
@@ -28,6 +29,7 @@ function formatTimeSinceIncident(lastIncidentTime: string | null): string {
 }
 
 export function SafetyBoardMode({ data }: SafetyBoardModeProps): ReactNode {
+  const { t } = useTranslation();
   const daysSinceIncident = formatTimeSinceIncident(
     data.lastIncidentTime ?? null,
   );
@@ -51,7 +53,7 @@ export function SafetyBoardMode({ data }: SafetyBoardModeProps): ReactNode {
 
       {/* Label */}
       <pixiText
-        text="SUCCESSFUL TOOL USES"
+        text={t("whiteboard.successfulToolUses")}
         x={165}
         y={70}
         anchor={0.5}
@@ -65,7 +67,7 @@ export function SafetyBoardMode({ data }: SafetyBoardModeProps): ReactNode {
 
       {/* Time since incident */}
       <pixiText
-        text={`${daysSinceIncident} since last incident`}
+        text={`${daysSinceIncident} ${t("whiteboard.sinceLastIncident")}`}
         x={165}
         y={90}
         anchor={0.5}

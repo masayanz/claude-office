@@ -27,6 +27,41 @@ def test_restore_settings_have_safe_defaults(monkeypatch: pytest.MonkeyPatch) ->
         path.unlink(missing_ok=True)
 
 
+def test_identity_and_clock_settings_match_backend_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path = _test_path("identity-clock")
+    path.write_text(json.dumps(settings.DEFAULTS), encoding="utf-8")
+    monkeypatch.setattr(settings, "SETTINGS_PATH", path)
+    try:
+        values = settings.save_settings(
+            {
+                "clock_timezone_mode": "iana",
+                "clock_timezone": "Asia/Tokyo",
+                "main_agent_name_mode": "custom",
+                "main_agent_custom_name": "My Main AI",
+            }
+        )
+        assert values["clock_timezone"] == "Asia/Tokyo"
+        assert values["main_agent_custom_name"] == "My Main AI"
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("clock_timezone_mode", "unknown"),
+        ("clock_timezone", "Asia//Tokyo"),
+        ("main_agent_name_mode", "unknown"),
+        ("main_agent_custom_name", "x" * 51),
+    ],
+)
+def test_identity_and_clock_settings_reject_invalid_values(key: str, value: object) -> None:
+    with pytest.raises(ValueError):
+        settings._validate({**settings.DEFAULTS, key: value})
+
+
 def test_save_restore_settings_uses_shared_json(monkeypatch: pytest.MonkeyPatch) -> None:
     path = _test_path("save")
     path.write_text(json.dumps(settings.DEFAULTS), encoding="utf-8")

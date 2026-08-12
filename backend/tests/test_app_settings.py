@@ -91,6 +91,46 @@ def test_codex_restore_settings_default_and_round_trip() -> None:
         path.unlink(missing_ok=True)
 
 
+def test_identity_and_clock_settings_are_backward_compatible() -> None:
+    legacy = {"language": "ja", "backend_port": 8000, "frontend_port": 3000}
+    values = validate_settings(legacy)
+    assert values["clock_timezone_mode"] == "local"
+    assert values["clock_timezone"] == ""
+    assert values["main_agent_name_mode"] == "auto"
+    assert values["main_agent_custom_name"] == ""
+
+    path = _test_path("identity-clock-settings.json")
+    path.write_text(json.dumps(DEFAULT_SETTINGS), encoding="utf-8")
+    try:
+        saved = save_settings(
+            {
+                "clock_timezone_mode": "iana",
+                "clock_timezone": "Asia/Tokyo",
+                "main_agent_name_mode": "custom",
+                "main_agent_custom_name": "My Main AI",
+            },
+            path,
+        )
+        assert saved["clock_timezone"] == "Asia/Tokyo"
+        assert saved["main_agent_custom_name"] == "My Main AI"
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@pytest.mark.parametrize(
+    ("key", "value"),
+    [
+        ("clock_timezone_mode", "unknown"),
+        ("clock_timezone", "Asia//Tokyo"),
+        ("main_agent_name_mode", "unknown"),
+        ("main_agent_custom_name", "x" * 51),
+    ],
+)
+def test_validate_rejects_invalid_identity_and_clock_settings(key: str, value: Any) -> None:
+    with pytest.raises(ValueError):
+        validate_settings({**DEFAULT_SETTINGS, key: value})
+
+
 def test_owner_and_board_settings_round_trip() -> None:
     path = _test_path("owner-board-settings.json")
     path.write_text(json.dumps(DEFAULT_SETTINGS), encoding="utf-8")

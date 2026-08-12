@@ -10,6 +10,7 @@
 
 import { useState, useEffect, useMemo, type ReactNode } from "react";
 import type { TodoItem } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface TodoListModeProps {
   todos: TodoItem[];
@@ -40,6 +41,7 @@ function getStatusColor(status: string): string {
 }
 
 export function TodoListMode({ todos }: TodoListModeProps): ReactNode {
+  const { t } = useTranslation();
   const [autoScrollOffset, setAutoScrollOffset] = useState(0);
 
   const inProgressIndex = todos.findIndex((t) => t.status === "in_progress");
@@ -82,7 +84,7 @@ export function TodoListMode({ todos }: TodoListModeProps): ReactNode {
     return (
       <pixiContainer x={165} y={50} scale={0.5}>
         <pixiText
-          text="No tasks yet"
+          text={t("whiteboard.noTasks")}
           anchor={0.5}
           style={{
             fontFamily: '"Courier New", monospace',

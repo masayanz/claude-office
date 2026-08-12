@@ -10,6 +10,7 @@
 import { Graphics } from "pixi.js";
 import { type ReactNode } from "react";
 import type { WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface HeatMapModeProps {
   data: WhiteboardData;
@@ -25,6 +26,7 @@ function getHeatColor(count: number, maxEdits: number): number {
 }
 
 export function HeatMapMode({ data }: HeatMapModeProps): ReactNode {
+  const { t } = useTranslation();
   const entries = Object.entries(data.fileEdits ?? {})
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
@@ -35,7 +37,7 @@ export function HeatMapMode({ data }: HeatMapModeProps): ReactNode {
     return (
       <pixiContainer x={165} y={50} scale={0.5}>
         <pixiText
-          text="No file edits yet"
+          text={t("whiteboard.noFileEdits")}
           anchor={0.5}
           style={{
             fontFamily: '"Courier New", monospace',

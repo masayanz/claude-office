@@ -13,6 +13,7 @@
 import { Graphics } from "pixi.js";
 import { type ReactNode } from "react";
 import type { KanbanTask, WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 // ============================================================================
 // LAYOUT CONSTANTS
@@ -35,7 +36,7 @@ const COL_H = COL_HEADER_H + MAX_NOTES_PER_COL * (NOTE_H + NOTE_GAP) + NOTE_GAP;
 const COL_DEFS = [
   {
     status: "pending",
-    label: "TODO",
+    labelKey: "whiteboard.todo",
     headerColor: 0x64748b,
     noteColor: 0xf1f5f9,
     textColor: "#374151",
@@ -43,7 +44,7 @@ const COL_DEFS = [
   },
   {
     status: "in_progress",
-    label: "IN PROGRESS",
+    labelKey: "whiteboard.inProgress",
     headerColor: 0x3b82f6,
     noteColor: 0xeff6ff,
     textColor: "#1e3a5f",
@@ -51,7 +52,7 @@ const COL_DEFS = [
   },
   {
     status: "completed",
-    label: "DONE",
+    labelKey: "whiteboard.done",
     headerColor: 0x22c55e,
     noteColor: 0xf0fdf4,
     textColor: "#14532d",
@@ -149,6 +150,7 @@ interface KanbanColumnProps {
   colIndex: number;
   tasks: KanbanTask[];
   label: string;
+  moreLabel: string;
   headerColor: number;
   noteColor: number;
   textColor: string;
@@ -159,6 +161,7 @@ function KanbanColumn({
   colIndex,
   tasks,
   label,
+  moreLabel,
   headerColor,
   noteColor,
   textColor,
@@ -237,7 +240,7 @@ function KanbanColumn({
           scale={0.5}
         >
           <pixiText
-            text={`+${tasks.length - MAX_NOTES_PER_COL} more`}
+            text={moreLabel}
             anchor={0.5}
             style={{
               fontFamily: '"Courier New", monospace',
@@ -261,13 +264,14 @@ interface KanbanModeProps {
 }
 
 export function KanbanMode({ data }: KanbanModeProps): ReactNode {
+  const { t } = useTranslation();
   const tasks: KanbanTask[] = data.kanbanTasks ?? [];
 
   if (tasks.length === 0) {
     return (
       <pixiContainer x={165} y={50} scale={0.5}>
         <pixiText
-          text="No kanban tasks"
+          text={t("whiteboard.noKanbanTasks")}
           anchor={0.5}
           style={{
             fontFamily: '"Courier New", monospace',
@@ -289,7 +293,10 @@ export function KanbanMode({ data }: KanbanModeProps): ReactNode {
             key={col.status}
             colIndex={i}
             tasks={colTasks}
-            label={col.label}
+            label={t(col.labelKey)}
+            moreLabel={t("whiteboard.more", {
+              count: Math.max(0, colTasks.length - MAX_NOTES_PER_COL),
+            })}
             headerColor={col.headerColor}
             noteColor={col.noteColor}
             textColor={col.textColor}

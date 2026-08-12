@@ -1,4 +1,6 @@
-"""Tests for event_mapper subagent event handling."""
+"""Tests for event_mapper event and subagent handling."""
+
+import pytest
 
 from claude_office_hooks.event_mapper import map_event
 
@@ -178,3 +180,46 @@ class TestNativeSubagentStop:
         }
         result = map_event("subagent_stop", raw, SESSION_ID)
         assert result is None
+
+
+class TestProducerSource:
+    """Every emitted Claude Code event carries an explicit producer source."""
+
+    @pytest.mark.parametrize(
+        ("event_type", "raw_data"),
+        [
+            ("session_start", {}),
+            ("pre_compact", {}),
+            ("pre_tool_use", {"tool_name": "Read"}),
+            ("post_tool_use", {"tool_name": "Read"}),
+            ("subagent_start", {"agent_id": "agent-1"}),
+            ("subagent_stop", {"agent_id": "agent-1"}),
+            ("user_prompt_submit", {"prompt": "hello"}),
+            ("permission_request", {}),
+            ("notification", {}),
+            ("stop", {}),
+            ("session_end", {}),
+        ],
+    )
+    def test_all_mapped_events_have_claude_code_source(
+        self, event_type: str, raw_data: dict
+    ) -> None:
+        raw = {"session_id": SESSION_ID, "transcript_path": TRANSCRIPT, **raw_data}
+        result = map_event(event_type, raw, SESSION_ID)
+
+        assert result is not None
+        assert result["data"]["source"] == "claude_code"
+
+    def test_raw_source_does_not_override_source_or_identity(self) -> None:
+        raw = {
+            "source": "opencode",
+            "session_id": "payload-session",
+            "transcript_path": "/home/user/.claude/projects/actual-project/session.jsonl",
+            "cwd": "/home/user/another-project",
+        }
+        result = map_event("session_start", raw, SESSION_ID)
+
+        assert result is not None
+        assert result["data"]["source"] == "claude_code"
+        assert result["data"]["project_name"] == "actual-project"
+        assert result["session_id"] == "payload-session"

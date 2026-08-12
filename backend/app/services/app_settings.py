@@ -4,14 +4,17 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import tempfile
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, cast
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 ROOT_DIR = Path(__file__).resolve().parents[3]
 SETTINGS_PATH = ROOT_DIR / "config" / "app-settings.json"
 OWNER_IMAGE_DIR = ROOT_DIR / "config" / "owner-image"
+_IANA_TIMEZONE_RE = re.compile(r"[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)+$")
 
 DEFAULT_SETTINGS: dict[str, Any] = {
     "language": "ja",
@@ -37,6 +40,10 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "stop_servers_on_manager_exit": False,
     "restore_codex_sessions": True,
     "restore_window_minutes": 30,
+    "clock_timezone_mode": "local",
+    "clock_timezone": "",
+    "main_agent_name_mode": "auto",
+    "main_agent_custom_name": "",
 }
 
 
@@ -63,6 +70,17 @@ def _validate_goals(value: object, key: str) -> list[str]:
     if len(goals) > 50:
         raise ValueError(f"{key} must be a list with at most 50 items")
     return [_validate_text(goal, key, 100, required=True) for goal in goals]
+
+
+def _valid_iana_timezone(value: str) -> bool:
+    """Validate IANA names on systems with or without an installed tz database."""
+    try:
+        ZoneInfo(value)
+        return True
+    except (ZoneInfoNotFoundError, ValueError):
+        # Windows Python installations may not ship tzdata. Keep validation
+        # portable by enforcing the IANA name shape when the database is absent.
+        return bool(_IANA_TIMEZONE_RE.fullmatch(value))
 
 
 def validate_settings(raw: object) -> dict[str, Any]:
@@ -120,6 +138,17 @@ def validate_settings(raw: object) -> dict[str, Any]:
         or not 1 <= restore_window <= 1440
     ):
         raise ValueError("restore_window_minutes must be an integer between 1 and 1440")
+    if result["clock_timezone_mode"] not in {"local", "iana"}:
+        raise ValueError("clock_timezone_mode must be local or iana")
+    timezone = _validate_text(result["clock_timezone"], "clock_timezone", 100)
+    if timezone and not _valid_iana_timezone(timezone):
+        raise ValueError("clock_timezone must be a valid IANA timezone or empty")
+    result["clock_timezone"] = timezone
+    if result["main_agent_name_mode"] not in {"auto", "custom"}:
+        raise ValueError("main_agent_name_mode must be auto or custom")
+    result["main_agent_custom_name"] = _validate_text(
+        result["main_agent_custom_name"], "main_agent_custom_name", 50
+    )
     image = result.get("owner_image_filename")
     if image is not None and (
         not isinstance(image, str)

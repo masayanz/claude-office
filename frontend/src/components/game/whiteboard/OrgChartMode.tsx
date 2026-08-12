@@ -10,6 +10,7 @@
 import { Graphics } from "pixi.js";
 import { useCallback, type ReactNode } from "react";
 import type { Agent } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface OrgChartModeProps {
   agents: Agent[];
@@ -31,6 +32,7 @@ export function OrgChartMode({
   agents,
   bossTask,
 }: OrgChartModeProps): ReactNode {
+  const { t } = useTranslation();
   const drawOrgChart = useCallback(
     (g: Graphics) => {
       g.clear();
@@ -71,7 +73,7 @@ export function OrgChartMode({
 
       {/* Boss */}
       <pixiText
-        text="👔 BOSS"
+        text={t("whiteboard.boss")}
         x={165}
         y={15}
         anchor={0.5}
@@ -84,7 +86,7 @@ export function OrgChartMode({
         resolution={2}
       />
       <pixiText
-        text={bossTask ? bossTask.slice(0, 12) : "Supervising"}
+        text={bossTask ? bossTask.slice(0, 12) : t("whiteboard.supervising")}
         x={165}
         y={28}
         anchor={0.5}
@@ -147,7 +149,7 @@ export function OrgChartMode({
         })
       ) : (
         <pixiText
-          text="No employees yet"
+          text={t("whiteboard.noEmployees")}
           x={165}
           y={85}
           anchor={0.5}

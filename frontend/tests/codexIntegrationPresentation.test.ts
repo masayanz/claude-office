@@ -24,6 +24,9 @@ describe("Codex integration presentation", () => {
       lastLiveEventAt: "2026-08-12T11:59:30.000Z",
       liveEventCount: 4,
       restoredSessionCount: 1,
+      monitoredSessionCount: 0,
+      deduplicatedEventCount: 0,
+      currentInputMode: "IDLE",
     });
   });
 
@@ -65,6 +68,9 @@ describe("Codex integration presentation", () => {
       lastLiveEventAt: null,
       liveEventCount: 0,
       restoredSessionCount: 0,
+      monitoredSessionCount: 0,
+      deduplicatedEventCount: 0,
+      currentInputMode: "IDLE",
     });
   });
 

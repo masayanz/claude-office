@@ -10,6 +10,7 @@
 import { Graphics } from "pixi.js";
 import { useState, useEffect, type ReactNode } from "react";
 import type { WhiteboardData } from "@/types";
+import { useTranslation } from "@/hooks/useTranslation";
 
 export interface NewsTickerModeProps {
   data: WhiteboardData;
@@ -24,6 +25,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 };
 
 export function NewsTickerMode({ data }: NewsTickerModeProps): ReactNode {
+  const { t } = useTranslation();
   const [currentIndex, setCurrentIndex] = useState(0);
 
   const newsItems = (data.newsItems ?? []).slice(0, 10);
@@ -43,7 +45,7 @@ export function NewsTickerMode({ data }: NewsTickerModeProps): ReactNode {
     return (
       <pixiContainer x={165} y={50} scale={0.5}>
         <pixiText
-          text="No news yet - stay tuned!"
+          text={t("whiteboard.noNews")}
           anchor={0.5}
           style={{
             fontFamily: '"Courier New", monospace',
@@ -69,7 +71,7 @@ export function NewsTickerMode({ data }: NewsTickerModeProps): ReactNode {
         }}
       />
       <pixiText
-        text="📰 BREAKING"
+        text={t("whiteboard.breaking")}
         x={61}
         y={14}
         anchor={0.5}

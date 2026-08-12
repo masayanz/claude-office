@@ -3,6 +3,7 @@
 import { Graphics, TextStyle } from "pixi.js";
 import { useState, useCallback, useEffect, type ReactNode } from "react";
 import type { ClockFormat } from "@/stores/preferencesStore";
+import { formatClockTime, getClockPeriod } from "@/utils/clock";
 
 /**
  * DigitalClock - LED-style digital clock display for the office wall
@@ -12,34 +13,15 @@ import type { ClockFormat } from "@/stores/preferencesStore";
  */
 interface DigitalClockProps {
   format: ClockFormat;
+  timeZone?: string;
 }
 
-export function DigitalClock({ format }: DigitalClockProps): ReactNode {
+export function DigitalClock({ format, timeZone }: DigitalClockProps): ReactNode {
   const [time, setTime] = useState(new Date());
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
     return () => clearInterval(interval);
-  }, []);
-
-  const formatTime = useCallback(
-    (date: Date): string => {
-      let hours = date.getHours();
-      const mins = date.getMinutes();
-      const secs = date.getSeconds();
-
-      if (format === "12h") {
-        hours = hours % 12 || 12;
-        return `${hours}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-      }
-
-      return `${hours.toString().padStart(2, "0")}:${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
-    },
-    [format],
-  );
-
-  const getAmPm = useCallback((date: Date): string => {
-    return date.getHours() >= 12 ? "PM" : "AM";
   }, []);
 
   const drawClockBody = useCallback((g: Graphics) => {
@@ -64,7 +46,7 @@ export function DigitalClock({ format }: DigitalClockProps): ReactNode {
     g.fill({ color: 0x1a3a1a, alpha: 0.5 });
   }, []);
 
-  const timeString = formatTime(time);
+  const timeString = formatClockTime(time, format, timeZone);
 
   return (
     <pixiContainer>
@@ -93,7 +75,7 @@ export function DigitalClock({ format }: DigitalClockProps): ReactNode {
       {/* AM/PM indicator for 12h format */}
       {format === "12h" && (
         <pixiText
-          text={getAmPm(time)}
+          text={getClockPeriod(time, timeZone)}
           x={36}
           y={-2}
           anchor={0.5}

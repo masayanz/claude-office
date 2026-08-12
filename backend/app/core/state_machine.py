@@ -40,8 +40,28 @@ from app.models.sessions import (
     KanbanTask,
     WhiteboardData,
 )
+from app.services.app_settings import load_settings
 
 logger = logging.getLogger(__name__)
+
+_MAIN_AGENT_NAMES = {
+    "codex": "Codex Main",
+    "claude": "Claude Main",
+    "claude-code": "Claude Main",
+    "claude_code": "Claude Main",
+    "opencode": "OpenCode Main",
+}
+
+
+def main_agent_name_for_source(source: str | None) -> str:
+    """Resolve the main display name from source metadata and shared settings only."""
+    settings, _ = load_settings()
+    if settings.get("main_agent_name_mode") == "custom":
+        custom_name = settings.get("main_agent_custom_name")
+        if isinstance(custom_name, str) and custom_name.strip():
+            return custom_name.strip()
+    normalized_source = source.strip().lower() if isinstance(source, str) else ""
+    return _MAIN_AGENT_NAMES.get(normalized_source, "AI Main")
 
 # ---------------------------------------------------------------------------
 # Module-level helpers
@@ -223,7 +243,7 @@ def _handle_session_start(sm: "StateMachine", event: AnyEvent) -> None:
     delayed_restored_start = sm.restored_session_start_pending and event.data.source == "codex"
     if delayed_restored_start:
         sm.restored_session_start_pending = False
-        sm.boss_name = "Codex Main"
+        sm.boss_name = main_agent_name_for_source(event.data.source)
         sm.boss_source = "codex"
         sm.boss_model = event.data.model or sm.boss_model
         sm.boss_agent_type = "main"
@@ -231,16 +251,14 @@ def _handle_session_start(sm: "StateMachine", event: AnyEvent) -> None:
     sm.phase = OfficePhase.STARTING
     sm.boss_state = BossState.IDLE
     sm.turn_active = False
+    sm.boss_name = main_agent_name_for_source(event.data.source)
+    sm.boss_source = event.data.source
     if event.data.source == "codex":
-        sm.boss_name = "Codex Main"
-        sm.boss_source = "codex"
         sm.boss_model = event.data.model
         sm.boss_agent_type = "main"
     else:
         # A StateMachine can be replayed/reused; never leak Codex identity into
         # a later Claude Code or OpenCode session start.
-        sm.boss_name = None
-        sm.boss_source = None
         sm.boss_model = None
         sm.boss_agent_type = None
     sm.whiteboard.reset()
@@ -412,7 +430,7 @@ def _handle_subagent_stop(sm: "StateMachine", event: AnyEvent) -> None:
         agent_id = resolved.agent_id
         sm.restored_agent_ids.discard(agent_id)
         stopping_agent = resolved.agent
-        stopping_agent.state = AgentState.WAITING
+        stopping_agent.state = AgentState.LEAVING
         if agent_id not in sm.handin_queue:
             sm.handin_queue.append(agent_id)
 
@@ -688,11 +706,16 @@ class StateMachine:
         Returns:
             A GameState instance representing the current office state.
         """
+        current_boss_name = (
+            main_agent_name_for_source(self.boss_source)
+            if self.boss_name is not None
+            else None
+        )
         boss = Boss(
             state=self.boss_state,
             current_task=self.boss_current_task,
             bubble=self.boss_bubble,
-            name=self.boss_name,
+            name=current_boss_name,
             source=self.boss_source,
             model=self.boss_model,
             agent_type=self.boss_agent_type,

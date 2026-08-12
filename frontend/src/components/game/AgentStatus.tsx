@@ -16,71 +16,32 @@ import {
   Terminal,
   Activity,
   MapPin,
-  Layers,
 } from "lucide-react";
 import { codexSecondaryLabel } from "@/utils/codexPresentation";
+import {
+  getDisplayAgentStatus,
+  translateAgentStatus,
+} from "@/utils/displayLabels";
 
-// Backend state colors (work status)
-function getBackendStateColor(state: string) {
+function getStatusColor(state: string) {
   switch (state) {
+    case "error":
+      return "bg-red-500/20 text-red-400 border-red-500/40";
+    case "departing":
+      return "bg-rose-500/20 text-rose-400 border-rose-500/40";
+    case "walking":
+      return "bg-indigo-500/20 text-indigo-400 border-indigo-500/40";
     case "working":
       return "bg-amber-500/20 text-amber-400 border-amber-500/40";
-    case "waiting_permission":
-      return "bg-orange-500/20 text-orange-400 border-orange-500/40";
-    case "reporting":
-    case "reporting_done":
+    case "reviewing":
       return "bg-blue-500/20 text-blue-400 border-blue-500/40";
-    case "walking_to_desk":
-    case "leaving":
-      return "bg-indigo-500/20 text-indigo-400 border-indigo-500/40";
     case "waiting":
       return "bg-cyan-500/20 text-cyan-400 border-cyan-500/40";
-    case "completed":
-      return "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
-    case "thinking":
-      return "bg-purple-500/20 text-purple-400 border-purple-500/40";
-    case "arriving":
-    case "in_elevator":
-      return "bg-slate-500/20 text-slate-400 border-slate-500/40";
-    default:
-      return "bg-slate-800 text-slate-400 border-slate-700";
-  }
-}
-
-// Frontend phase colors (animation/choreography)
-function getPhaseColor(phase: string) {
-  switch (phase) {
     case "idle":
       return "bg-emerald-500/20 text-emerald-400 border-emerald-500/40";
-    case "arriving":
-    case "in_arrival_queue":
-    case "walking_to_ready":
-      return "bg-cyan-500/20 text-cyan-400 border-cyan-500/40";
-    case "conversing":
-    case "walking_to_boss":
-    case "at_boss":
-      return "bg-blue-500/20 text-blue-400 border-blue-500/40";
-    case "walking_to_desk":
-      return "bg-indigo-500/20 text-indigo-400 border-indigo-500/40";
-    case "departing":
-    case "in_departure_queue":
-      return "bg-amber-500/20 text-amber-400 border-amber-500/40";
-    case "walking_to_elevator":
-    case "in_elevator":
-      return "bg-rose-500/20 text-rose-400 border-rose-500/40";
     default:
       return "bg-slate-800 text-slate-400 border-slate-700";
   }
-}
-
-// Format phase name for display
-function formatPhase(phase: string): string {
-  return phase.replace(/_/g, " ");
-}
-
-// Format backend state for display
-function formatState(state: string): string {
-  return state.replace(/_/g, " ");
 }
 
 export function AgentStatus() {
@@ -208,26 +169,24 @@ export function AgentStatus() {
                   </div>
                 </div>
 
-                {/* State badges row */}
+                {/* Single user-facing state badge. Backend and animation internals
+                    are intentionally collapsed into one prioritized status. */}
                 <div className="flex items-center gap-2 pt-1">
-                  {/* Backend State */}
                   <div className="flex items-center gap-1">
                     <Activity size={10} className="text-slate-500" />
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold border ${getBackendStateColor(agent.backendState)}`}
-                    >
-                      {formatState(agent.backendState)}
-                    </span>
-                  </div>
-
-                  {/* Frontend Phase */}
-                  <div className="flex items-center gap-1">
-                    <Layers size={10} className="text-slate-500" />
-                    <span
-                      className={`px-1.5 py-0.5 rounded text-[9px] font-medium border ${getPhaseColor(agent.phase)}`}
-                    >
-                      {formatPhase(agent.phase)}
-                    </span>
+                    {(() => {
+                      const status = getDisplayAgentStatus(
+                        agent.backendState,
+                        agent.phase,
+                      );
+                      return (
+                        <span
+                          className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-semibold border ${getStatusColor(status)}`}
+                        >
+                          {translateAgentStatus(t, status)}
+                        </span>
+                      );
+                    })()}
                   </div>
                 </div>
 

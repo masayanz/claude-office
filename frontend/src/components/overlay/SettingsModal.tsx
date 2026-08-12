@@ -13,6 +13,7 @@ import { BuildingTab } from "@/components/settings/BuildingTab";
 import { OfficeSettingsTab } from "@/components/settings/OfficeSettingsTab";
 import { BoardSettingsTab } from "@/components/settings/BoardSettingsTab";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
+import { isValidTimeZone } from "@/utils/clock";
 
 // ============================================================================
 // TYPES
@@ -84,6 +85,8 @@ export default function SettingsModal({
   const [restoreWindowMinutes, setRestoreWindowMinutes] = useState(30);
   const [isSavingRestoreSettings, setIsSavingRestoreSettings] = useState(false);
   const [restoreSettingsMessage, setRestoreSettingsMessage] = useState("");
+  const [customTimezone, setCustomTimezone] = useState("");
+  const [customMainAgentName, setCustomMainAgentName] = useState("");
 
   // Sync tab when initialTab changes (e.g. edit-building request).
   useEffect(() => {
@@ -92,6 +95,7 @@ export default function SettingsModal({
 
   const clockType = usePreferencesStore((s) => s.clockType);
   const clockFormat = usePreferencesStore((s) => s.clockFormat);
+  const clockTimezone = usePreferencesStore((s) => s.clockTimezone);
   const autoFollowNewSessions = usePreferencesStore(
     (s) => s.autoFollowNewSessions,
   );
@@ -101,6 +105,10 @@ export default function SettingsModal({
   const setLanguage = usePreferencesStore((s) => s.setLanguage);
   const appSettings = useAppSettingsStore((s) => s.settings);
   const updateAppSettings = useAppSettingsStore((s) => s.updateAppSettings);
+  const sharedClockTimezoneMode =
+    appSettings?.clock_timezone_mode === "iana" ? "custom" : "automatic";
+  const sharedClockTimezone = appSettings?.clock_timezone || clockTimezone;
+  const mainAgentNameMode = appSettings?.main_agent_name_mode ?? "auto";
   const setAutoFollowNewSessions = usePreferencesStore(
     (s) => s.setAutoFollowNewSessions,
   );
@@ -141,6 +149,11 @@ export default function SettingsModal({
     }
   }, [appSettings]);
 
+  useEffect(() => {
+    setCustomTimezone(sharedClockTimezone);
+    setCustomMainAgentName(appSettings?.main_agent_custom_name ?? "");
+  }, [appSettings, sharedClockTimezone]);
+
   const handleDirtyChange = useCallback((dirty: boolean) => {
     setBuildingDirty(dirty);
   }, []);
@@ -168,6 +181,40 @@ export default function SettingsModal({
 
   const handleClockFormatChange = (format: ClockFormat) => {
     setClockFormat(format);
+  };
+
+  const handleClockTimezoneModeChange = (mode: "automatic" | "custom") => {
+    const timezone = mode === "automatic" ? "" : customTimezone.trim();
+    if (mode === "custom" && timezone && !isValidTimeZone(timezone)) return;
+    void updateAppSettings({
+      clock_timezone_mode: mode === "automatic" ? "local" : "iana",
+      clock_timezone: timezone,
+    });
+  };
+
+  const saveCustomTimezone = () => {
+    const timezone = customTimezone.trim();
+    if (!isValidTimeZone(timezone)) return;
+    void updateAppSettings({
+      clock_timezone_mode: "iana",
+      clock_timezone: timezone,
+    });
+  };
+
+  const handleMainAgentNameModeChange = (mode: "auto" | "custom") => {
+    void updateAppSettings({
+      main_agent_name_mode: mode,
+      ...(mode === "custom"
+        ? { main_agent_custom_name: customMainAgentName.trim() }
+        : {}),
+    });
+  };
+
+  const saveCustomMainAgentName = () => {
+    void updateAppSettings({
+      main_agent_name_mode: "custom",
+      main_agent_custom_name: customMainAgentName.trim(),
+    });
   };
 
   const handleAutoFollowToggle = () => {
@@ -406,6 +453,92 @@ export default function SettingsModal({
               </div>
             </div>
           )}
+
+          {/* Clock timezone */}
+          <div>
+            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+              {t("settings.clockTimezone")}
+            </label>
+            <div className="flex gap-3" role="radiogroup" aria-label={t("settings.clockTimezone")}>
+              {(["automatic", "custom"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={sharedClockTimezoneMode === mode}
+                  onClick={() => handleClockTimezoneModeChange(mode)}
+                  className={`flex-1 px-3 py-2 rounded-lg border text-sm font-bold transition-colors ${
+                    sharedClockTimezoneMode === mode
+                      ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                  }`}
+                >
+                  {mode === "automatic"
+                    ? t("settings.clockTimezoneAutomatic")
+                    : t("settings.custom")}
+                </button>
+              ))}
+            </div>
+            {sharedClockTimezoneMode === "custom" && (
+              <input
+                type="text"
+                value={customTimezone}
+                onChange={(event) => setCustomTimezone(event.target.value)}
+                 onBlur={saveCustomTimezone}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.currentTarget.blur();
+                  }
+                }}
+                placeholder={t("settings.clockTimezonePlaceholder")}
+                aria-label={t("settings.clockTimezoneCustom")}
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+              />
+            )}
+          </div>
+
+          {/* Main agent name */}
+          <div>
+            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+              {t("settings.mainAgentName")}
+            </label>
+            <p className="text-slate-500 text-xs mb-2">
+              {t("settings.mainAgentNameDesc")}
+            </p>
+            <div className="flex gap-3" role="radiogroup" aria-label={t("settings.mainAgentName")}>
+              {(["auto", "custom"] as const).map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  role="radio"
+                  aria-checked={mainAgentNameMode === mode}
+                  onClick={() => handleMainAgentNameModeChange(mode)}
+                  className={`flex-1 px-3 py-2 rounded-lg border text-sm font-bold transition-colors ${
+                    mainAgentNameMode === mode
+                      ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                  }`}
+                >
+                  {mode === "auto" ? t("settings.automatic") : t("settings.custom")}
+                </button>
+              ))}
+            </div>
+            {mainAgentNameMode === "custom" && (
+              <input
+                type="text"
+                value={customMainAgentName}
+                maxLength={50}
+                onChange={(event) => setCustomMainAgentName(event.target.value)}
+                onBlur={saveCustomMainAgentName}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                placeholder={t("settings.mainAgentNamePlaceholder")}
+                aria-label={t("settings.mainAgentName")}
+                className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-white"
+              />
+            )}
+          </div>
 
           {/* Session Settings */}
           <div className="pt-4 border-t border-slate-800">

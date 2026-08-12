@@ -12,6 +12,13 @@ import {
   codexSecondaryLabel,
   isCodexSource,
 } from "@/utils/codexPresentation";
+import {
+  getDisplayAgentStatus,
+  getMainAgentName,
+  translateAgentPhase,
+  translateAgentStatus,
+} from "@/utils/displayLabels";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
 
 // ============================================================================
 // TYPES
@@ -38,6 +45,12 @@ export function MobileAgentActivity({
   // agents Map subscription — keeps the desktop header/sidebars/modals off the
   // per-frame animation re-render path (ARC-006).
   const agents = useGameStore(useShallow(selectAgents));
+  const customMainAgentName = useAppSettingsStore(
+    (state) =>
+      state.settings?.main_agent_name_mode === "custom"
+        ? state.settings.main_agent_custom_name
+        : null,
+  );
 
   return (
     <div className="flex-[2] bg-slate-950 border border-slate-800 rounded-lg overflow-hidden min-h-0">
@@ -55,7 +68,7 @@ export function MobileAgentActivity({
           <div className="flex items-center gap-2 mb-1">
             <div className="w-2 h-2 rounded-full bg-amber-500" />
             <span className="text-amber-400 font-bold text-xs">
-              {boss.name ?? t("mobile.boss")}
+              {getMainAgentName(boss.source, customMainAgentName)}
             </span>
             {isCodexSource(boss.source) && boss.model && (
               <span className="text-slate-500 text-[9px] truncate max-w-24">
@@ -63,7 +76,10 @@ export function MobileAgentActivity({
               </span>
             )}
             <span className="text-slate-500 text-[10px] font-mono ml-auto">
-              {boss.backendState}
+              {translateAgentStatus(
+                t,
+                getDisplayAgentStatus(String(boss.backendState), "idle"),
+              )}
             </span>
           </div>
           {boss.currentTask && (
@@ -114,7 +130,7 @@ export function MobileAgentActivity({
                     </span>
                   )}
                   <span className="text-slate-600 text-[10px] font-mono ml-auto">
-                    {agent.phase}
+                    {translateAgentPhase(t, agent.phase)}
                   </span>
                 </div>
                 {agent.currentTask && (

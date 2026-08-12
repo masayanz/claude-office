@@ -3,6 +3,7 @@
 import { create } from "zustand";
 import { apiFetch } from "@/utils/api";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { getLocalTimeZone, isValidTimeZone } from "@/utils/clock";
 
 export interface AppSettings {
   language: "ja" | "en" | "es" | "pt-BR";
@@ -14,6 +15,10 @@ export interface AppSettings {
   browser_mode: "normal" | "app";
   restore_codex_sessions: boolean;
   restore_window_minutes: number;
+  clock_timezone_mode: "local" | "iana";
+  clock_timezone: string;
+  main_agent_name_mode: "auto" | "custom";
+  main_agent_custom_name: string;
   company_name: string;
   owner_name: string;
   owner_title: string;
@@ -30,6 +35,18 @@ export interface AppSettings {
   board_rotate_seconds: number;
   warning?: string;
   owner_image_warning?: string;
+}
+
+function syncSharedDisplayPreferences(settings: AppSettings): void {
+  const clockTimezone = isValidTimeZone(settings.clock_timezone)
+    ? settings.clock_timezone
+    : getLocalTimeZone();
+  usePreferencesStore.setState({
+    language: settings.language,
+    clockTimezone,
+    clockTimezoneMode:
+      settings.clock_timezone_mode === "iana" ? "custom" : "automatic",
+  });
 }
 
 export type BoardMode =
@@ -67,7 +84,7 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
       if (!hasSameSettings(get().settings, settings)) {
         set({ settings, isLoaded: true });
       }
-      usePreferencesStore.setState({ language: settings.language });
+      syncSharedDisplayPreferences(settings);
     } catch (error) {
       console.warn("[app-settings] Failed to fetch:", error);
     }
@@ -83,7 +100,7 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const settings = (await response.json()) as AppSettings;
       set({ settings, isLoaded: true });
-      usePreferencesStore.setState({ language: settings.language });
+      syncSharedDisplayPreferences(settings);
       return settings;
     } catch (error) {
       console.warn("[app-settings] Failed to save:", error);

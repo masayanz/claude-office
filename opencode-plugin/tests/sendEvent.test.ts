@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
-import { buildEventHeaders } from "../src/index";
+import { buildEventHeaders, buildOpenCodeEvent } from "../src/index";
 
 describe("SEC-005 buildEventHeaders (X-API-Key)", () => {
   it("omits X-API-Key when no key is configured (default behavior)", () => {
@@ -25,5 +25,28 @@ describe("SEC-005 buildEventHeaders (X-API-Key)", () => {
       "Content-Type": "application/json",
       "X-API-Key": "testkey123",
     });
+  });
+});
+
+describe("OpenCode producer event metadata", () => {
+  it("sets source to opencode on every event", () => {
+    const event = buildOpenCodeEvent("subagent_start", "session-1", {
+      project_name: "project",
+      project_dir: "/work/project",
+      working_dir: "/work/project",
+    });
+
+    expect(event.data.source).toBe("opencode");
+  });
+
+  it("does not allow event fields to replace the producer source", () => {
+    const event = buildOpenCodeEvent(
+      "session_start",
+      "session-1",
+      {},
+      { source: "codex" },
+    );
+
+    expect(event.data.source).toBe("opencode");
   });
 });

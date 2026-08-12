@@ -18,6 +18,7 @@ import { Terminal } from "lucide-react";
 import { EventDetailModal } from "@/components/game/EventDetailModal";
 import { useTranslation } from "@/hooks/useTranslation";
 import { getEventTypeTextColor } from "@/utils/event-type-styles";
+import { translateEventType } from "@/utils/displayLabels";
 
 function hasNonEmptyDetail(event: EventLogEntry): boolean {
   return !!event.detail && Object.keys(event.detail).length > 0;
@@ -71,7 +72,7 @@ export function EventLog() {
                   <span
                     className={`flex-shrink-0 font-bold text-[10px] ${getEventTypeTextColor(event.type)}`}
                   >
-                    [{event.type.replace(/_/g, " ").toUpperCase()}]
+                    [{translateEventType(t, event.type).toUpperCase()}]
                   </span>
                   {event.agentId && (
                     <span className="text-blue-400 text-[10px]">

@@ -10,6 +10,7 @@ EVENTS_HOST = "127.0.0.1"
 EVENTS_PORT = 8000
 EVENTS_PATH = "/api/v1/events"
 HTTP_TIMEOUT_SECONDS = 0.5
+_LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 
 def _settings_path() -> Path:
@@ -36,3 +37,10 @@ def get_event_endpoint() -> tuple[str, int, str]:
         return host, port, EVENTS_PATH
     except (OSError, ValueError, TypeError, json.JSONDecodeError):
         return EVENTS_HOST, EVENTS_PORT, EVENTS_PATH
+
+
+def is_loopback_host(host: object) -> bool:
+    """Return whether an endpoint host is one of the supported loopback forms."""
+    if not isinstance(host, str):
+        return False
+    return host.strip().strip("[]").lower() in _LOOPBACK_HOSTS

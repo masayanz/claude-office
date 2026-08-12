@@ -131,6 +131,7 @@ not replay the missed conversation or full tool history into Event Log.
 | `sender.py` | One HTTP POST to the configured local destination |
 | `config.py` | Shared settings reader, path, and 0.5-second timeout |
 | `main.py` | Reads one stdin JSON object and suppresses adapter failures |
+| `diagnostics.py` | Event-free `--check` for settings, loopback endpoint, Python, and Backend health |
 
 The sender uses a direct `HTTPConnection` to the configured local backend, bypasses environment proxies,
 does not follow redirects, performs no retry, and keeps no queue.
@@ -279,6 +280,11 @@ no routine stdout or stderr and returns success to Codex even when:
 
 Delivery is attempted once. There is no retry loop or in-memory request queue. The small local
 lifecycle metadata ledger is for state restoration only and is never replayed as queued HTTP calls.
+
+The Backend separately records the receive time and count of genuine Codex lifecycle events since
+that Backend process started. Restored snapshot markers (`data.restored = true`), non-Codex sources,
+and other event families are excluded. Manager and Viewer read only these payload-free values from
+`GET /api/v1/system/integration-status`; prompts, session IDs, paths, and credentials are not exposed.
 
 ## Verification
 

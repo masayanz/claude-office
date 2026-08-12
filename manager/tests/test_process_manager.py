@@ -4,13 +4,15 @@ from __future__ import annotations
 
 import json
 import os
+import subprocess
 import urllib.request
 import webbrowser
+from pathlib import Path
 from typing import Any
 
 import pytest
 
-from manager.process_manager import CodexRestoreStatus, ServiceManager
+from manager.process_manager import CodexRestoreStatus, GlobalHooksRepairResult, ServiceManager
 
 
 class _Response:
@@ -111,6 +113,146 @@ def test_invalid_backend_response_is_reported(monkeypatch: pytest.MonkeyPatch) -
 
     with pytest.raises(RuntimeError, match="不正な応答"):
         manager.codex_restore_status()
+
+
+def test_integration_status_uses_shared_backend_port(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+    seen: list[str] = []
+
+    def open_url(request: urllib.request.Request, timeout: float) -> _Response:
+        seen.append(request.full_url)
+        return _Response(
+            {
+                "backend": "ok",
+                "codex": {
+                    "live_event_count": 4,
+                    "last_live_event_at": "2026-08-12T00:00:04Z",
+                    "restored_sessions": 1,
+                },
+            }
+        )
+
+    monkeypatch.setattr(urllib.request, "urlopen", open_url)
+
+    status = manager.codex_integration_status()
+
+    assert seen == ["http://127.0.0.1:8123/api/v1/system/integration-status"]
+    assert status.reachable is True
+    assert status.live_event_count == 4
+    assert status.restored_sessions == 1
+
+
+def test_repair_hooks_uses_argument_list_and_never_controls_vscode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    installer = tmp_path / "codex-adapter" / "install-global-hooks.ps1"
+    installer.parent.mkdir()
+    installer.write_text("# test", encoding="utf-8")
+    seen: list[object] = []
+
+    monkeypatch.setattr("manager.process_manager.ROOT", tmp_path)
+    monkeypatch.setattr("manager.process_manager.which", lambda name: "powershell.exe")
+
+    def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
+        seen.extend([command, kwargs])
+        return subprocess.CompletedProcess(command, 0, stdout="done", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    result = manager.repair_global_hooks()
+
+    assert result == GlobalHooksRepairResult(True, "Codex global hooksを修復しました")
+    command = seen[0]
+    assert isinstance(command, list)
+    assert command[:5] == ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
+    assert command[0].lower() == "powershell.exe"
+    assert seen[1] == {
+        "cwd": tmp_path,
+        "capture_output": True,
+        "check": False,
+        "text": True,
+        "timeout": 30,
+    }
+
+
+def test_adapter_self_check_uses_shared_backend_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    hook = tmp_path / "codex-adapter" / "hook.py"
+    hook.parent.mkdir()
+    hook.write_text("", encoding="utf-8")
+    monkeypatch.setattr("manager.process_manager.ROOT", tmp_path)
+    monkeypatch.setattr("manager.process_manager.os.name", "nt")
+    monkeypatch.setattr("manager.process_manager.which", lambda _name: "py.exe")
+    monkeypatch.setattr(
+        manager,
+        "_settings",
+        lambda: {"backend_host": "127.0.0.1", "backend_port": 8123},
+    )
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        assert command == ["py.exe", "-3.13", str(hook), "--check"]
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                {
+                    "settings_loaded": True,
+                    "endpoint": {
+                        "host": "127.0.0.1",
+                        "port": 8123,
+                        "path": "/api/v1/events",
+                        "loopback": True,
+                    },
+                    "python": {"supported": True},
+                }
+            ),
+            stderr="",
+        )
+
+    monkeypatch.setattr(subprocess, "run", run)
+    assert manager.adapter_self_check() is True
+
+
+def test_adapter_self_check_detects_old_backend_port(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    hook = tmp_path / "codex-adapter" / "hook.py"
+    hook.parent.mkdir()
+    hook.write_text("", encoding="utf-8")
+    monkeypatch.setattr("manager.process_manager.ROOT", tmp_path)
+    monkeypatch.setattr("manager.process_manager.os.name", "nt")
+    monkeypatch.setattr("manager.process_manager.which", lambda _name: "py.exe")
+    monkeypatch.setattr(
+        manager,
+        "_settings",
+        lambda: {"backend_host": "127.0.0.1", "backend_port": 8123},
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            0,
+            stdout=json.dumps(
+                {
+                    "settings_loaded": True,
+                    "endpoint": {
+                        "host": "127.0.0.1",
+                        "port": 8000,
+                        "path": "/api/v1/events",
+                        "loopback": True,
+                    },
+                    "python": {"supported": True},
+                }
+            ),
+            stderr="",
+        ),
+    )
+    assert manager.adapter_self_check() is False
 
 
 @pytest.mark.parametrize("section", ["office", "board"])

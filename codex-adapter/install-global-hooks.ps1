@@ -106,7 +106,14 @@ $hookEvents = @(
 $handler = New-ClaudeOfficeHandler $launcherPath
 foreach ($event in $hookEvents) {
     $group = New-ClaudeOfficeGroup $handler $event.Matcher
-    $config.hooks | Add-Member -MemberType NoteProperty -Name $event.Name -Value @($group) -Force
+    # Remove-ClaudeOfficeHandlers leaves unrelated groups/handlers intact.
+    # Append our fresh group instead of replacing the event array, because
+    # Codex permits more than one handler group for the same lifecycle event.
+    $property = $config.hooks.PSObject.Properties[$event.Name]
+    $existingGroups = if ($null -eq $property) { @() } else { @($property.Value) }
+    $mergedGroups = @($existingGroups)
+    $mergedGroups += $group
+    $config.hooks | Add-Member -MemberType NoteProperty -Name $event.Name -Value $mergedGroups -Force
 }
 
 $config | ConvertTo-Json -Depth 20 | Set-Content -LiteralPath $hooksPath -Encoding UTF8

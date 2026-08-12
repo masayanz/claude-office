@@ -6,6 +6,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import urllib.error
 import urllib.request
 import webbrowser
@@ -15,6 +16,14 @@ from pathlib import Path
 from shutil import which
 from typing import Any
 
+from .codex_diagnostics import (
+    CodexBackendStatus,
+    CodexDiagnosticReport,
+    GlobalHooksInspection,
+    build_diagnostic_report,
+    inspect_global_hooks,
+    normalize_backend_status,
+)
 from .settings import ROOT, load_settings
 
 RUNTIME_DIR = ROOT / "runtime"
@@ -40,6 +49,14 @@ class CodexRestoreStatus:
     detail: str = ""
 
 
+@dataclass(frozen=True, slots=True)
+class GlobalHooksRepairResult:
+    """Result of an explicit, user-triggered global hooks repair."""
+
+    succeeded: bool
+    detail: str
+
+
 class ServiceManager:
     """Start only commands owned by this application and track their PIDs."""
 
@@ -52,16 +69,58 @@ class ServiceManager:
 
     def hooks_installed(self) -> bool:
         """Return whether the user-level Codex hook references this viewer."""
-        codex_home = Path(os.environ.get("CODEX_HOME", Path.home() / ".codex"))
-        hooks_path = codex_home / "hooks.json"
-        try:
-            return "claude-office-hook" in hooks_path.read_text(encoding="utf-8")
-        except OSError:
-            return False
+        return self.inspect_global_hooks().state == "ok"
+
+    @staticmethod
+    def _codex_home() -> Path:
+        configured = os.environ.get("CODEX_HOME")
+        return Path(configured) if configured else Path.home() / ".codex"
+
+    def inspect_global_hooks(self) -> GlobalHooksInspection:
+        """Validate the configured user-level hook chain without changing it."""
+        return inspect_global_hooks(codex_home=self._codex_home(), viewer_root=ROOT)
 
     def adapter_available(self) -> bool:
         """Return whether the shared Codex adapter launcher exists."""
         return (ROOT / "codex-adapter" / "hook.py").is_file()
+
+    def adapter_self_check(self) -> bool:
+        """Run the adapter's event-free check and validate its shared endpoint."""
+        hook = ROOT / "codex-adapter" / "hook.py"
+        if not hook.is_file():
+            return False
+        launcher = which("py") if os.name == "nt" else None
+        command = (
+            [launcher, "-3.13", str(hook), "--check"]
+            if launcher
+            else [sys.executable, str(hook), "--check"]
+        )
+        try:
+            completed = subprocess.run(
+                command,
+                cwd=ROOT,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=4,
+            )
+            payload = json.loads(completed.stdout)
+        except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
+            return False
+        endpoint = payload.get("endpoint") if isinstance(payload, dict) else None
+        python_status = payload.get("python") if isinstance(payload, dict) else None
+        expected = self._settings()
+        return bool(
+            completed.returncode == 0
+            and isinstance(endpoint, dict)
+            and isinstance(python_status, dict)
+            and payload.get("settings_loaded") is True
+            and endpoint.get("loopback") is True
+            and endpoint.get("host") == expected["backend_host"]
+            and endpoint.get("port") == expected["backend_port"]
+            and endpoint.get("path") == "/api/v1/events"
+            and python_status.get("supported") is True
+        )
 
     def _backend_api_request(
         self, path: str, *, method: str = "GET", timeout: float = 0.75
@@ -113,9 +172,7 @@ class ServiceManager:
             payload.get("restored_sessions", payload.get("restored_count", 0)),
         )
         session_count = (
-            count_value
-            if isinstance(count_value, int) and not isinstance(count_value, bool)
-            else 0
+            count_value if isinstance(count_value, int) and not isinstance(count_value, bool) else 0
         )
         detail_value = payload.get("message", payload.get("detail", payload.get("error", "")))
         detail = detail_value if isinstance(detail_value, str) else ""
@@ -128,6 +185,84 @@ class ServiceManager:
     def restore_codex_sessions(self) -> CodexRestoreStatus:
         payload = self._backend_api_request("/api/v1/codex/restore", method="POST")
         return self._restore_status(payload, "checking")
+
+    def codex_integration_status(self) -> CodexBackendStatus:
+        """Read the lightweight Backend telemetry used by live-event monitoring."""
+        payload = self._backend_api_request("/api/v1/system/integration-status")
+        return normalize_backend_status(payload)
+
+    def _codex_cli(self) -> tuple[bool, str | None]:
+        """Return the installed Codex version using a short, non-shell probe."""
+        executable = which("codex")
+        if executable is None:
+            return False, None
+        try:
+            completed = subprocess.run(
+                [executable, "--version"],
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=3,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return False, None
+        if completed.returncode != 0:
+            return False, None
+        version = completed.stdout.strip().splitlines()
+        return True, version[0][:120] if version else "Codex CLI"
+
+    def diagnose_codex_integration(self) -> CodexDiagnosticReport:
+        """Run the Manager's explicit Codex diagnosis; safe to call from a worker."""
+        cli_available, cli_version = self._codex_cli()
+        hooks = self.inspect_global_hooks()
+        try:
+            backend = self.codex_integration_status()
+        except (RuntimeError, ValueError):
+            backend = CodexBackendStatus(reachable=False)
+        return build_diagnostic_report(
+            cli_available=cli_available,
+            cli_version=cli_version,
+            hooks_inspection=hooks,
+            adapter_available=self.adapter_self_check(),
+            backend_status=backend,
+        )
+
+    def repair_global_hooks(self) -> GlobalHooksRepairResult:
+        """Run only this application's idempotent hook installer.
+
+        This method neither starts nor stops VS Code or Codex.  It is intended
+        for an explicit Manager repair action and avoids a shell command so a
+        moved Viewer root cannot change the executable invocation.
+        """
+        installer = ROOT / "codex-adapter" / "install-global-hooks.ps1"
+        if not installer.is_file():
+            return GlobalHooksRepairResult(False, "Global Hooks修復スクリプトが見つかりません")
+        powershell = which("powershell.exe") or which("pwsh.exe")
+        if powershell is None:
+            return GlobalHooksRepairResult(False, "PowerShellが見つかりません")
+        try:
+            completed = subprocess.run(
+                [
+                    powershell,
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    str(installer),
+                ],
+                cwd=ROOT,
+                capture_output=True,
+                check=False,
+                text=True,
+                timeout=30,
+            )
+        except subprocess.TimeoutExpired:
+            return GlobalHooksRepairResult(False, "Global Hooks修復が時間切れになりました")
+        except OSError:
+            return GlobalHooksRepairResult(False, "Global Hooks修復を開始できませんでした")
+        if completed.returncode == 0:
+            return GlobalHooksRepairResult(True, "Codex global hooksを修復しました")
+        return GlobalHooksRepairResult(False, "Global Hooks修復に失敗しました")
 
     def _url(self, service: str) -> str:
         settings = self._settings()
@@ -257,10 +392,7 @@ class ServiceManager:
         if section not in {"office", "board"}:
             raise ValueError("設定画面の種類が不正です")
         settings = self._settings()
-        url = (
-            f"http://{settings['frontend_host']}:{settings['frontend_port']}"
-            f"?settings={section}"
-        )
+        url = f"http://{settings['frontend_host']}:{settings['frontend_port']}?settings={section}"
         webbrowser.open(url)
 
     def read_logs(self, service: str, lines: int = 200) -> str:
@@ -273,6 +405,24 @@ class ServiceManager:
             )
         except OSError:
             return "ログはまだありません。"
+
+    def log_codex_diagnostic(self, report: CodexDiagnosticReport) -> None:
+        """Append one sanitized diagnostic summary to the Manager log."""
+        status = report.backend_status
+        line = (
+            f"{datetime.now(UTC).isoformat()} Codex diagnostic: "
+            f"CLI={report.cli.state.value.upper()} "
+            f"Hooks={report.hooks.state.value.upper()} "
+            f"Adapter={report.adapter.state.value.upper()} "
+            f"Backend={report.backend.state.value.upper()} "
+            f"Restore={status.restored_sessions} "
+            f"LiveEvents={status.live_event_count}\n"
+        )
+        try:
+            with (LOG_DIR / "manager.log").open("a", encoding="utf-8") as stream:
+                stream.write(line)
+        except OSError:
+            pass
 
     def _save_pid_file(self) -> None:
         RUNTIME_DIR.mkdir(parents=True, exist_ok=True)

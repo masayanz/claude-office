@@ -55,6 +55,10 @@ import { useAppSettingsStore } from "@/stores/appSettingsStore";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { Session } from "@/hooks/useSessions";
 import { PRODUCT_NAME } from "@/config/branding";
+import {
+  emptyCodexIntegrationPresentation,
+  presentCodexIntegrationStatus,
+} from "@/utils/codexIntegrationPresentation";
 
 // ============================================================================
 // DYNAMIC IMPORT
@@ -208,6 +212,9 @@ export default function V2TestPage(): React.ReactNode {
   const [aiSummaryEnabled, setAiSummaryEnabled] = useState<boolean | null>(
     null,
   );
+  const [codexIntegration, setCodexIntegration] = useState(
+    emptyCodexIntegrationPresentation,
+  );
   const [isRestoringCodexSessions, setIsRestoringCodexSessions] =
     useState(false);
   const codexRestoreInFlight = useRef(false);
@@ -354,6 +361,45 @@ export default function V2TestPage(): React.ReactNode {
         setAiSummaryEnabled(data.aiSummaryEnabled);
       })
       .catch(() => setAiSummaryEnabled(false));
+  }, []);
+
+  // Keep the compact Codex status separate from the AI summary setting above.
+  // This endpoint only contains counters and timestamps, so polling is cheap
+  // and continues to work even when no session WebSocket is open.
+  useEffect(() => {
+    let disposed = false;
+
+    const refreshCodexIntegration = async () => {
+      try {
+        const response = await apiFetch("/api/v1/system/integration-status");
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const payload: unknown = await response.json();
+        if (!disposed) {
+          setCodexIntegration(presentCodexIntegrationStatus(payload));
+        }
+      } catch {
+        // Keep the last known timestamp, but recompute its freshness so a
+        // stale Live badge naturally changes to waiting while disconnected.
+        if (!disposed) {
+          setCodexIntegration((current) =>
+            presentCodexIntegrationStatus({
+              codex: {
+                last_live_event_at: current.lastLiveEventAt,
+                live_event_count: current.liveEventCount,
+                restored_sessions: current.restoredSessionCount,
+              },
+            }),
+          );
+        }
+      }
+    };
+
+    void refreshCodexIntegration();
+    const interval = window.setInterval(() => void refreshCodexIntegration(), 3000);
+    return () => {
+      disposed = true;
+      window.clearInterval(interval);
+    };
   }, []);
 
   useEffect(() => {
@@ -621,6 +667,7 @@ export default function V2TestPage(): React.ReactNode {
             isConnected={isConnected}
             debugMode={debugMode}
             aiSummaryEnabled={aiSummaryEnabled}
+            codexIntegration={codexIntegration}
             isRestoringCodexSessions={isRestoringCodexSessions}
             activeSessionCount={activeSessionCount}
             onSimulate={handleSimulate}

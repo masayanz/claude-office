@@ -21,6 +21,7 @@ from app.api.routes import (
     codex_restore,
     events,
     floors,
+    integration_status,
     preferences,
     sessions,
     websockets,
@@ -212,6 +213,7 @@ app.add_middleware(LocalhostOnlyMiddleware)
 app.add_middleware(ApiKeyMiddleware)
 
 app.include_router(events.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(integration_status.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(floors.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(preferences.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(app_settings.router, prefix=f"{settings.API_V1_STR}")

@@ -27,6 +27,17 @@ ManagerからBackend/Frontendを起動、停止、再起動できます。状態
 
 Backend起動後は、進行中のCodexセッションをバックグラウンドで自動確認します。ViewerをCodex作業の途中から起動しても、保存済みsession metadataから現在のCodex Main、稼働中subagent、未完了tool状態を復元し、その後のglobal lifecycle hooksへ引き継ぎます。状態カードには「確認中…」「2件復元」「復元対象なし」などの結果が表示されます。復元に失敗してもCodex自体の処理には影響しません。
 
+「Codex連携状態」ではCLI、8件のGlobal Hooks、Adapter、Backend API、Session Restore、
+Live Eventsを個別に判定します。復元成功はlive受信成功として扱いません。Backend起動後に
+受信したCodex lifecycle eventだけを件数・最終受信時刻へ反映し、active sessionを復元済み
+なのに60秒以上live eventがない場合は「復元のみ」としてVS Code再起動の可能性を案内します。
+active sessionがなく未受信の場合は異常ではなく「待機」です。
+
+「Codex連携を診断」は重い構造検査をバックグラウンドで実行し、通常監視は3秒ごとの軽量API
+確認だけを行います。「Global Hooksを修復」は既存の他hooksを保ったまま、移動後のViewer
+root、launcher、adapter pathを現在位置へ更新します。VS Codeを自動終了・再起動することは
+ありません。総合状態はトレイtooltipにも表示され、警告・エラーへの変化時だけ通知します。
+
 設定画面では次を共通設定として変更できます。
 
 - 会社名とオーナー名（オーナー画像・肩書き・一言は「Web設定を開く」から変更）

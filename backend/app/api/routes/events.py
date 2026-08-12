@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.config import get_settings
+from app.core.codex_integration import get_codex_live_telemetry
 from app.core.event_processor import EventProcessor, get_event_processor
 from app.models.events import AnyEvent
 
@@ -127,6 +128,9 @@ async def receive_event(
         A status payload with event_id and processing state.
     """
     _check_rate_limit(event.session_id)
+    # Record receipt before background processing. Restoration bypasses this
+    # route, and an explicit restored marker is excluded defensively.
+    get_codex_live_telemetry().record(event)
     background_tasks.add_task(ep.process_event, event)
     return {
         "status": "accepted",

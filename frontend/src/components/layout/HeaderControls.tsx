@@ -5,6 +5,10 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useAttentionStore, selectUnreadCount } from "@/stores/attentionStore";
 import { HeaderMoreMenu } from "@/components/layout/HeaderMoreMenu";
+import {
+  formatRelativeCodexEventTime,
+  type CodexIntegrationPresentation,
+} from "@/utils/codexIntegrationPresentation";
 
 // ============================================================================
 // TYPES
@@ -14,6 +18,7 @@ interface HeaderControlsProps {
   isConnected: boolean;
   debugMode: boolean;
   aiSummaryEnabled: boolean | null;
+  codexIntegration: CodexIntegrationPresentation;
   isRestoringCodexSessions: boolean;
   /** Number of active sessions — gates the Command Center button (>= 2). */
   activeSessionCount: number;
@@ -42,6 +47,7 @@ export function HeaderControls({
   isConnected,
   debugMode,
   aiSummaryEnabled,
+  codexIntegration,
   isRestoringCodexSessions,
   activeSessionCount,
   onSimulate,
@@ -52,11 +58,31 @@ export function HeaderControls({
   onOpenSettings,
   onOpenHelp,
 }: HeaderControlsProps): React.ReactNode {
-  const { t } = useTranslation();
+  const { t, language } = useTranslation();
   const view = useNavigationStore((s) => s.view);
   const goToCommand = useNavigationStore((s) => s.goToCommand);
   const unreadCount = useAttentionStore(selectUnreadCount);
   const openCommandBar = useAttentionStore((s) => s.openCommandBar);
+  const codexStateLabel = t(
+    codexIntegration.state === "live"
+      ? "header.codexLive"
+      : codexIntegration.state === "restored"
+        ? "header.codexRestored"
+        : "header.codexWaiting",
+  );
+  const relativeLastEvent = formatRelativeCodexEventTime(
+    codexIntegration.lastLiveEventAt,
+    language,
+  );
+  const codexTitle = [
+    `${t("header.codex")}: ${codexStateLabel}`,
+    relativeLastEvent
+      ? t("header.codexLastEvent", { time: relativeLastEvent })
+      : t("header.codexNoEvents"),
+    t("header.codexLiveEventCount", {
+      count: codexIntegration.liveEventCount,
+    }),
+  ].join("\n");
 
   return (
     <div className="flex gap-3 items-center">
@@ -141,6 +167,28 @@ export function HeaderControls({
           >
             <span className="text-[10px]">AI</span>
             {aiSummaryEnabled ? t("header.aiOn") : t("header.aiOff")}
+          </div>
+          <div
+            title={codexTitle}
+            className={`flex items-center gap-1.5 font-mono text-xs cursor-help ${
+              codexIntegration.state === "live"
+                ? "text-emerald-400"
+                : codexIntegration.state === "restored"
+                  ? "text-amber-400"
+                  : "text-slate-500"
+            }`}
+          >
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                codexIntegration.state === "live"
+                  ? "bg-emerald-400 animate-pulse"
+                  : codexIntegration.state === "restored"
+                    ? "bg-amber-400"
+                    : "bg-slate-500"
+              }`}
+            />
+            <span className="text-[10px]">{t("header.codex")}</span>
+            {codexStateLabel}
           </div>
         </div>
       </div>

@@ -29,6 +29,7 @@ export interface AppSettings {
   board_auto_rotate: boolean;
   board_rotate_seconds: number;
   warning?: string;
+  owner_image_warning?: string;
 }
 
 export type BoardMode =
@@ -37,6 +38,7 @@ export type BoardMode =
 interface AppSettingsState {
   settings: AppSettings | null;
   isLoaded: boolean;
+  ownerImageError: string | null;
   loadAppSettings: () => Promise<void>;
   updateAppSettings: (
     updates: Partial<AppSettings>,
@@ -55,6 +57,7 @@ function hasSameSettings(
 export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
   settings: null,
   isLoaded: false,
+  ownerImageError: null,
 
   loadAppSettings: async () => {
     try {
@@ -96,12 +99,25 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
         method: "POST",
         body: form,
       });
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          detail?: unknown;
+        } | null;
+        throw new Error(
+          typeof payload?.detail === "string"
+            ? payload.detail
+            : `HTTP ${response.status}`,
+        );
+      }
       const settings = (await response.json()) as AppSettings;
-      set({ settings, isLoaded: true });
+      set({ settings, isLoaded: true, ownerImageError: null });
       return settings;
     } catch (error) {
       console.warn("[app-settings] Failed to upload owner image:", error);
+      set({
+        ownerImageError:
+          error instanceof Error ? error.message : "画像の保存に失敗しました。",
+      });
       return null;
     }
   },
@@ -113,10 +129,14 @@ export const useAppSettingsStore = create<AppSettingsState>((set, get) => ({
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       const settings = (await response.json()) as AppSettings;
-      set({ settings, isLoaded: true });
+      set({ settings, isLoaded: true, ownerImageError: null });
       return settings;
     } catch (error) {
       console.warn("[app-settings] Failed to reset owner image:", error);
+      set({
+        ownerImageError:
+          error instanceof Error ? error.message : "画像の保存に失敗しました。",
+      });
       return null;
     }
   },

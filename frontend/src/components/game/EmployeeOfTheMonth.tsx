@@ -1,6 +1,6 @@
 "use client";
 
-import { Graphics, Assets, Texture } from "pixi.js";
+import { Graphics, Texture } from "pixi.js";
 import {
   useCallback,
   useState,
@@ -10,6 +10,46 @@ import {
 } from "react";
 import { API_BASE } from "@/utils/api";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
+
+const DEFAULT_OWNER_IMAGE = "/sprites/employee-of-month.png";
+
+/**
+ * Turn an already-decoded browser image into a Pixi texture.
+ *
+ * The owner-image API intentionally has no filename extension.  Pixi's
+ * `Assets.load()` chooses a parser from that extension and therefore cannot
+ * load this endpoint.  Loading it through the browser first also lets us use
+ * the response Content-Type instead of guessing from the URL.
+ */
+async function textureFromImageUrl(imageUrl: string): Promise<Texture> {
+  const image = new Image();
+  image.crossOrigin = "anonymous";
+
+  await new Promise<void>((resolve, reject) => {
+    image.onload = () => resolve();
+    image.onerror = () => reject(new Error("The image could not be decoded"));
+    image.src = imageUrl;
+  });
+
+  return Texture.from(image);
+}
+
+async function loadOwnerTexture(assetPath: string): Promise<Texture> {
+  const response = await fetch(assetPath);
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!response.ok || !contentType.startsWith("image/")) {
+    throw new Error(`Owner image request failed (${response.status})`);
+  }
+  const blob = await response.blob();
+  if (blob.size === 0) throw new Error("Owner image response was empty");
+
+  const objectUrl = URL.createObjectURL(blob);
+  try {
+    return await textureFromImageUrl(objectUrl);
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
+}
 
 /**
  * EmployeeOfTheMonth - Wall poster showing the employee of the month
@@ -38,14 +78,42 @@ export function EmployeeOfTheMonth(): ReactNode {
   useEffect(() => {
     const assetPath = ownerImageUrl
       ? `${API_BASE}${ownerImageUrl}?v=${encodeURIComponent(ownerImageFilename ?? "")}`
-      : "/sprites/employee-of-month.png";
-    Assets.load(assetPath)
+      : null;
+    let disposed = false;
+
+    const setDefaultTexture = async () => {
+      try {
+        const texture = await textureFromImageUrl(DEFAULT_OWNER_IMAGE);
+        if (!disposed) setPhotoTexture(texture);
+      } catch (err) {
+        // This is a bundled static asset. Keep the existing texture visible if
+        // it is unexpectedly unavailable rather than replacing it with white.
+        console.warn("[EmployeeOfTheMonth] Failed to load default image:", err);
+      }
+    };
+
+    if (!assetPath) {
+      void setDefaultTexture();
+      return () => {
+        disposed = true;
+      };
+    }
+
+    void loadOwnerTexture(assetPath)
       .then((texture) => {
-        setPhotoTexture(texture as Texture);
+        if (!disposed) setPhotoTexture(texture);
       })
       .catch((err) => {
-        console.warn(`[EmployeeOfTheMonth] Failed to load ${assetPath}:`, err);
+        console.warn(
+          `[EmployeeOfTheMonth] Failed to load ${assetPath}; using default image:`,
+          err,
+        );
+        void setDefaultTexture();
       });
+
+    return () => {
+      disposed = true;
+    };
   }, [ownerImageFilename, ownerImageUrl]);
 
   const drawPhotoMask = useCallback((g: Graphics) => {

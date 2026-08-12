@@ -1,12 +1,14 @@
 """Regression tests for the shared app settings file."""
 
 import json
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from PIL import Image
 
 from app.api.routes import app_settings as app_settings_routes
 from app.services.app_settings import (
@@ -15,6 +17,25 @@ from app.services.app_settings import (
     save_settings,
     validate_settings,
 )
+
+
+def _image_bytes(
+    image_format: str,
+    width: int = 64,
+    height: int = 64,
+    *,
+    mode: str = "RGB",
+    exif: Image.Exif | None = None,
+) -> bytes:
+    image = Image.new(
+        mode,
+        (width, height),
+        (20, 40, 60, 120) if mode == "RGBA" else (20, 40, 60),
+    )
+    encoded = BytesIO()
+    options = {"exif": exif} if exif is not None else {}
+    image.save(encoded, format=image_format, **options)
+    return encoded.getvalue()
 
 
 def _test_path(name: str) -> Path:
@@ -164,16 +185,27 @@ def test_settings_api_updates_owner_and_board(settings_api: TestClient) -> None:
 
 
 @pytest.mark.parametrize(
-    ("filename", "content_type", "content"),
+    ("filename", "content_type", "image_format", "width", "height", "mode"),
     [
-        ("avatar.png", "image/png", b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"),
-        ("avatar.jpg", "image/jpeg", b"\xff\xd8\xff\xe0"),
-        ("avatar.webp", "image/webp", b"RIFF\x04\x00\x00\x00WEBP"),
+        ("日本語のアバター.png", "image/png", "PNG", 64, 64, "RGBA"),
+        ("avatar.jpg", "image/jpeg", "JPEG", 256, 256, "RGB"),
+        ("avatar.webp", "image/webp", "WEBP", 512, 512, "RGB"),
+        ("landscape.jpg", "image/jpeg", "JPEG", 1920, 1080, "RGB"),
+        ("portrait.jpg", "image/jpeg", "JPEG", 1080, 1920, "RGB"),
+        ("largest.png", "image/png", "PNG", 4096, 4096, "RGB"),
     ],
+    ids=["png-64", "jpeg-256", "webp-512", "landscape", "portrait", "png-4096"],
 )
 def test_owner_image_upload_serves_and_deletes(
-    settings_api: TestClient, filename: str, content_type: str, content: bytes
+    settings_api: TestClient,
+    filename: str,
+    content_type: str,
+    image_format: str,
+    width: int,
+    height: int,
+    mode: str,
 ) -> None:
+    content = _image_bytes(image_format, width, height, mode=mode)
     response = settings_api.post(
         "/api/v1/settings/owner-image",
         files={"file": (filename, content, content_type)},
@@ -181,11 +213,17 @@ def test_owner_image_upload_serves_and_deletes(
     assert response.status_code == 200
     uploaded = response.json()
     assert uploaded["owner_image_url"] == "/api/v1/settings/owner-image"
-    assert uploaded["owner_image_filename"].startswith("owner-")
+    assert uploaded["owner_image_filename"].startswith("owner-avatar-")
+    assert uploaded["owner_image_filename"].endswith(".webp")
+    assert uploaded["owner_image_constraints"]["target_dimension"] == 512
 
     fetched = settings_api.get("/api/v1/settings/owner-image")
     assert fetched.status_code == 200
-    assert fetched.content == content
+    assert fetched.headers["content-type"] == "image/webp"
+    assert fetched.headers["cache-control"] == "no-store, max-age=0"
+    with Image.open(BytesIO(fetched.content)) as normalized:
+        assert normalized.format == "WEBP"
+        assert normalized.size == (512, 512)
 
     deleted = settings_api.delete("/api/v1/settings/owner-image")
     assert deleted.status_code == 200
@@ -194,15 +232,51 @@ def test_owner_image_upload_serves_and_deletes(
     assert settings_api.get("/api/v1/settings/owner-image").status_code == 404
 
 
-def test_owner_image_upload_rejects_mismatched_or_too_large_content(
+@pytest.mark.parametrize(
+    ("filename", "content_type", "kind", "message"),
+    [
+        ("tiny.png", "image/png", "png-1", "小さすぎます"),
+        ("tiny.png", "image/png", "png-63", "小さすぎます"),
+        ("huge.png", "image/png", "png-4097", "大きすぎます"),
+        ("broken.jpg", "image/jpeg", "broken-jpeg", "読み込めません"),
+        ("text.jpg", "image/jpeg", "text", "読み込めません"),
+        ("animated.gif", "image/gif", "gif", "使用できません"),
+        ("bitmap.bmp", "image/bmp", "bmp", "使用できません"),
+        (
+            "vector.svg",
+            "image/svg+xml",
+            "svg",
+            "読み込めません",
+        ),
+    ],
+    ids=["png-1", "png-63", "png-4097", "broken-jpeg", "text", "gif", "bmp", "svg"],
+)
+def test_owner_image_upload_rejects_invalid_images(
     settings_api: TestClient,
+    filename: str,
+    content_type: str,
+    kind: str,
+    message: str,
 ) -> None:
-    mismatch = settings_api.post(
+    contents = {
+        "png-1": _image_bytes("PNG", 1, 1),
+        "png-63": _image_bytes("PNG", 63, 63),
+        "png-4097": _image_bytes("PNG", 4097, 4097),
+        "broken-jpeg": b"\xff\xd8\xffnot-a-jpeg",
+        "text": b"not an image",
+        "gif": _image_bytes("GIF"),
+        "bmp": _image_bytes("BMP"),
+        "svg": b"<svg xmlns='http://www.w3.org/2000/svg'/>",
+    }
+    response = settings_api.post(
         "/api/v1/settings/owner-image",
-        files={"file": ("avatar.png", b"not an image", "image/png")},
+        files={"file": (filename, contents[kind], content_type)},
     )
-    assert mismatch.status_code == 400
+    assert response.status_code == 400
+    assert message in response.json()["detail"]
 
+
+def test_owner_image_upload_rejects_too_large_content(settings_api: TestClient) -> None:
     oversized = settings_api.post(
         "/api/v1/settings/owner-image",
         files={
@@ -214,6 +288,58 @@ def test_owner_image_upload_rejects_mismatched_or_too_large_content(
         },
     )
     assert oversized.status_code == 413
+    assert "5MB以下" in oversized.json()["detail"]
+
+
+def test_owner_image_upload_corrects_exif_rotation_and_cmyk_jpeg(
+    settings_api: TestClient,
+) -> None:
+    exif = Image.Exif()
+    exif[274] = 6
+    image = Image.new("CMYK", (1080, 1920), (0, 128, 128, 0))
+    encoded = BytesIO()
+    image.save(encoded, format="JPEG", exif=exif)
+
+    response = settings_api.post(
+        "/api/v1/settings/owner-image",
+        files={"file": ("smartphone.jpg", encoded.getvalue(), "image/jpeg")},
+    )
+    assert response.status_code == 200
+    fetched = settings_api.get("/api/v1/settings/owner-image")
+    with Image.open(BytesIO(fetched.content)) as normalized:
+        assert normalized.size == (512, 512)
+        assert normalized.mode == "RGB"
+
+
+def test_settings_migrates_existing_raw_owner_image(settings_api: TestClient) -> None:
+    legacy_filename = "owner-existing.png"
+    app_settings_routes.OWNER_IMAGE_DIR.mkdir(parents=True)
+    (app_settings_routes.OWNER_IMAGE_DIR / legacy_filename).write_bytes(
+        _image_bytes("PNG", 1920, 1080)
+    )
+    app_settings_routes.save_settings({"owner_image_filename": legacy_filename})
+
+    settings = settings_api.get("/api/v1/settings").json()
+    assert settings["owner_image_filename"].startswith("owner-avatar-")
+    assert settings["owner_image_url"] == "/api/v1/settings/owner-image"
+    assert not (app_settings_routes.OWNER_IMAGE_DIR / legacy_filename).exists()
+
+    fetched = settings_api.get("/api/v1/settings/owner-image")
+    with Image.open(BytesIO(fetched.content)) as normalized:
+        assert normalized.format == "WEBP"
+        assert normalized.size == (512, 512)
+
+
+def test_settings_hides_unreadable_existing_owner_image(settings_api: TestClient) -> None:
+    legacy_filename = "owner-broken.jpg"
+    app_settings_routes.OWNER_IMAGE_DIR.mkdir(parents=True)
+    (app_settings_routes.OWNER_IMAGE_DIR / legacy_filename).write_bytes(b"not an image")
+    app_settings_routes.save_settings({"owner_image_filename": legacy_filename})
+
+    settings = settings_api.get("/api/v1/settings").json()
+    assert settings["owner_image_url"] is None
+    assert "読み込めません" in settings["owner_image_warning"]
+    assert settings_api.get("/api/v1/settings/owner-image").status_code == 404
 
 
 @pytest.mark.parametrize("backend_port", [80, 65536, True])

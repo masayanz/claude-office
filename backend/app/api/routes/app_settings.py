@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from tempfile import NamedTemporaryFile
 from typing import Annotated, Literal
 from uuid import uuid4
 
@@ -11,8 +12,28 @@ from pydantic import BaseModel, ConfigDict, Field
 from starlette.responses import FileResponse
 
 from app.services.app_settings import OWNER_IMAGE_DIR, load_settings, save_settings
+from app.services.owner_image import (
+    MAX_OWNER_IMAGE_BYTES,
+    MAX_OWNER_IMAGE_DIMENSION,
+    MIN_OWNER_IMAGE_DIMENSION,
+    OWNER_IMAGE_CONTENT_TYPE,
+    OWNER_IMAGE_TARGET_SIZE,
+    OwnerImageValidationError,
+    normalize_owner_image,
+)
 
 router = APIRouter(prefix="/settings", tags=["settings"])
+
+OWNER_IMAGE_CONSTRAINTS = {
+    "formats": ["PNG", "JPEG", "WebP"],
+    "max_bytes": MAX_OWNER_IMAGE_BYTES,
+    "min_dimension": MIN_OWNER_IMAGE_DIMENSION,
+    "max_dimension": MAX_OWNER_IMAGE_DIMENSION,
+    "target_dimension": OWNER_IMAGE_TARGET_SIZE,
+}
+_UNREADABLE_OWNER_IMAGE_MESSAGE = (
+    "現在設定されているオーナー画像を読み込めません。新しい画像を設定してください。"
+)
 
 
 class AppSettingsUpdate(BaseModel):
@@ -46,11 +67,17 @@ class AppSettingsUpdate(BaseModel):
 
 def _public_settings() -> dict[str, object]:
     settings, warning = load_settings()
+    settings, image_warning = _ensure_normalized_owner_image(settings)
     settings["owner_image_url"] = (
-        "/api/v1/settings/owner-image" if settings.get("owner_image_filename") else None
+        "/api/v1/settings/owner-image"
+        if settings.get("owner_image_filename") and image_warning is None
+        else None
     )
     if warning:
         settings["warning"] = warning
+    if image_warning:
+        settings["owner_image_warning"] = image_warning
+    settings["owner_image_constraints"] = OWNER_IMAGE_CONSTRAINTS
     return settings
 
 
@@ -68,36 +95,18 @@ async def update_app_settings(body: AppSettingsUpdate) -> dict[str, object]:
     updated["owner_image_url"] = (
         "/api/v1/settings/owner-image" if updated.get("owner_image_filename") else None
     )
+    updated["owner_image_constraints"] = OWNER_IMAGE_CONSTRAINTS
     return updated
-
-
-_MAX_OWNER_IMAGE_BYTES = 5 * 1024 * 1024
-
-
-def _validate_image_content(data: bytes, content_type: str | None) -> str:
-    """Return the safe extension after checking declared and binary image formats."""
-    signatures = {
-        "image/png": (".png", data.startswith(b"\x89PNG\r\n\x1a\n") and data[12:16] == b"IHDR"),
-        "image/jpeg": (".jpg", data.startswith(b"\xff\xd8\xff")),
-        "image/webp": (
-            ".webp",
-            len(data) >= 12 and data.startswith(b"RIFF") and data[8:12] == b"WEBP",
-        ),
-    }
-    image = signatures.get(content_type or "")
-    if image is None:
-        raise HTTPException(status_code=400, detail="PNG, JPEG, or WebP is required")
-    extension, is_valid = image
-    if not is_valid:
-        raise HTTPException(status_code=400, detail="Image content does not match its type")
-    return extension
 
 
 async def _read_owner_image(file: UploadFile) -> bytes:
     """Read at most one byte beyond the image limit to bound memory use."""
-    data = await file.read(_MAX_OWNER_IMAGE_BYTES + 1)
-    if len(data) > _MAX_OWNER_IMAGE_BYTES:
-        raise HTTPException(status_code=413, detail="Image must be 5 MB or smaller")
+    data = await file.read(MAX_OWNER_IMAGE_BYTES + 1)
+    if len(data) > MAX_OWNER_IMAGE_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail="画像サイズが大きすぎます。5MB以下のPNG・JPEG・WebP画像を選択してください。",
+        )
     return data
 
 
@@ -113,14 +122,55 @@ def _owner_image_path(filename: str) -> Path | None:
     return image_path
 
 
+def _write_owner_image(data: bytes) -> tuple[str, Path]:
+    """Atomically persist a normalized Viewer asset with a cache-busting name."""
+    filename = f"owner-avatar-{uuid4().hex}.webp"
+    OWNER_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+    image_path = OWNER_IMAGE_DIR / filename
+    with NamedTemporaryFile(dir=OWNER_IMAGE_DIR, delete=False) as temporary:
+        temporary.write(data)
+        temporary_path = Path(temporary.name)
+    temporary_path.replace(image_path)
+    return filename, image_path
+
+
+def _ensure_normalized_owner_image(
+    current: dict[str, object],
+) -> tuple[dict[str, object], str | None]:
+    """Migrate a legacy raw upload once, or hide an unreadable old upload.
+
+    New uploads already have the ``owner-avatar-*.webp`` form.  Earlier
+    versions saved client bytes directly, so normalize those files before
+    advertising them to the Viewer.
+    """
+    filename = current.get("owner_image_filename")
+    if not isinstance(filename, str) or filename.startswith("owner-avatar-"):
+        return current, None
+    image_path = _owner_image_path(filename)
+    if image_path is None or not image_path.is_file():
+        return current, _UNREADABLE_OWNER_IMAGE_MESSAGE
+    try:
+        normalized = normalize_owner_image(image_path.read_bytes(), None)
+        migrated_filename, migrated_path = _write_owner_image(normalized)
+        try:
+            updated = save_settings({"owner_image_filename": migrated_filename})
+        except ValueError:
+            migrated_path.unlink(missing_ok=True)
+            raise
+        image_path.unlink(missing_ok=True)
+        return updated, None
+    except (OSError, OwnerImageValidationError, ValueError):
+        return current, _UNREADABLE_OWNER_IMAGE_MESSAGE
+
+
 @router.post("/owner-image")
 async def upload_owner_image(file: Annotated[UploadFile, File(...)]) -> dict[str, object]:
     data = await _read_owner_image(file)
-    extension = _validate_image_content(data, file.content_type)
-    filename = f"owner-{uuid4().hex}{extension}"
-    OWNER_IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-    image_path = OWNER_IMAGE_DIR / filename
-    image_path.write_bytes(data)
+    try:
+        normalized = normalize_owner_image(data, file.content_type)
+    except OwnerImageValidationError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    filename, image_path = _write_owner_image(normalized)
     previous, _ = load_settings()
     try:
         updated = save_settings({"owner_image_filename": filename})
@@ -133,19 +183,27 @@ async def upload_owner_image(file: Annotated[UploadFile, File(...)]) -> dict[str
         if old_image_path is not None and old_image_path != image_path:
             old_image_path.unlink(missing_ok=True)
     updated["owner_image_url"] = "/api/v1/settings/owner-image"
+    updated["owner_image_constraints"] = OWNER_IMAGE_CONSTRAINTS
     return updated
 
 
 @router.get("/owner-image")
 async def get_owner_image() -> FileResponse:
     settings, _ = load_settings()
+    settings, image_warning = _ensure_normalized_owner_image(settings)
+    if image_warning:
+        raise HTTPException(status_code=404, detail=image_warning)
     filename = settings.get("owner_image_filename")
     if not isinstance(filename, str):
         raise HTTPException(status_code=404, detail="Owner image is not configured")
     image_path = _owner_image_path(filename)
     if image_path is None or not image_path.is_file():
         raise HTTPException(status_code=404, detail="Owner image is not available")
-    return FileResponse(image_path)
+    return FileResponse(
+        image_path,
+        media_type=OWNER_IMAGE_CONTENT_TYPE,
+        headers={"Cache-Control": "no-store, max-age=0"},
+    )
 
 
 @router.delete("/owner-image")
@@ -162,4 +220,5 @@ async def delete_owner_image() -> dict[str, object]:
         if image_path is not None:
             image_path.unlink(missing_ok=True)
     updated["owner_image_url"] = None
+    updated["owner_image_constraints"] = OWNER_IMAGE_CONSTRAINTS
     return updated

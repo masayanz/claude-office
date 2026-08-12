@@ -142,6 +142,12 @@ class SettingsDialog(QDialog):
         form = QFormLayout()
         form.addRow("会社名", self.company_name)
         form.addRow("オーナー名", self.owner_name)
+        owner_image_hint = QLabel(
+            "オーナー画像はWeb設定から変更できます。\n"
+            "推奨: 512×512px / 形式: PNG・JPEG・WebP / 最大: 5MB"
+        )
+        owner_image_hint.setWordWrap(True)
+        form.addRow("オーナー画像", owner_image_hint)
         form.addRow("Backendポート", self.backend_port)
         form.addRow("Frontendポート", self.frontend_port)
         form.addRow("ブラウザ表示", self.browser_mode)

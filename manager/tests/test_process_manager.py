@@ -8,6 +8,7 @@ import subprocess
 import urllib.request
 import webbrowser
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -156,10 +157,16 @@ def test_repair_hooks_uses_argument_list_and_never_controls_vscode(
     installer = tmp_path / "codex-adapter" / "install-global-hooks.ps1"
     installer.parent.mkdir()
     installer.write_text("# test", encoding="utf-8")
+    (installer.parent / "hook.py").write_text("# test", encoding="utf-8")
     seen: list[object] = []
 
     monkeypatch.setattr("manager.process_manager.ROOT", tmp_path)
     monkeypatch.setattr("manager.process_manager.which", lambda name: "powershell.exe")
+    monkeypatch.setattr(
+        manager,
+        "inspect_global_hooks",
+        lambda: SimpleNamespace(state=SimpleNamespace(value="error")),
+    )
 
     def run(command: list[str], **kwargs: object) -> subprocess.CompletedProcess[str]:
         seen.extend([command, kwargs])
@@ -183,6 +190,68 @@ def test_repair_hooks_uses_argument_list_and_never_controls_vscode(
     } == seen[1]
     if os.name == "nt":
         assert seen[1]["creationflags"] & subprocess.CREATE_NO_WINDOW
+
+
+def test_repair_hooks_skips_a_healthy_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(
+        manager,
+        "inspect_global_hooks",
+        lambda: SimpleNamespace(state=SimpleNamespace(value="ok")),
+    )
+    monkeypatch.setattr("manager.process_manager.LOG_DIR", tmp_path)
+
+    def run(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("正常な設定ではインストーラを起動しない")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    result = manager.repair_global_hooks()
+
+    assert result.succeeded is True
+    assert result.detail == "Global Hooksは正常です。修復は必要ありません。"
+    assert "stage=none" in (tmp_path / "manager.log").read_text(encoding="utf-8")
+
+
+def test_repair_hooks_reports_parser_failure_and_logs_safe_details(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    installer = tmp_path / "codex-adapter" / "install-global-hooks.ps1"
+    installer.parent.mkdir()
+    installer.write_text("# test", encoding="utf-8")
+    (installer.parent / "hook.py").write_text("# test", encoding="utf-8")
+    monkeypatch.setattr("manager.process_manager.ROOT", tmp_path)
+    monkeypatch.setattr("manager.process_manager.LOG_DIR", tmp_path)
+    monkeypatch.setattr("manager.process_manager.which", lambda _name: "powershell.exe")
+    monkeypatch.setattr(
+        manager,
+        "inspect_global_hooks",
+        lambda: SimpleNamespace(state=SimpleNamespace(value="error")),
+    )
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **_kwargs: subprocess.CompletedProcess(
+            command,
+            1,
+            stdout="",
+            stderr="ParserError token=secret-prompt",
+        ),
+    )
+
+    result = manager.repair_global_hooks()
+
+    assert result.succeeded is False
+    assert result.failure_stage == "parse_hooks"
+    assert result.returncode == 1
+    assert result.detail == "Codex Global Hooks設定を読み込めませんでした。"
+    log = (tmp_path / "manager.log").read_text(encoding="utf-8")
+    assert "returncode=1" in log
+    assert "stage=parse_hooks" in log
+    assert "secret-prompt" not in log
 
 
 @pytest.mark.skipif(os.name != "nt", reason="Windows console startup flags")

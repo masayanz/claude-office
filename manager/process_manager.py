@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.error
@@ -57,6 +58,10 @@ class GlobalHooksRepairResult:
 
     succeeded: bool
     detail: str
+    returncode: int | None = None
+    failure_stage: str = ""
+    exception_type: str = ""
+    stderr_summary: str = ""
 
 
 class ServiceManager:
@@ -127,11 +132,16 @@ class ServiceManager:
         if not hook.is_file():
             return False
         launcher = which("py") if os.name == "nt" else None
-        command = (
-            [launcher, "-3.13", str(hook), "--check"]
-            if launcher
-            else [sys.executable, str(hook), "--check"]
-        )
+        if launcher:
+            command = [launcher, "-3.13", str(hook), "--check"]
+        elif os.name == "nt":
+            # A frozen Manager must not try to execute its own EXE as Python.
+            launcher = which("python.exe") or which("python3.exe")
+            if launcher is None:
+                return False
+            command = [launcher, str(hook), "--check"]
+        else:
+            command = [sys.executable, str(hook), "--check"]
         try:
             completed = subprocess.run(
                 command,
@@ -282,12 +292,41 @@ class ServiceManager:
         for an explicit Manager repair action and avoids a shell command so a
         moved Viewer root cannot change the executable invocation.
         """
+        hooks_path = self._codex_home() / "hooks.json"
+        launcher_path = self._codex_home() / "claude-office-hook.ps1"
+        adapter_path = ROOT / "codex-adapter" / "hook.py"
+        current = self.inspect_global_hooks()
+        if current.state.value == "ok":
+            result = GlobalHooksRepairResult(True, "Global Hooksは正常です。修復は必要ありません。")
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
+
         installer = ROOT / "codex-adapter" / "install-global-hooks.ps1"
         if not installer.is_file():
-            return GlobalHooksRepairResult(False, "Global Hooks修復スクリプトが見つかりません")
+            result = GlobalHooksRepairResult(
+                False,
+                "Global Hooks修復スクリプトが見つかりません",
+                failure_stage="locate_installer",
+            )
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
+        if not adapter_path.is_file():
+            result = GlobalHooksRepairResult(
+                False,
+                "Codex Adapterが見つかりません。",
+                failure_stage="locate_adapter",
+            )
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
         powershell = which("powershell.exe") or which("pwsh.exe")
         if powershell is None:
-            return GlobalHooksRepairResult(False, "PowerShellが見つかりません")
+            result = GlobalHooksRepairResult(
+                False,
+                "PowerShellが見つかりません",
+                failure_stage="locate_powershell",
+            )
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
         try:
             completed = subprocess.run(
                 [
@@ -301,17 +340,93 @@ class ServiceManager:
                 cwd=ROOT,
                 capture_output=True,
                 check=False,
+                encoding="utf-8",
+                errors="replace",
                 text=True,
                 timeout=30,
                 **self._hidden_subprocess_kwargs(),
             )
         except subprocess.TimeoutExpired:
-            return GlobalHooksRepairResult(False, "Global Hooks修復が時間切れになりました")
-        except OSError:
-            return GlobalHooksRepairResult(False, "Global Hooks修復を開始できませんでした")
+            result = GlobalHooksRepairResult(
+                False,
+                "Global Hooks修復が時間切れになりました",
+                failure_stage="execute_timeout",
+                exception_type="TimeoutExpired",
+            )
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
+        except OSError as exc:
+            result = GlobalHooksRepairResult(
+                False,
+                "Global Hooks修復を開始できませんでした",
+                failure_stage="execute_start",
+                exception_type=type(exc).__name__,
+            )
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
         if completed.returncode == 0:
-            return GlobalHooksRepairResult(True, "Codex global hooksを修復しました")
-        return GlobalHooksRepairResult(False, "Global Hooks修復に失敗しました")
+            result = GlobalHooksRepairResult(True, "Codex global hooksを修復しました")
+            self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+            return result
+
+        stderr_summary = self._safe_subprocess_summary(completed.stderr)
+        combined = f"{completed.stdout}\n{completed.stderr}".lower()
+        if "json" in combined or "parsererror" in combined:
+            detail = "Codex Global Hooks設定を読み込めませんでした。"
+            stage = "parse_hooks"
+        elif "access" in combined or "denied" in combined or "permission" in combined:
+            detail = "Codex設定ファイルを更新できませんでした。\nファイルのアクセス権を確認してください。"
+            stage = "write_hooks"
+        elif "launcher" in combined:
+            detail = "AI Office Viewer用Hook Launcherが見つかりません。"
+            stage = "write_launcher"
+        elif "adapter" in combined:
+            detail = "Codex Adapterが見つかりません。"
+            stage = "locate_adapter"
+        else:
+            detail = "Global Hooksの修復に失敗しました。\n詳細はManagerログを確認してください。"
+            stage = "execute"
+        result = GlobalHooksRepairResult(
+            False,
+            detail,
+            returncode=completed.returncode,
+            failure_stage=stage,
+            stderr_summary=stderr_summary,
+        )
+        self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
+        return result
+
+    @staticmethod
+    def _safe_subprocess_summary(value: object, limit: int = 240) -> str:
+        """Keep only a short, non-sensitive diagnostic fragment from stderr."""
+        text = str(value or "").replace("\r", " ").replace("\n", " ").strip()
+        text = re.sub(r"(?i)\b(token|auth|authorization|prompt)\b\s*[:=].*", r"\1=[redacted]", text)
+        return text[:limit]
+
+    def log_global_hooks_repair(
+        self,
+        result: GlobalHooksRepairResult,
+        hooks_path: Path,
+        launcher_path: Path,
+        adapter_path: Path,
+    ) -> None:
+        """Record repair diagnostics without hook payloads or credentials."""
+        line = (
+            f"{datetime.now(UTC).isoformat()} Global hooks repair: "
+            f"result={'success' if result.succeeded else 'failure'} "
+            f"returncode={result.returncode if result.returncode is not None else '-'} "
+            f"stage={result.failure_stage or 'none'} "
+            f"exception={result.exception_type or 'none'} "
+            f"hooks_file={hooks_path} launcher_exists={launcher_path.is_file()} "
+            f"adapter_exists={adapter_path.is_file()}"
+        )
+        if result.stderr_summary:
+            line += f" stderr={result.stderr_summary}"
+        try:
+            with (LOG_DIR / "manager.log").open("a", encoding="utf-8") as stream:
+                stream.write(line + "\n")
+        except OSError:
+            pass
 
     def _url(self, service: str) -> str:
         settings = self._settings()

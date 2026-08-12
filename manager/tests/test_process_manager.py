@@ -12,7 +12,12 @@ from typing import Any
 
 import pytest
 
-from manager.process_manager import CodexRestoreStatus, GlobalHooksRepairResult, ServiceManager
+from manager.process_manager import (
+    CodexRestoreStatus,
+    GlobalHooksRepairResult,
+    ServiceManager,
+    ServiceStatus,
+)
 
 
 class _Response:
@@ -41,6 +46,8 @@ def _manager(monkeypatch: pytest.MonkeyPatch) -> ServiceManager:
             "frontend_port": 3123,
         },
     )
+    manager.processes = {}
+    manager._log_streams = {}
     return manager
 
 
@@ -167,13 +174,50 @@ def test_repair_hooks_uses_argument_list_and_never_controls_vscode(
     assert isinstance(command, list)
     assert command[:5] == ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File"]
     assert command[0].lower() == "powershell.exe"
-    assert seen[1] == {
+    assert seen[1] | {
         "cwd": tmp_path,
         "capture_output": True,
         "check": False,
         "text": True,
         "timeout": 30,
-    }
+    } == seen[1]
+    if os.name == "nt":
+        assert seen[1]["creationflags"] & subprocess.CREATE_NO_WINDOW
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows console startup flags")
+def test_start_hides_console_and_keeps_service_log_open(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    captured: dict[str, Any] = {}
+
+    class Process:
+        pid = 4567
+
+        def poll(self) -> None:
+            return None
+
+    def popen(command: list[str], **kwargs: Any) -> Process:
+        captured["command"] = command
+        captured.update(kwargs)
+        return Process()
+
+    monkeypatch.setattr("manager.process_manager.LOG_DIR", tmp_path)
+    monkeypatch.setattr(manager, "status", lambda service: ServiceStatus(service, False, False))
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+    monkeypatch.setattr(subprocess, "Popen", popen)
+
+    result = manager.start("backend")
+
+    assert result.pid == 4567
+    assert captured["stdin"] is subprocess.DEVNULL
+    assert captured["stderr"] is subprocess.STDOUT
+    assert captured["stdout"] is manager._log_streams["backend"]
+    assert captured["creationflags"] & subprocess.CREATE_NO_WINDOW
+    assert captured["creationflags"] & subprocess.CREATE_NEW_PROCESS_GROUP
+    assert captured["startupinfo"].wShowWindow == subprocess.SW_HIDE
+    assert (tmp_path / "backend.log").exists()
 
 
 def test_adapter_self_check_uses_shared_backend_port(
@@ -303,3 +347,37 @@ def test_stop_falls_back_when_ctrl_break_handle_is_invalid(
 
     assert manager.stop("backend") == "backend"
     assert process.terminated is True
+
+
+@pytest.mark.skipif(os.name != "nt", reason="Windows process-tree shutdown")
+def test_stop_terminates_the_entire_windows_process_tree(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    commands: list[list[str]] = []
+
+    class Process:
+        pid = 43210
+
+        def poll(self) -> None:
+            return None
+
+        def wait(self, timeout: int) -> None:
+            assert timeout == 5
+
+    process = Process()
+    manager.processes = {"backend": process}  # type: ignore[dict-item]
+    manager._log_streams = {}
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+    monkeypatch.setattr(manager, "status", lambda service: service)
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda command, **_kwargs: (
+            commands.append(command)
+            or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+        ),
+    )
+
+    assert manager.stop("backend") == "backend"
+    assert commands == [["taskkill.exe", "/PID", "43210", "/T", "/F"]]

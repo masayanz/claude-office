@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import signal
 import subprocess
 import sys
 import urllib.error
@@ -14,13 +13,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from shutil import which
-from typing import Any
+from typing import Any, TextIO
 
 from .codex_diagnostics import (
     CodexBackendStatus,
+    CodexCliDiscovery,
+    CodexCliValidation,
     CodexDiagnosticReport,
     GlobalHooksInspection,
     build_diagnostic_report,
+    discover_codex_cli,
     inspect_global_hooks,
     normalize_backend_status,
 )
@@ -62,7 +64,42 @@ class ServiceManager:
 
     def __init__(self) -> None:
         self.processes: dict[str, subprocess.Popen[Any]] = {}
+        # Keep the parent's file handle alive for the lifetime of each child.
+        # The child receives its own inheritable handle on Windows, but retaining
+        # this one also makes the intended append-only log lifetime explicit.
+        self._log_streams: dict[str, TextIO] = {}
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _hidden_subprocess_kwargs(
+        *, new_process_group: bool = False
+    ) -> dict[str, Any]:
+        """Return Windows-only options that prevent a console window flashing.
+
+        Manager is normally a windowed executable.  Its backend, frontend and
+        short-lived helper commands are console applications, so Windows would
+        otherwise create a visible console for each one.  ``CREATE_NO_WINDOW``
+        hides that console without redirecting output: callers can still send
+        stdout and stderr to their persistent log files.
+        """
+        if os.name != "nt":
+            return {}
+
+        creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        if new_process_group:
+            creationflags |= getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+        result: dict[str, Any] = {"creationflags": creationflags}
+
+        # STARTUPINFO provides an extra safeguard for command launchers such as
+        # uv.exe and bun.exe.  Guarding it retains import/test compatibility on
+        # non-Windows Python builds whose os.name is monkeypatched.
+        startup_info_factory = getattr(subprocess, "STARTUPINFO", None)
+        if startup_info_factory is not None:
+            startupinfo = startup_info_factory()
+            startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+            startupinfo.wShowWindow = getattr(subprocess, "SW_HIDE", 0)
+            result["startupinfo"] = startupinfo
+        return result
 
     def _settings(self) -> dict[str, Any]:
         return load_settings()[0]
@@ -101,8 +138,11 @@ class ServiceManager:
                 cwd=ROOT,
                 capture_output=True,
                 check=False,
+                encoding="utf-8",
+                errors="replace",
                 text=True,
                 timeout=4,
+                **self._hidden_subprocess_kwargs(),
             )
             payload = json.loads(completed.stdout)
         except (OSError, subprocess.SubprocessError, ValueError, json.JSONDecodeError):
@@ -191,37 +231,45 @@ class ServiceManager:
         payload = self._backend_api_request("/api/v1/system/integration-status")
         return normalize_backend_status(payload)
 
-    def _codex_cli(self) -> tuple[bool, str | None]:
-        """Return the installed Codex version using a short, non-shell probe."""
-        executable = which("codex")
-        if executable is None:
-            return False, None
-        try:
-            completed = subprocess.run(
-                [executable, "--version"],
-                capture_output=True,
-                check=False,
-                text=True,
-                timeout=3,
-            )
-        except (OSError, subprocess.SubprocessError):
-            return False, None
-        if completed.returncode != 0:
-            return False, None
-        version = completed.stdout.strip().splitlines()
-        return True, version[0][:120] if version else "Codex CLI"
+    def _codex_cli(self) -> CodexCliDiscovery:
+        """Discover and validate Codex without depending on the process PATH."""
+        def validate(executable: Path) -> CodexCliValidation:
+            try:
+                completed = subprocess.run(
+                    [str(executable), "--version"],
+                    capture_output=True,
+                    check=False,
+                    encoding="utf-8",
+                    errors="replace",
+                    text=True,
+                    timeout=3,
+                    **self._hidden_subprocess_kwargs(),
+                )
+            except subprocess.TimeoutExpired:
+                return CodexCliValidation(False, error="version_timeout")
+            except (OSError, subprocess.SubprocessError):
+                return CodexCliValidation(False, error="version_start_failed")
+            if completed.returncode != 0:
+                return CodexCliValidation(False, error="version_failed")
+            lines = (completed.stdout or completed.stderr).strip().splitlines()
+            if not lines:
+                return CodexCliValidation(False, error="version_empty")
+            return CodexCliValidation(True, version=lines[0][:120])
+
+        return discover_codex_cli(validator=validate)
 
     def diagnose_codex_integration(self) -> CodexDiagnosticReport:
         """Run the Manager's explicit Codex diagnosis; safe to call from a worker."""
-        cli_available, cli_version = self._codex_cli()
+        cli_discovery = self._codex_cli()
         hooks = self.inspect_global_hooks()
         try:
             backend = self.codex_integration_status()
         except (RuntimeError, ValueError):
             backend = CodexBackendStatus(reachable=False)
         return build_diagnostic_report(
-            cli_available=cli_available,
-            cli_version=cli_version,
+            cli_available=cli_discovery.available,
+            cli_version=cli_discovery.version,
+            cli_discovery=cli_discovery,
             hooks_inspection=hooks,
             adapter_available=self.adapter_self_check(),
             backend_status=backend,
@@ -255,6 +303,7 @@ class ServiceManager:
                 check=False,
                 text=True,
                 timeout=30,
+                **self._hidden_subprocess_kwargs(),
             )
         except subprocess.TimeoutExpired:
             return GlobalHooksRepairResult(False, "Global Hooks修復が時間切れになりました")
@@ -282,6 +331,9 @@ class ServiceManager:
         process = self.processes.get(service)
         if process is not None and process.poll() is not None:
             self.processes.pop(service, None)
+            log = getattr(self, "_log_streams", {}).pop(service, None)
+            if log is not None:
+                log.close()
             process = None
         healthy = self._healthy(service)
         return ServiceStatus(
@@ -334,37 +386,55 @@ class ServiceManager:
             environment["NEXT_PUBLIC_WS_URL"] = (
                 f"ws://{settings['backend_host']}:{settings['backend_port']}"
             )
-        creationflags = getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
-        process = subprocess.Popen(
-            command,
-            cwd=cwd,
-            env=environment,
-            stdout=log,
-            stderr=subprocess.STDOUT,
-            creationflags=creationflags,
-        )
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=cwd,
+                env=environment,
+                stdin=subprocess.DEVNULL,
+                stdout=log,
+                stderr=subprocess.STDOUT,
+                **self._hidden_subprocess_kwargs(new_process_group=True),
+            )
+        except (OSError, ValueError):
+            log.close()
+            raise
         self.processes[service] = process
+        self._log_streams[service] = log
         self._save_pid_file()
         return ServiceStatus(service, True, False, process.pid, "starting")
 
     def stop(self, service: str) -> ServiceStatus:
         process = self.processes.pop(service, None)
-        if process is not None and process.poll() is None:
-            if os.name == "nt":
-                try:
-                    process.send_signal(signal.CTRL_BREAK_EVENT)
-                except OSError:
-                    # A detached/frozen Windows process can reject CTRL_BREAK
-                    # even though its process handle is still alive. Fall back
-                    # to the normal terminate path so Manager restart remains
-                    # usable instead of surfacing WinError 6 to the user.
+        try:
+            if process is not None and process.poll() is None:
+                if os.name == "nt":
+                    pid = getattr(process, "pid", None)
+                    if isinstance(pid, int) and pid > 0:
+                        completed = subprocess.run(
+                            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
+                            capture_output=True,
+                            check=False,
+                            text=True,
+                            timeout=8,
+                            **self._hidden_subprocess_kwargs(),
+                        )
+                        if completed.returncode != 0 and process.poll() is None:
+                            process.terminate()
+                    else:
+                        # Compatibility for process-like test doubles and rare
+                        # launchers without a usable PID.
+                        process.terminate()
+                else:
                     process.terminate()
-            else:
-                process.terminate()
-            try:
-                process.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.terminate()
+        finally:
+            log = getattr(self, "_log_streams", {}).pop(service, None)
+            if log is not None:
+                log.close()
         self._save_pid_file()
         return self.status(service)
 
@@ -378,7 +448,7 @@ class ServiceManager:
         if app_mode:
             browser = which("msedge.exe") or which("chrome.exe")
             if browser:
-                subprocess.Popen([browser, f"--app={url}"])
+                subprocess.Popen([browser, f"--app={url}"], **self._hidden_subprocess_kwargs())
                 return
         webbrowser.open(url)
 

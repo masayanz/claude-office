@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import ctypes
 import sys
+import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
 from datetime import UTC, datetime
 
-from PySide6.QtCore import QIODevice, QObject, QTimer, Signal
+from PySide6.QtCore import QIODevice, QObject, QSettings, QTimer, Signal
 from PySide6.QtGui import QAction, QCloseEvent, QIcon
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import (
@@ -28,6 +29,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSpinBox,
     QSystemTrayIcon,
     QTextEdit,
@@ -197,6 +199,9 @@ class ManagerWindow(QMainWindow):
         self._status_labels: dict[str, QLabel] = {}
         self._last_backend_healthy = False
         self._last_frontend_healthy = False
+        self._startup_grace_until = 0.0
+        self._start_requested: set[str] = set()
+        self._restore_maximized = False
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="manager-api")
         self._restore_status_in_flight = False
         self._restore_request_in_flight = False
@@ -212,6 +217,7 @@ class ManagerWindow(QMainWindow):
         self._repair_finished.connect(self._apply_repair_result)
         self._build_window()
         self._build_tray()
+        self._restore_window_geometry()
 
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._refresh_status)
@@ -219,7 +225,9 @@ class ManagerWindow(QMainWindow):
         self._refresh_status()
 
     def _build_window(self) -> None:
-        central = QWidget(self)
+        scroll = QScrollArea(self)
+        scroll.setWidgetResizable(True)
+        central = QWidget(scroll)
         layout = QVBoxLayout(central)
         title = QLabel(PRODUCT_NAME)
         title.setStyleSheet("font-size: 24px; font-weight: 700")
@@ -308,7 +316,74 @@ class ManagerWindow(QMainWindow):
         layout.addLayout(restore_actions)
         layout.addWidget(QLabel("× / Alt+F4: タスクトレイへ収納　　終了: トレイメニューから"))
         layout.addStretch(1)
-        self.setCentralWidget(central)
+        scroll.setWidget(central)
+        self.setCentralWidget(scroll)
+
+    @staticmethod
+    def _window_settings() -> QSettings:
+        return QSettings("AI Office Viewer", "Manager")
+
+    def _restore_window_geometry(self) -> None:
+        """Restore the last position, then make it safe for today's screens."""
+        window_settings = self._window_settings()
+        saved = window_settings.value("windowGeometry")
+        self._restore_maximized = window_settings.value(
+            "windowMaximized", False, type=bool
+        )
+        restored = bool(saved) and self.restoreGeometry(saved)
+        screens = QApplication.screens()
+        primary = QApplication.primaryScreen()
+        if primary is None:
+            return
+
+        frame = self.frameGeometry()
+        screen = QApplication.screenAt(frame.center())
+        if screen is None:
+            intersections = [
+                (
+                    frame.intersected(item.availableGeometry()).width()
+                    * frame.intersected(item.availableGeometry()).height(),
+                    item,
+                )
+                for item in screens
+            ]
+            area, screen = max(intersections, default=(0, primary), key=lambda value: value[0])
+            if area <= 0:
+                screen = primary
+                restored = False
+
+        available = screen.availableGeometry().adjusted(16, 16, -16, -16)
+        maximum_width = max(1, int(available.width() * 0.95))
+        maximum_height = max(1, int(available.height() * 0.95))
+        self.resize(min(self.width(), maximum_width), min(self.height(), maximum_height))
+        frame = self.frameGeometry()
+        if not restored:
+            frame.moveCenter(available.center())
+        else:
+            frame.moveLeft(
+                min(
+                    max(frame.left(), available.left()),
+                    available.right() - frame.width() + 1,
+                )
+            )
+            frame.moveTop(
+                min(
+                    max(frame.top(), available.top()),
+                    available.bottom() - frame.height() + 1,
+                )
+            )
+        self.move(frame.topLeft())
+
+    def _save_window_geometry(self) -> None:
+        window_settings = self._window_settings()
+        window_settings.setValue("windowGeometry", self.saveGeometry())
+        window_settings.setValue("windowMaximized", self.isMaximized())
+
+    def show_initial(self) -> None:
+        if self._restore_maximized:
+            self.showMaximized()
+        else:
+            self.show()
 
     def _build_tray(self) -> None:
         self._tray = QSystemTrayIcon(self._icon, self)
@@ -349,8 +424,11 @@ class ManagerWindow(QMainWindow):
             self.restore_window()
 
     def restore_window(self) -> None:
-        self.show()
-        self.showNormal()
+        if self.isMaximized():
+            self.showMaximized()
+        else:
+            self._restore_window_geometry()
+            self.show()
         self.raise_()
         self.activateWindow()
 
@@ -359,6 +437,7 @@ class ManagerWindow(QMainWindow):
             event.accept()
             return
         event.ignore()
+        self._save_window_geometry()
         self.hide()
         if not self._tray_notice_shown and self._tray.isVisible():
             self._tray_notice_shown = True
@@ -375,9 +454,16 @@ class ManagerWindow(QMainWindow):
         frontend = self.manager.status("frontend")
         self._last_backend_healthy = backend.healthy
         self._last_frontend_healthy = frontend.healthy
-        self._status_labels["backend"].setText(self._status_text(backend.running, backend.healthy))
+        in_startup_grace = time.monotonic() < self._startup_grace_until
+        self._status_labels["backend"].setText(
+            self._status_text(
+                "backend", backend.running, backend.healthy, in_startup_grace
+            )
+        )
         self._status_labels["frontend"].setText(
-            self._status_text(frontend.running, frontend.healthy)
+            self._status_text(
+                "frontend", frontend.running, frontend.healthy, in_startup_grace
+            )
         )
         codex_text = self._codex_report.overall.summary if self._codex_report else "確認中"
         self._tray.setToolTip(
@@ -386,13 +472,19 @@ class ManagerWindow(QMainWindow):
             f"Backend: {'稼働中' if backend.healthy else '停止'}\n"
             f"Codex: {codex_text}"
         )
-        self._poll_codex_diagnostic(full=self._codex_report is None)
+        if backend.healthy or not in_startup_grace:
+            self._poll_codex_diagnostic(full=self._codex_report is None)
 
-    @staticmethod
-    def _status_text(running: bool, healthy: bool) -> str:
+    def _status_text(
+        self, service: str, running: bool, healthy: bool, starting: bool = False
+    ) -> str:
         if healthy:
             return "稼働中"
-        return "起動中" if running else "停止中"
+        if running or (starting and service in self._start_requested):
+            return "起動中"
+        if service in self._start_requested:
+            return f"{service.capitalize()}の起動に失敗しました。\n「ログ」を確認してください。"
+        return "停止中"
 
     def _run_manager_action(self, callback: Callable[[], None], label: str) -> None:
         try:
@@ -508,6 +600,7 @@ class ManagerWindow(QMainWindow):
                 return build_diagnostic_report(
                     cli_available=previous.cli.state == DiagnosticState.OK,
                     cli_version=previous.cli_version,
+                    cli_discovery=previous.cli_discovery,
                     hooks_inspection=previous.hooks_inspection,
                     adapter_available=previous.adapter.state == DiagnosticState.OK,
                     backend_status=backend_status,
@@ -625,12 +718,21 @@ class ManagerWindow(QMainWindow):
             QMessageBox.information(self, "Codex連携の詳細", "診断を実行しています。")
             return
         status = report.backend_status
+        cli_source = "未検出"
+        if report.cli_discovery is not None and report.cli_discovery.source is not None:
+            cli_source = report.cli_discovery.detail
+        settings, _ = load_settings()
         details = "\n".join(
             (
                 f"Codex CLI\n{self._check_text(report.cli)}",
+                f"検出方法: {cli_source}",
+                f"Path: {'存在確認済み（場所は非表示）' if report.cli.state == DiagnosticState.OK else '未確認'}",
+                f"Version: {report.cli_version or '未確認'}",
                 f"\nGlobal Hooks\n{self._check_text(report.hooks)}",
+                f"設定数: {report.hooks_inspection.configured_events}/8",
                 f"\nCodex Adapter\n{self._check_text(report.adapter)}",
                 f"\nBackend API\n{self._check_text(report.backend)}",
+                f"接続先: {settings['backend_host']}:{settings['backend_port']}",
                 f"\nRestored Sessions\n{status.restored_sessions}",
                 f"\nLive Events（今回起動以降）\n{status.live_event_count}",
                 f"\n最終受信\n{report.live_events.detail or '未受信'}",
@@ -652,6 +754,9 @@ class ManagerWindow(QMainWindow):
         dialog.exec()
 
     def _start(self) -> None:
+        self._startup_grace_until = time.monotonic() + 30
+        self._start_requested.update(("backend", "frontend"))
+
         def action() -> None:
             self.manager.start("backend")
             self.manager.start("frontend")
@@ -659,6 +764,8 @@ class ManagerWindow(QMainWindow):
         self._run_manager_action(action, "起動")
 
     def _stop(self) -> None:
+        self._start_requested.clear()
+
         def action() -> None:
             self.manager.stop("frontend")
             self.manager.stop("backend")
@@ -666,6 +773,9 @@ class ManagerWindow(QMainWindow):
         self._run_manager_action(action, "停止")
 
     def _restart(self) -> None:
+        self._startup_grace_until = time.monotonic() + 30
+        self._start_requested.update(("backend", "frontend"))
+
         def action() -> None:
             self.manager.stop("frontend")
             self.manager.stop("backend")
@@ -675,6 +785,9 @@ class ManagerWindow(QMainWindow):
         self._run_manager_action(action, "再起動")
 
     def _restart_backend(self) -> None:
+        self._startup_grace_until = time.monotonic() + 30
+        self._start_requested.add("backend")
+
         def action() -> None:
             self.manager.stop("backend")
             self.manager.start("backend")
@@ -704,17 +817,20 @@ class ManagerWindow(QMainWindow):
         dialog.setWindowIcon(self._icon)
         dialog.resize(900, 580)
         layout = QVBoxLayout(dialog)
+        selector = QComboBox()
+        selector.addItem("Manager", "manager")
+        selector.addItem("Backend", "backend")
+        selector.addItem("Frontend", "frontend")
+        layout.addWidget(selector)
         text = QTextEdit()
         text.setReadOnly(True)
-        text.setPlainText(
-            "[Manager]\n"
-            + self.manager.read_logs("manager")
-            + "\n\n[Backend]\n"
-            + self.manager.read_logs("backend")
-            + "\n\n[Frontend]\n"
-            + self.manager.read_logs("frontend")
-        )
+        refresh = lambda: text.setPlainText(self.manager.read_logs(str(selector.currentData())))
+        selector.currentIndexChanged.connect(lambda _index: refresh())
+        refresh()
         layout.addWidget(text)
+        refresh_button = QPushButton("更新")
+        refresh_button.clicked.connect(refresh)
+        layout.addWidget(refresh_button)
         close_button = QPushButton("閉じる")
         close_button.clicked.connect(dialog.accept)
         layout.addWidget(close_button)
@@ -722,6 +838,7 @@ class ManagerWindow(QMainWindow):
 
     def _quit_from_tray(self) -> None:
         self._is_quitting = True
+        self._save_window_geometry()
         settings, _ = load_settings()
         if settings.get("stop_servers_on_manager_exit", False):
             self.manager.stop("frontend")
@@ -749,7 +866,7 @@ def run() -> int:
     window = ManagerWindow(icon)
     instance.show_requested.connect(window.restore_window)
     app.aboutToQuit.connect(instance.close)
-    window.show()
+    window.show_initial()
     return app.exec()
 
 

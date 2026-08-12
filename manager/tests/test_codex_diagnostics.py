@@ -11,9 +11,12 @@ import pytest
 from manager.codex_diagnostics import (
     REQUIRED_CODEX_HOOK_EVENTS,
     CodexBackendStatus,
+    CodexCliSource,
+    CodexCliValidation,
     DiagnosticState,
     GlobalHooksInspection,
     build_diagnostic_report,
+    discover_codex_cli,
     inspect_global_hooks,
     normalize_backend_status,
 )
@@ -151,7 +154,7 @@ def test_backend_payload_tracks_live_separately_from_restore() -> None:
                 restored_sessions=1,
                 backend_started_at=datetime(2026, 8, 12, tzinfo=UTC),
             ),
-            DiagnosticState.WARNING,
+            DiagnosticState.WAITING,
         ),
         (
             CodexBackendStatus(
@@ -208,3 +211,106 @@ def test_missing_adapter_is_an_overall_error(tmp_path: Path) -> None:
 
     assert report.adapter.state == DiagnosticState.ERROR
     assert report.overall.state == DiagnosticState.ERROR
+
+
+def test_cli_discovery_prefers_environment_override_and_validates_version(tmp_path: Path) -> None:
+    override = tmp_path / "custom-codex.exe"
+    override.write_text("", encoding="utf-8")
+    desktop = tmp_path / "AppData" / "Local" / "Programs" / "Codex" / "codex.exe"
+    desktop.parent.mkdir(parents=True)
+    desktop.write_text("", encoding="utf-8")
+    checked: list[Path] = []
+
+    result = discover_codex_cli(
+        environment={
+            "CODEX_CLI_PATH": str(override),
+            "LOCALAPPDATA": str(tmp_path / "AppData" / "Local"),
+        },
+        home=tmp_path,
+        path_lookup=lambda _: None,
+        validator=lambda path: (
+            checked.append(path) or CodexCliValidation(True, "codex 1.2.3")
+        ),
+    )
+
+    assert result.available is True
+    assert result.source == CodexCliSource.ENVIRONMENT
+    assert result.version == "codex 1.2.3"
+    assert checked == [override]
+
+
+def test_cli_discovery_uses_config_before_desktop_extension_and_path(tmp_path: Path) -> None:
+    config_cli = tmp_path / "bin" / "codex.exe"
+    config_cli.parent.mkdir()
+    config_cli.write_text("", encoding="utf-8")
+    config = tmp_path / "config.toml"
+    config.write_text('codex_cli_path = "bin/codex.exe"', encoding="utf-8")
+    extension_cli = tmp_path / ".vscode" / "extensions" / "openai.chatgpt-1.0" / "bin" / "codex.exe"
+    extension_cli.parent.mkdir(parents=True)
+    extension_cli.write_text("", encoding="utf-8")
+
+    result = discover_codex_cli(
+        environment={},
+        home=tmp_path,
+        config_paths=(config,),
+        path_lookup=lambda _: str(extension_cli),
+        validator=lambda _: CodexCliValidation(True, "codex config"),
+    )
+
+    assert result.available is True
+    assert result.source == CodexCliSource.CONFIG
+
+
+def test_cli_discovery_reports_validation_failure_without_a_full_path(tmp_path: Path) -> None:
+    executable = tmp_path / "secret" / "codex.exe"
+    executable.parent.mkdir()
+    executable.write_text("", encoding="utf-8")
+
+    result = discover_codex_cli(
+        environment={"CODEX_CLI_PATH": str(executable)},
+        home=tmp_path,
+        path_lookup=lambda _: None,
+        validator=lambda _: CodexCliValidation(False, error="version_failed"),
+    )
+
+    assert result.available is False
+    assert result.source == CodexCliSource.ENVIRONMENT
+    assert result.cause == "version_failed"
+    assert str(executable) not in result.detail
+
+
+def test_cli_absence_is_a_warning_not_an_overall_error(tmp_path: Path) -> None:
+    report = build_diagnostic_report(
+        cli_available=False,
+        cli_version=None,
+        cli_discovery=discover_codex_cli(
+            environment={}, home=tmp_path, path_lookup=lambda _: None
+        ),
+        hooks_inspection=_inspection(tmp_path),
+        adapter_available=True,
+        backend_status=CodexBackendStatus(reachable=True),
+    )
+
+    assert report.cli.state == DiagnosticState.WARNING
+    assert report.overall.state == DiagnosticState.WARNING
+    assert "CODEX_CLI_PATH" in report.recommendation
+
+
+def test_restored_session_waits_for_monitoring_window_before_live_warning(tmp_path: Path) -> None:
+    now = datetime(2026, 8, 12, 0, 0, 30, tzinfo=UTC)
+    report = build_diagnostic_report(
+        cli_available=True,
+        cli_version="codex 1.0",
+        hooks_inspection=_inspection(tmp_path),
+        adapter_available=True,
+        backend_status=CodexBackendStatus(
+            reachable=True,
+            restored_sessions=1,
+            backend_started_at=now - timedelta(seconds=10),
+            last_restored_at=now - timedelta(seconds=5),
+        ),
+        now=now,
+    )
+
+    assert report.live_events.state == DiagnosticState.WAITING
+    assert report.overall.state == DiagnosticState.WAITING

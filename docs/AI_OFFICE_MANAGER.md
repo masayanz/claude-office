@@ -23,7 +23,7 @@ uv sync --extra manager
 
 アプリケーションアイコンは`manager/assets/claude-office-manager.ico`に指定しています。
 
-ManagerからBackend/Frontendを起動、停止、再起動できます。状態カードはhealth応答と管理対象プロセスを確認し、ログ画面では`runtime/logs`を表示します。ブラウザ表示は通常ブラウザとEdge/Chromeのアプリ表示を選べます。
+ManagerからBackend/Frontendを起動、停止、再起動できます。Windowsでは子プロセスをコンソール非表示で起動し、stdout/stderrは`runtime/logs`へ保存します。ログ画面ではManager・Backend・Frontendを切り替えて更新できます。起動後30秒までは「起動中」としてhealth応答を待ち、失敗したサービスだけにログ確認を案内します。ブラウザ表示は通常ブラウザとEdge/Chromeのアプリ表示を選べます。
 
 Backend起動後は、進行中のCodexセッションをバックグラウンドで自動確認します。ViewerをCodex作業の途中から起動しても、保存済みsession metadataから現在のCodex Main、稼働中subagent、未完了tool状態を復元し、その後のglobal lifecycle hooksへ引き継ぎます。状態カードには「確認中…」「2件復元」「復元対象なし」などの結果が表示されます。復元に失敗してもCodex自体の処理には影響しません。
 
@@ -32,6 +32,11 @@ Live Eventsを個別に判定します。復元成功はlive受信成功とし�
 受信したCodex lifecycle eventだけを件数・最終受信時刻へ反映し、active sessionを復元済み
 なのに60秒以上live eventがない場合は「復元のみ」としてVS Code再起動の可能性を案内します。
 active sessionがなく未受信の場合は異常ではなく「待機」です。
+
+Codex CLIは`CODEX_CLI_PATH`、Codex設定、Codex Desktop、VS Code OpenAI/ChatGPT拡張、
+PATHの順に探索し、実体の`--version`が成功した場合だけ利用可能とします。PATH未登録やCLI未検出
+だけではhook経由の連携全体をエラーにしません。「詳細」では検出方法、Version、Hooks件数、
+Backend接続先、復元件数、Live件数を表示しますが、ユーザー固有の完全なCLI pathは表示しません。
 
 「Codex連携を診断」は重い構造検査をバックグラウンドで実行し、通常監視は3秒ごとの軽量API
 確認だけを行います。「Global Hooksを修復」は既存の他hooksを保ったまま、移動後のViewer
@@ -49,7 +54,7 @@ root、launcher、adapter pathを現在位置へ更新します。VS Codeを自�
 
 必要な場合は「Codexセッションを再読込」ボタンまたはトレイメニューから手動scanできます。同じ`session_id` / `agent_id`は既存状態へマージされ、重複キャラクターは作成されません。
 
-ManagerはPySide6のタスクトレイ常駐アプリです。×またはAlt+F4ではウィンドウだけが非表示になり、トレイアイコンのダブルクリックまたは「AI Office Viewer Managerを開く」で復元します。完全終了はトレイメニューの「終了」から行います。
+ManagerはPySide6のタスクトレイ常駐アプリです。×またはAlt+F4ではウィンドウだけが非表示になり、監視は継続します。トレイアイコンのダブルクリックまたは「AI Office Viewer Managerを開く」で復元し、完全終了はトレイメニューの「終了」から行います。通常時の位置とサイズはManager専用設定へ保存します。前回のモニタが外された場合、解像度やDPIが変わった場合、保存位置が現在の作業領域外の場合は、利用可能画面内へ縮小・補正してタイトルバーを表示します。初回または完全に画面外の場合はprimary screenの中央へ配置します。内容部分は小さい画面でもスクロールできます。
 
 `uv sync --extra manager`でPySide6とPyInstallerを導入します。
 

@@ -51,6 +51,8 @@ venv.bak/
 .coverage
 htmlcov/
 .pytest_cache/
+.pytest-*/
+.test-temp-*/
 .mypy_cache/
 .ruff_cache/
 .hypothesis/

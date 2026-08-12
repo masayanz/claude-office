@@ -601,7 +601,12 @@ class ServiceManager:
             f"Adapter={report.adapter.state.value.upper()} "
             f"Backend={report.backend.state.value.upper()} "
             f"Restore={status.restored_sessions} "
-            f"LiveEvents={status.live_event_count}\n"
+            f"LiveEvents={status.live_event_count} "
+            f"TailEvents={status.tail_event_count} "
+            f"Mode={status.current_input_mode} "
+            f"Monitored={status.monitored_sessions} "
+            f"Deduped={status.deduplicated_events} "
+            f"ParseErrors={status.jsonl_parse_errors}\n"
         )
         try:
             with (LOG_DIR / "manager.log").open("a", encoding="utf-8") as stream:

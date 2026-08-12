@@ -67,6 +67,9 @@ def _base_data(payload: Mapping[str, object]) -> dict[str, str]:
     model = _safe_metadata(payload.get("model"))
     if model is not None:
         data["model"] = model
+    turn_id = _safe_metadata(payload.get("turn_id"))
+    if turn_id is not None:
+        data["turn_id"] = turn_id
     return data
 
 

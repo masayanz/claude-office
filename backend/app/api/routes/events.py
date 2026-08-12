@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.config import get_settings
+from app.core.codex_hybrid import get_codex_hybrid_coordinator
 from app.core.codex_integration import get_codex_live_telemetry
 from app.core.event_processor import EventProcessor, get_event_processor
 from app.models.events import AnyEvent
@@ -131,7 +132,15 @@ async def receive_event(
     # Record receipt before background processing. Restoration bypasses this
     # route, and an explicit restored marker is excluded defensively.
     get_codex_live_telemetry().record(event)
-    background_tasks.add_task(ep.process_event, event)
+    # Hooks remain the fast path. The hybrid coordinator performs the same
+    # processor call asynchronously and suppresses a later JSONL duplicate.
+    coordinator = get_codex_hybrid_coordinator()
+    if coordinator.is_bound_to(ep) and event.data.source == "codex":
+        background_tasks.add_task(coordinator.process, event, source="hook")
+    else:
+        # Preserve the standalone/test path before application lifespan binds
+        # the coordinator.
+        background_tasks.add_task(ep.process_event, event)
     return {
         "status": "accepted",
         "event_id": str(event.timestamp),

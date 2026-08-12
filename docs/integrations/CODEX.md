@@ -54,6 +54,15 @@ adapter's sanitized lifecycle metadata to catch up to the current state. It does
 Codex's SQLite schema or the VS Code extension protocol. The global hook does not replace an
 existing `notify` command.
 
+After startup restoration, a separate bounded JSONL tail monitor tracks new
+rollout records by byte offset. Lifecycle hooks remain the preferred live path;
+when a session has JSONL activity but no recent hook delivery it uses
+`TAIL_FALLBACK`, and when both sources are active it uses `HYBRID`. New rollout
+files are discovered from a bounded `session_index.jsonl` tail and the current
+date directories without a recursive filesystem scan. Hook and JSONL records
+are normalized before deduplication, so starting Viewer after an existing VS
+Code Codex chat does not require restarting VS Code or creating a new chat.
+
 When upgrading Codex, compare the configuration with the
 [official Codex Hooks documentation](https://developers.openai.com/codex/hooks).
 
@@ -159,6 +168,11 @@ arrival order within the session: **Codex Agent 1**, **Codex Agent 2**, and so o
 `agent_id` follows a child from `SubagentStart`, through tool events, to `SubagentStop`; its display
 number remains reserved after the character leaves.
 
+Native rollout mapping is conservative. `session_meta`, `task_started`,
+`task_complete`, function-call records and explicit subagent activity are used
+only when the current schema provides the required identifiers. Unknown records
+are ignored; transcript text is never interpreted to invent an event.
+
 Tool names are normalized as follows:
 
 | Codex tool | AI Office Viewer tool |
@@ -234,6 +248,10 @@ Limitations:
 - only the newest bounded set of rollout candidates is inspected, so extremely high session churn
   can omit an older child whose root/index metadata is no longer recent;
 - unknown records in a changed Codex format are ignored rather than guessed;
+- restore and tail monitoring are separate services: restore rebuilds the past
+  state, while tail monitoring processes only new append data;
+- polling is bounded to at most 10 monitored sessions by default and can be
+  tuned with `CODEX_TAIL_MAX_SESSIONS` and `CODEX_TAIL_POLL_INTERVAL`;
 - startup restoration is currently Codex-only; Claude Code and OpenCode keep their existing
   real-time integrations.
 
@@ -249,6 +267,7 @@ source = codex
 model when safely formatted
 project_name from the safe `cwd` basename
 tool_name and tool_use_id on tool events
+turn_id when supplied by Codex
 agent_id and safely formatted agent_type when present
 ```
 

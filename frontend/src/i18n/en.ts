@@ -21,6 +21,8 @@ const en = {
   "header.codexLive": "LIVE",
   "header.codexWaiting": "WAITING",
   "header.codexRestored": "RESTORED",
+  "header.codexHybrid": "HYBRID",
+  "header.codexJsonl": "JSONL",
   "header.codexLastEvent": "Last event: {time}",
   "header.codexNoEvents": "Last event: none",
   "header.codexLiveEventCount": "Live events: {count}",

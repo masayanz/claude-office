@@ -28,6 +28,8 @@ from app.api.routes import (
 )
 from app.config import get_settings
 from app.core.event_processor import EventProcessor, get_event_processor
+from app.core.codex_hybrid import get_codex_hybrid_coordinator
+from app.core.codex_jsonl_tail import get_codex_jsonl_tail_monitor
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema
@@ -86,6 +88,10 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     # Restoration is intentionally backgrounded so health checks and the UI
     # become available immediately while bounded Codex metadata is scanned.
     shared_settings, _ = load_settings()
+    hybrid_coordinator = get_codex_hybrid_coordinator()
+    hybrid_coordinator.bind(get_event_processor())
+    codex_tail_monitor = get_codex_jsonl_tail_monitor()
+    codex_tail_monitor.start(hybrid_coordinator)
     codex_restorer = None
     if bool(shared_settings.get("restore_codex_sessions", True)):
         from app.core.codex_session_restorer import get_codex_session_restorer
@@ -110,6 +116,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     if codex_restorer is not None:
         await codex_restorer.cancel()
+    await codex_tail_monitor.stop()
     # Cancel any pending debounced overview broadcast so shutdown is clean.
     await get_event_processor().shutdown()
     idle_evictor.cancel()

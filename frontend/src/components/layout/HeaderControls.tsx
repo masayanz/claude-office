@@ -66,9 +66,13 @@ export function HeaderControls({
   const codexStateLabel = t(
     codexIntegration.state === "live"
       ? "header.codexLive"
-      : codexIntegration.state === "restored"
-        ? "header.codexRestored"
-        : "header.codexWaiting",
+      : codexIntegration.state === "hybrid"
+        ? "header.codexHybrid"
+        : codexIntegration.state === "jsonl"
+          ? "header.codexJsonl"
+          : codexIntegration.state === "restored"
+            ? "header.codexRestored"
+            : "header.codexWaiting",
   );
   const relativeLastEvent = formatRelativeCodexEventTime(
     codexIntegration.lastLiveEventAt,
@@ -172,19 +176,27 @@ export function HeaderControls({
             title={codexTitle}
             className={`flex items-center gap-1.5 font-mono text-xs cursor-help ${
               codexIntegration.state === "live"
-                ? "text-emerald-400"
-                : codexIntegration.state === "restored"
-                  ? "text-amber-400"
-                  : "text-slate-500"
+      ? "text-emerald-400"
+      : codexIntegration.state === "hybrid"
+        ? "text-sky-400"
+        : codexIntegration.state === "jsonl"
+          ? "text-cyan-400"
+          : codexIntegration.state === "restored"
+            ? "text-amber-400"
+            : "text-slate-500"
             }`}
           >
             <span
               className={`w-1.5 h-1.5 rounded-full ${
                 codexIntegration.state === "live"
                   ? "bg-emerald-400 animate-pulse"
-                  : codexIntegration.state === "restored"
-                    ? "bg-amber-400"
-                    : "bg-slate-500"
+                  : codexIntegration.state === "hybrid"
+                    ? "bg-sky-400"
+                    : codexIntegration.state === "jsonl"
+                      ? "bg-cyan-400"
+                      : codexIntegration.state === "restored"
+                        ? "bg-amber-400"
+                        : "bg-slate-500"
               }`}
             />
             <span className="text-[10px]">{t("header.codex")}</span>

@@ -25,12 +25,12 @@ uv sync --extra manager
 
 ManagerからBackend/Frontendを起動、停止、再起動できます。Windowsでは子プロセスをコンソール非表示で起動し、stdout/stderrは`runtime/logs`へ保存します。ログ画面ではManager・Backend・Frontendを切り替えて更新できます。起動後30秒までは「起動中」としてhealth応答を待ち、失敗したサービスだけにログ確認を案内します。ブラウザ表示は通常ブラウザとEdge/Chromeのアプリ表示を選べます。
 
-Backend起動後は、進行中のCodexセッションをバックグラウンドで自動確認します。ViewerをCodex作業の途中から起動しても、保存済みsession metadataから現在のCodex Main、稼働中subagent、未完了tool状態を復元し、その後のglobal lifecycle hooksへ引き継ぎます。状態カードには「確認中…」「2件復元」「復元対象なし」などの結果が表示されます。復元に失敗してもCodex自体の処理には影響しません。
+Backend起動後は、進行中のCodexセッションをバックグラウンドで自動確認します。ViewerをCodex作業の途中から起動しても、保存済みsession metadataから現在のCodex Main、稼働中subagent、未完了tool状態を復元します。その後はglobal lifecycle hooksを主経路にし、既存VS Code sessionなどでhooksが届かない場合はrollout JSONLのtail監視へ自動的にfallbackします。VS Code再起動や新しいchat作成は必要ありません。
 
 「Codex連携状態」ではCLI、8件のGlobal Hooks、Adapter、Backend API、Session Restore、
-Live Eventsを個別に判定します。復元成功はlive受信成功として扱いません。Backend起動後に
-受信したCodex lifecycle eventだけを件数・最終受信時刻へ反映し、active sessionを復元済み
-なのに60秒以上live eventがない場合は「復元のみ」としてVS Code再起動の可能性を案内します。
+JSONL Monitor、Live Eventsを個別に判定します。Live表示はHooks、Hybrid、JSONL fallback、
+待機を区別します。JSONL監視が生きている場合、hooksが届かないことだけでエラーや「復元のみ」
+にはしません。HookとJSONLの同一イベントは1回だけViewerへ送ります。
 active sessionがなく未受信の場合は異常ではなく「待機」です。
 
 Codex CLIは`CODEX_CLI_PATH`、Codex設定、Codex Desktop、VS Code OpenAI/ChatGPT拡張、
@@ -81,7 +81,8 @@ Managerを使わずに起動する場合は、リポジトリ直下の`start_ai_
 
 - Codexが保存したJSONL session metadataと、AI Office Viewer adapterが保存する本文なしのlifecycle metadataを利用します。
 - 設定時間より古いsessionと、終了を確認できたsessionは復元しません。復元は新しいactive sessionを最大10件までに制限します。
-- JSONLはhead/tailだけを上限付きで読み、本文なしの補助journalは1日16MiB、3日より古いものを次回hook時に削除します。復元scanはバックグラウンドで動作します。
+- 復元は過去から現在状態を再構築し、復元完了後の追記は別のJSONL tail monitorがbyte offsetで追跡します。当日・前日・翌日のsession directoryとbounded session indexだけを軽量pollingし、監視対象は最大10 sessionです。
+- JSONLはhead/tailだけを上限付きで読み、本文なしの補助journalは1日16MiB、3日より古いものを次回hook時に削除します。partial line、truncate、rotation、削除、parse errorを安全に扱います。
 - 書き込み中JSONLの末尾や非常に短い瞬間状態は、完全に再現できない場合があります。
-- prompt、command、file content、stdout/stderr、assistant responseはViewerへ転送しません。
+- prompt、command本文、tool input/output、file content、stdout/stderr、assistant response、secretはViewer・Backend状態・Managerログへ転送しません。
 - 初期版の起動時復元はCodex専用です。Claude Code / OpenCodeの既存リアルタイム連携は変更しません。

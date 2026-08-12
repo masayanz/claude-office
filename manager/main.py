@@ -272,6 +272,7 @@ class ManagerWindow(QMainWindow):
                 ("codex_backend", "Backend API"),
                 ("codex_restore", "Session Restore"),
                 ("codex_live", "Live Events"),
+                ("codex_jsonl", "JSONL Monitor"),
             )
         ):
             card = QGroupBox(label)
@@ -665,6 +666,7 @@ class ManagerWindow(QMainWindow):
             ("codex_backend", result.backend),
             ("codex_restore", result.restore),
             ("codex_live", result.live_events),
+            ("codex_jsonl", result.jsonl_monitor),
         ):
             label = self._status_labels[key]
             label.setText(self._check_text(check))
@@ -741,6 +743,13 @@ class ManagerWindow(QMainWindow):
                 f"接続先: {settings['backend_host']}:{settings['backend_port']}",
                 f"\nRestored Sessions\n{status.restored_sessions}",
                 f"\nLive Events（今回起動以降）\n{status.live_event_count}",
+                f"\nJSONL Monitor\n{self._check_text(report.jsonl_monitor)}",
+                f"監視session: {status.monitored_sessions}",
+                f"取得方法: {status.current_input_mode}",
+                f"Last Hook event: {status.last_hook_event_at or '未受信'}",
+                f"Last JSONL event: {status.last_jsonl_event_at or '未受信'}",
+                f"重複排除: {status.deduplicated_events}",
+                f"Parse errors: {status.jsonl_parse_errors}",
                 f"\n最終受信\n{report.live_events.detail or '未受信'}",
                 f"\n推奨対応\n{report.recommendation or '対応は不要です'}",
             )

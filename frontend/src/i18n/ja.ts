@@ -14,6 +14,8 @@ const ja: Record<TranslationKey, string> = {
   "header.codexLive": "受信中",
   "header.codexWaiting": "待機中",
   "header.codexRestored": "復元のみ",
+  "header.codexHybrid": "Hybrid",
+  "header.codexJsonl": "JSONL監視中",
   "header.codexLastEvent": "最終受信: {time}",
   "header.codexNoEvents": "最終受信: 未受信",
   "header.codexLiveEventCount": "ライブイベント: {count}件",

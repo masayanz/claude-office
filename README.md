@@ -151,7 +151,10 @@ normal/app browser mode. See
 
 Codex作業開始後にAI Office Viewerを起動した場合も、既定では直近30分の保存済み
 session metadataを確認し、進行中のCodex Main / Codex Agentとtool状態を自動復元します。
-復元後は通常のglobal lifecycle hooksへそのまま合流します。ManagerとWeb設定から
+復元後は通常のglobal lifecycle hooksへそのまま合流します。既存のVS Code Codex sessionで
+hooksが届かない場合も、当日分のrollout JSONLをbounded tail監視して活動表示を継続します。
+そのためViewerをCodexより後に起動しても、VS Code再起動や新しいchat作成は必要ありません。
+hooksとJSONLが同じイベントを取得した場合は重複排除します。ManagerとWeb設定から
 自動復元のON/OFF・対象時間を変更でき、手動で再読込することもできます。
 
 ## Prerequisites

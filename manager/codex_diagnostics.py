@@ -113,6 +113,16 @@ class CodexBackendStatus:
     restored_sessions: int = 0
     last_restored_at: datetime | None = None
     active_codex_sessions: int = 0
+    current_input_mode: str = "IDLE"
+    monitored_sessions: int = 0
+    tail_event_count: int = 0
+    deduplicated_events: int = 0
+    last_hook_event_at: datetime | None = None
+    last_jsonl_event_at: datetime | None = None
+    jsonl_monitor: str = "disabled"
+    jsonl_monitor_health: str = "idle"
+    jsonl_parse_errors: int = 0
+    jsonl_file_access_failures: int = 0
     detail: str = ""
 
 
@@ -126,6 +136,7 @@ class CodexDiagnosticReport:
     backend: DiagnosticCheck
     restore: DiagnosticCheck
     live_events: DiagnosticCheck
+    jsonl_monitor: DiagnosticCheck
     overall: DiagnosticCheck
     recommendation: str
     backend_status: CodexBackendStatus
@@ -400,12 +411,24 @@ def normalize_backend_status(payload: dict[str, Any]) -> CodexBackendStatus:
         reachable=backend_ok,
         live_event_count=_non_negative_int(codex.get("live_event_count")),
         last_live_event_at=_parse_datetime(codex.get("last_live_event_at")),
+        last_hook_event_at=_parse_datetime(codex.get("last_hook_event_at")),
+        last_jsonl_event_at=_parse_datetime(codex.get("last_jsonl_event_at")),
         backend_started_at=_parse_datetime(codex.get("backend_started_at")),
         restore_state=str(codex.get("restore_state", "idle")).lower(),
         restored_sessions=_non_negative_int(codex.get("restored_sessions")),
         last_restored_at=_parse_datetime(codex.get("last_restored_at")),
         active_codex_sessions=_non_negative_int(
             codex.get("active_codex_sessions", codex.get("active_sessions", 0))
+        ),
+        current_input_mode=str(codex.get("current_input_mode", "IDLE")),
+        monitored_sessions=_non_negative_int(codex.get("monitored_sessions")),
+        tail_event_count=_non_negative_int(codex.get("tail_event_count")),
+        deduplicated_events=_non_negative_int(codex.get("deduplicated_events")),
+        jsonl_monitor=str(codex.get("jsonl_monitor", "disabled")),
+        jsonl_monitor_health=str(codex.get("jsonl_monitor_health", "idle")),
+        jsonl_parse_errors=_non_negative_int(codex.get("jsonl_parse_errors")),
+        jsonl_file_access_failures=_non_negative_int(
+            codex.get("jsonl_file_access_failures")
         ),
     )
 
@@ -627,6 +650,27 @@ def build_diagnostic_report(
         else "AI Office Viewer Backendが停止している可能性があります",
     )
 
+    monitor_active = backend_status.jsonl_monitor in {"monitoring", "healthy"}
+    if not backend_status.reachable:
+        jsonl_monitor = DiagnosticCheck(
+            DiagnosticState.ERROR, "確認できません", "Backendへ接続できません"
+        )
+    elif monitor_active and backend_status.jsonl_monitor_health == "healthy":
+        jsonl_monitor = DiagnosticCheck(
+            DiagnosticState.OK,
+            "監視中",
+            f"{backend_status.monitored_sessions} sessions / "
+            f"parse errors: {backend_status.jsonl_parse_errors}",
+        )
+    elif backend_status.monitored_sessions:
+        jsonl_monitor = DiagnosticCheck(
+            DiagnosticState.WARNING,
+            "要確認",
+            "監視対象はありますが、JSONL monitorが稼働していません",
+        )
+    else:
+        jsonl_monitor = DiagnosticCheck(DiagnosticState.WAITING, "待機中")
+
     restoring = backend_status.restore_state in {"checking", "pending", "running"}
     restore_failed = backend_status.restore_state in {"failed", "error"}
     if restore_failed:
@@ -653,6 +697,8 @@ def build_diagnostic_report(
     # session is still active. Only explicit Backend activity can make idle
     # live events suspicious.
     active_sessions = backend_status.active_codex_sessions
+    tail_age = _age_seconds(backend_status.last_jsonl_event_at, current)
+    recent_tail = tail_age is not None and tail_age <= stale_seconds
     recent_live = last_age is not None and last_age <= stale_seconds
     # A restored session does not itself generate live hook events.  Give the
     # user one monitoring window after startup or restore before flagging it.
@@ -666,6 +712,18 @@ def build_diagnostic_report(
     )
     if not backend_status.reachable:
         live = DiagnosticCheck(DiagnosticState.ERROR, "確認できません", "Backendへ接続できません")
+    elif backend_status.current_input_mode == "HYBRID":
+        live = DiagnosticCheck(
+            DiagnosticState.OK,
+            "Hybrid",
+            f"Hooks + JSONL / 最終JSONL: {_age_text(tail_age)}",
+        )
+    elif backend_status.current_input_mode == "TAIL_FALLBACK" or recent_tail:
+        live = DiagnosticCheck(
+            DiagnosticState.OK,
+            "JSONL fallback",
+            f"JSONL監視中 / 最終更新: {_age_text(tail_age)}",
+        )
     elif recent_live:
         live = DiagnosticCheck(
             DiagnosticState.OK,
@@ -751,6 +809,7 @@ def build_diagnostic_report(
         backend=backend,
         restore=restore,
         live_events=live,
+        jsonl_monitor=jsonl_monitor,
         overall=overall,
         recommendation=recommendation,
         backend_status=backend_status,

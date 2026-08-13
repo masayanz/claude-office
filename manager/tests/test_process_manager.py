@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+import manager.process_manager as process_manager
 from manager.process_manager import (
     CodexRestoreStatus,
     GlobalHooksRepairResult,
@@ -390,6 +391,104 @@ def test_open_web_settings_rejects_unknown_section(monkeypatch: pytest.MonkeyPat
 
     with pytest.raises(ValueError, match="種類"):
         manager.open_web_settings("unknown")
+
+
+def test_open_normal_browser_uses_the_default_browser(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+    opened: list[str] = []
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
+
+    result = manager.open_normal_browser()
+
+    assert result.succeeded is True
+    assert result.mode == "normal"
+    assert opened == ["http://127.0.0.1:3123"]
+
+
+def test_find_dedicated_browser_prefers_edge_installation(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    edge = tmp_path / "Microsoft" / "Edge" / "Application" / "msedge.exe"
+    edge.parent.mkdir(parents=True)
+    edge.write_bytes(b"")
+    for key in ("PROGRAMFILES(X86)", "PROGRAMFILES", "PROGRAMW6432", "LOCALAPPDATA"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("PROGRAMFILES", str(tmp_path))
+    monkeypatch.setattr(process_manager, "which", lambda _name: None)
+
+    assert ServiceManager._find_dedicated_browser() == ("Edge", str(edge))
+
+
+def test_find_dedicated_browser_falls_back_to_chrome(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    chrome = tmp_path / "Google" / "Chrome" / "Application" / "chrome.exe"
+    chrome.parent.mkdir(parents=True)
+    chrome.write_bytes(b"")
+    for key in ("PROGRAMFILES(X86)", "PROGRAMFILES", "PROGRAMW6432", "LOCALAPPDATA"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr(process_manager, "which", lambda _name: None)
+
+    assert ServiceManager._find_dedicated_browser() == ("Chrome", str(chrome))
+
+
+def test_dedicated_view_uses_app_mode_and_reuses_its_process(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(
+        manager,
+        "_find_dedicated_browser",
+        lambda: ("Edge", r"C:\\Program Files\\Microsoft\\Edge\\msedge.exe"),
+    )
+    monkeypatch.setattr(process_manager, "RUNTIME_DIR", tmp_path / "runtime")
+    commands: list[list[str]] = []
+
+    class Process:
+        pid = 4321
+
+        def poll(self) -> None:
+            return None
+
+    process = Process()
+    monkeypatch.setattr(
+        process_manager.subprocess,
+        "Popen",
+        lambda command, **_kwargs: commands.append(command) or process,
+    )
+
+    first = manager.open_dedicated_view((100, 200, 1600, 900))
+    second = manager.open_dedicated_view((100, 200, 1600, 900))
+
+    assert first.succeeded is True
+    assert first.browser == "Edge"
+    assert second.succeeded is True
+    assert second.reused is True
+    assert len(commands) == 1
+    assert commands[0][0].endswith("msedge.exe")
+    assert "--app=http://127.0.0.1:3123" in commands[0]
+    assert "--new-window" in commands[0]
+    assert "--window-size=1408,792" in commands[0]
+    assert "--window-position=196,254" in commands[0]
+    assert any(item.startswith("--user-data-dir=") for item in commands[0])
+
+
+def test_dedicated_view_reports_unavailable_frontend_or_browser(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: False)
+    unavailable = manager.open_dedicated_view()
+    assert unavailable.succeeded is False
+    assert "Frontend" in unavailable.detail
+
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(manager, "_find_dedicated_browser", lambda: None)
+    missing_browser = manager.open_dedicated_view()
+    assert missing_browser.succeeded is False
+    assert "Edge" in missing_browser.detail
 
 
 def test_service_commands_do_not_use_shell_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:

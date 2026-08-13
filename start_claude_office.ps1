@@ -74,6 +74,29 @@ function Test-PortInUse([string]$hostName, [int]$port) {
     }
 }
 
+function Find-AppBrowser {
+    $roots = @(
+        [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFilesX86),
+        [Environment]::GetFolderPath([Environment+SpecialFolder]::ProgramFiles),
+        $env:ProgramFiles,
+        ${env:ProgramFiles(x86)},
+        $env:LOCALAPPDATA
+    ) | Where-Object { $_ }
+    $installations = @(
+        @{ Name = "Microsoft Edge"; RelativePath = "Microsoft\Edge\Application\msedge.exe" },
+        @{ Name = "Google Chrome"; RelativePath = "Google\Chrome\Application\chrome.exe" }
+    )
+    foreach ($installation in $installations) {
+        foreach ($rootPath in $roots) {
+            $candidate = Join-Path $rootPath $installation.RelativePath
+            if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+        }
+        $command = Get-Command ([IO.Path]::GetFileName($installation.RelativePath)) -ErrorAction SilentlyContinue
+        if ($command) { return $command.Source }
+    }
+    return $null
+}
+
 function Wait-EndpointReady([ValidateSet("Backend", "Frontend")][string]$kind, [string]$name, [string]$url, [int]$maxSeconds = 30) {
     for ($second = 0; $second -lt $maxSeconds; $second++) {
         if (Test-EndpointReady $kind $url) { return $true }
@@ -147,11 +170,17 @@ if ($frontendNeedsCheck) {
 if ($backendReady -and $frontendReady) {
     try {
         if ([bool]$appSettings.open_browser_on_start -and [string]$appSettings.browser_mode -eq "app") {
-            $edge = Get-Command msedge.exe -ErrorAction SilentlyContinue
-            $chrome = Get-Command chrome.exe -ErrorAction SilentlyContinue
-            $browser = if ($edge) { $edge.Source } elseif ($chrome) { $chrome.Source } else { $null }
-            if ($browser) { Start-Process $browser -ArgumentList "--app=$frontendUrl" | Out-Null }
-            else { Start-Process $frontendUrl | Out-Null }
+            $browser = Find-AppBrowser
+            if (-not $browser) {
+                throw "専用画面用のMicrosoft EdgeまたはGoogle Chromeが見つかりません。"
+            }
+            Start-Process -FilePath $browser -ArgumentList @(
+                "--app=$frontendUrl",
+                "--new-window",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--start-maximized"
+            ) | Out-Null
         } elseif ([bool]$appSettings.open_browser_on_start) {
             Start-Process $frontendUrl | Out-Null
         }

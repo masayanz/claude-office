@@ -102,6 +102,18 @@ class ProcessProbe:
 
 
 @dataclass(frozen=True, slots=True)
+class ViewerLaunchResult:
+    """Describe the result of opening the Viewer in a selected mode."""
+
+    succeeded: bool
+    mode: str
+    url: str
+    detail: str = ""
+    browser: str | None = None
+    reused: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessRecord:
     """Persisted identity for a process started by this Manager instance."""
 
@@ -210,6 +222,8 @@ class ServiceManager:
         self._states: dict[str, str] = {"backend": "stopped", "frontend": "stopped"}
         self._manager_instance_id = uuid.uuid4().hex
         self._lifecycle_lock = threading.RLock()
+        self._dedicated_view_process: subprocess.Popen[Any] | None = None
+        self._dedicated_view_browser: str | None = None
         LOG_DIR.mkdir(parents=True, exist_ok=True)
 
     @staticmethod
@@ -594,6 +608,73 @@ class ServiceManager:
             return f"http://{settings['backend_host']}:{settings['backend_port']}/health"
         return f"http://{settings['frontend_host']}:{settings['frontend_port']}"
 
+    def _viewer_url(self) -> str:
+        settings = self._settings()
+        return f"http://{settings['frontend_host']}:{settings['frontend_port']}"
+
+    @staticmethod
+    def _browser_candidates() -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """Return installed-browser locations in the required priority order."""
+        return (
+            (
+                "Edge",
+                (
+                    "Microsoft\\Edge\\Application\\msedge.exe",
+                ),
+            ),
+            (
+                "Chrome",
+                ("Google\\Chrome\\Application\\chrome.exe",),
+            ),
+        )
+
+    @classmethod
+    def _find_dedicated_browser(cls) -> tuple[str, str] | None:
+        """Find Edge or Chrome without relying on PATH alone."""
+        environment_roots = (
+            os.environ.get("PROGRAMFILES(X86)"),
+            os.environ.get("PROGRAMFILES"),
+            os.environ.get("PROGRAMW6432"),
+            os.environ.get("LOCALAPPDATA"),
+        )
+        for browser_name, relative_paths in cls._browser_candidates():
+            for root in environment_roots:
+                if not root:
+                    continue
+                for relative_path in relative_paths:
+                    candidate = Path(root) / relative_path
+                    if candidate.is_file():
+                        return browser_name, str(candidate)
+            executable_name = "msedge.exe" if browser_name == "Edge" else "chrome.exe"
+            executable = which(executable_name)
+            if executable:
+                return browser_name, executable
+        return None
+
+    @staticmethod
+    def _window_arguments(
+        screen_geometry: tuple[int, int, int, int] | None,
+    ) -> list[str]:
+        """Build a readable initial app window size within one monitor."""
+        if screen_geometry is None:
+            return ["--start-maximized"]
+        try:
+            left, top, width, height = (int(value) for value in screen_geometry)
+        except (TypeError, ValueError):
+            return ["--start-maximized"]
+        if width <= 0 or height <= 0:
+            return ["--start-maximized"]
+        app_width = max(1, int(width * 0.88))
+        app_height = max(1, int(height * 0.88))
+        app_width = min(app_width, width)
+        app_height = min(app_height, height)
+        app_left = left + max(0, (width - app_width) // 2)
+        app_top = top + max(0, (height - app_height) // 2)
+        return [
+            f"--window-size={app_width},{app_height}",
+            f"--window-position={app_left},{app_top}",
+        ]
+
     def _healthy(self, service: str) -> bool:
         try:
             with urllib.request.urlopen(self._url(service), timeout=1) as response:
@@ -601,6 +682,10 @@ class ServiceManager:
                 return response.status == 200 and (service != "backend" or '"ok"' in body)
         except (OSError, ValueError):
             return False
+
+    def viewer_ready(self) -> bool:
+        """Return whether the configured Frontend responds before opening UI."""
+        return self._healthy("frontend")
 
     def _port_in_use(self, service: str) -> bool:
         settings = self._settings()
@@ -1204,15 +1289,116 @@ class ServiceManager:
                 )
             return self.start(service)
 
-    def open_office(self, app_mode: bool = False) -> None:
-        settings = self._settings()
-        url = f"http://{settings['frontend_host']}:{settings['frontend_port']}"
-        if app_mode:
-            browser = which("msedge.exe") or which("chrome.exe")
-            if browser:
-                subprocess.Popen([browser, f"--app={url}"], **self._hidden_subprocess_kwargs())
-                return
-        webbrowser.open(url)
+    def open_normal_browser(self) -> ViewerLaunchResult:
+        """Open the Viewer in the user's configured default web browser."""
+        url = self._viewer_url()
+        try:
+            opened = webbrowser.open(url)
+        except (OSError, webbrowser.Error) as exc:
+            detail = f"通常ブラウザを起動できませんでした: {type(exc).__name__}"
+            self._log_process_event("viewer", "normal_open_failed", detail)
+            return ViewerLaunchResult(False, "normal", url, detail)
+        if opened is False:
+            detail = "既定のWebブラウザがURLを開けませんでした。"
+            self._log_process_event("viewer", "normal_open_failed", detail)
+            return ViewerLaunchResult(False, "normal", url, detail)
+        self._log_process_event("viewer", "normal_opened", url)
+        return ViewerLaunchResult(True, "normal", url)
+
+    def open_dedicated_view(
+        self,
+        screen_geometry: tuple[int, int, int, int] | None = None,
+    ) -> ViewerLaunchResult:
+        """Open an independent Edge/Chrome ``--app`` window.
+
+        A separate user-data directory keeps the app window independent from
+        the user's normal browser profile.  Only the process handle created by
+        this method is tracked; no global Edge/Chrome process is ever stopped.
+        """
+        url = self._viewer_url()
+        if not self._healthy("frontend"):
+            detail = "Viewerが起動していません。Frontendを起動してから再試行してください。"
+            self._log_process_event("viewer", "dedicated_open_failed", detail)
+            return ViewerLaunchResult(False, "dedicated", url, detail)
+
+        process = getattr(self, "_dedicated_view_process", None)
+        if process is not None:
+            try:
+                if process.poll() is None:
+                    detail = "既存の専用画面を使用しています。"
+                    self._log_process_event("viewer", "dedicated_reused", detail)
+                    return ViewerLaunchResult(
+                        True,
+                        "dedicated",
+                        url,
+                        detail,
+                        getattr(self, "_dedicated_view_browser", None),
+                        True,
+                    )
+            except (AttributeError, OSError):
+                pass
+            self._dedicated_view_process = None
+
+        discovered = self._find_dedicated_browser()
+        if discovered is None:
+            detail = "対応ブラウザ（Microsoft Edge / Google Chrome）が見つかりません。"
+            self._log_process_event("viewer", "dedicated_open_failed", detail)
+            return ViewerLaunchResult(False, "dedicated", url, detail)
+        browser_name, browser = discovered
+
+        command = [
+            browser,
+            f"--app={url}",
+            "--new-window",
+            "--no-first-run",
+            "--no-default-browser-check",
+            *self._window_arguments(screen_geometry),
+        ]
+        profile_dir = RUNTIME_DIR / "dedicated-view-profile" / browser_name.lower()
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            command.insert(1, f"--user-data-dir={profile_dir}")
+        except OSError as exc:
+            detail = f"専用画面用プロファイルを作成できませんでした: {type(exc).__name__}"
+            self._log_process_event(
+                "viewer",
+                "dedicated_profile_failed",
+                detail,
+            )
+            return ViewerLaunchResult(False, "dedicated", url, detail, browser)
+
+        try:
+            process = subprocess.Popen(
+                command,
+                cwd=ROOT,
+                **self._hidden_subprocess_kwargs(),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            detail = f"専用画面を起動できませんでした: {type(exc).__name__}"
+            self._log_process_event("viewer", "dedicated_open_failed", detail)
+            return ViewerLaunchResult(False, "dedicated", url, detail, browser)
+
+        try:
+            return_code = process.poll()
+        except (AttributeError, OSError):
+            return_code = None
+        if return_code is not None and return_code != 0:
+            detail = f"専用画面プロセスが起動直後に終了しました（code={return_code}）。"
+            self._log_process_event("viewer", "dedicated_open_failed", detail)
+            return ViewerLaunchResult(False, "dedicated", url, detail, browser)
+
+        self._dedicated_view_process = process
+        self._dedicated_view_browser = browser_name
+        self._log_process_event(
+            "viewer",
+            "dedicated_opened",
+            f"browser={browser_name} pid={process.pid} url={url}",
+        )
+        return ViewerLaunchResult(True, "dedicated", url, browser=browser_name)
+
+    def open_office(self, app_mode: bool = False) -> ViewerLaunchResult:
+        """Backward-compatible dispatcher for existing Manager callers."""
+        return self.open_dedicated_view() if app_mode else self.open_normal_browser()
 
     def open_replay(self) -> None:
         """Open the Viewer directly in its Replay history mode."""

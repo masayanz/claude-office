@@ -252,6 +252,8 @@ class ManagerWindow(QMainWindow):
         self._startup_grace_until = 0.0
         self._start_requested: set[str] = set()
         self._service_action_in_flight = False
+        self._pending_dedicated_view = False
+        self._dedicated_view_deadline = 0.0
         self._service_buttons: list[QPushButton] = []
         self._restore_maximized = False
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="manager-api")
@@ -337,8 +339,8 @@ class ManagerWindow(QMainWindow):
             ("起動", self._start),
             ("停止", self._stop),
             ("再起動", self._restart),
-            ("AIオフィスを開く", self._open_normal),
-            ("専用表示", self._open_app),
+            ("ブラウザで開く", self._open_normal),
+            ("専用画面で開く", self._open_app),
             ("作業履歴を再生", self._open_replay),
             ("設定", self._settings_dialog),
             ("Web設定を開く", self._open_web_settings),
@@ -346,6 +348,13 @@ class ManagerWindow(QMainWindow):
         ):
             button = QPushButton(text)
             button.clicked.connect(lambda _checked=False, fn=callback: fn())
+            if text == "ブラウザで開く":
+                button.setToolTip("既定のWebブラウザでAI Office Viewerを開きます")
+            elif text == "専用画面で開く":
+                button.setToolTip(
+                    "ブラウザのタブやアドレスバーを表示せず、"
+                    "AI Office Viewer専用ウィンドウで開きます"
+                )
             buttons.addWidget(button)
             if text in {"起動", "停止", "再起動"}:
                 self._service_buttons.append(button)
@@ -456,8 +465,18 @@ class ManagerWindow(QMainWindow):
         )
         self._add_tray_action(menu, "Codexセッションを再読込", self._restore_codex_sessions)
         menu.addSeparator()
-        self._add_tray_action(menu, "通常ブラウザで開く", self._open_normal)
-        self._add_tray_action(menu, f"{PRODUCT_NAME}専用表示", self._open_app)
+        self._add_tray_action(
+            menu,
+            "ブラウザで開く",
+            self._open_normal,
+            "既定のWebブラウザでAI Office Viewerを開きます",
+        )
+        self._add_tray_action(
+            menu,
+            f"{PRODUCT_NAME}専用表示",
+            self._open_app,
+            "ブラウザのタブやアドレスバーを表示せず、AI Office Viewer専用ウィンドウで開きます",
+        )
         self._add_tray_action(menu, "Web設定を開く", self._open_web_settings)
         self._add_tray_action(menu, "作業履歴を再生", self._open_replay)
         self._add_tray_action(menu, "ホワイトボード設定", self._open_board_settings)
@@ -471,8 +490,15 @@ class ManagerWindow(QMainWindow):
         self._tray.show()
 
     @staticmethod
-    def _add_tray_action(menu: QMenu, text: str, callback: Callable[[], None]) -> QAction:
+    def _add_tray_action(
+        menu: QMenu,
+        text: str,
+        callback: Callable[[], None],
+        tooltip: str = "",
+    ) -> QAction:
         action = QAction(text, menu)
+        if tooltip:
+            action.setToolTip(tooltip)
         action.triggered.connect(lambda _checked=False: callback())
         menu.addAction(action)
         return action
@@ -525,6 +551,7 @@ class ManagerWindow(QMainWindow):
                 frontend.state, frontend.detail,
             )
         )
+        self._maybe_open_pending_dedicated_view()
         codex_text = self._codex_report.overall.summary if self._codex_report else "確認中"
         self._tray.setToolTip(
             f"{MANAGER_NAME}\n"
@@ -920,10 +947,58 @@ class ManagerWindow(QMainWindow):
         QTimer.singleShot(1500, lambda: self._poll_codex_diagnostic(full=False))
 
     def _open_normal(self) -> None:
-        self.manager.open_office(False)
+        result = self.manager.open_normal_browser()
+        if not result.succeeded:
+            QMessageBox.warning(self, "ブラウザ起動エラー", result.detail)
 
     def _open_app(self) -> None:
-        self.manager.open_office(True)
+        if self._last_frontend_healthy or self.manager.viewer_ready():
+            self._launch_dedicated_view()
+            return
+        answer = QMessageBox.question(
+            self,
+            "専用画面を開く",
+            "AI Office Viewerが起動していません。起動して専用画面を開きますか？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._pending_dedicated_view = True
+        self._dedicated_view_deadline = time.monotonic() + 30
+        if not self._service_action_in_flight:
+            self._start()
+
+    def _viewer_screen_geometry(self) -> tuple[int, int, int, int] | None:
+        """Use the Manager's current monitor for the dedicated app window."""
+        screen = QApplication.screenAt(self.frameGeometry().center())
+        screen = screen or QApplication.primaryScreen()
+        if screen is None:
+            return None
+        available = screen.availableGeometry()
+        return available.x(), available.y(), available.width(), available.height()
+
+    def _launch_dedicated_view(self) -> None:
+        self._pending_dedicated_view = False
+        self._dedicated_view_deadline = 0.0
+        result = self.manager.open_dedicated_view(self._viewer_screen_geometry())
+        if not result.succeeded:
+            QMessageBox.warning(self, "専用画面起動エラー", result.detail)
+
+    def _maybe_open_pending_dedicated_view(self) -> None:
+        if not getattr(self, "_pending_dedicated_view", False):
+            return
+        if self._last_frontend_healthy:
+            self._launch_dedicated_view()
+            return
+        if time.monotonic() >= getattr(self, "_dedicated_view_deadline", 0.0):
+            self._pending_dedicated_view = False
+            QMessageBox.warning(
+                self,
+                "専用画面起動エラー",
+                "Frontendの起動を確認できませんでした。\n"
+                "「ログ」で起動エラーを確認してください。",
+            )
 
     def _open_replay(self) -> None:
         self.manager.open_replay()

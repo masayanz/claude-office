@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { FastForward, Pause, Play, RotateCcw, SkipBack, SkipForward, Radio, Search } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useGameStore } from "@/stores/gameStore";
@@ -18,10 +18,21 @@ function sessionLabel(session: ReplaySessionSummary): string {
 
 export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
   const { t } = useTranslation();
-  const { sessions, loading, emptyReason, frames, filters, setFilters, loadSession } = useReplay();
+  const {
+    sessions,
+    loading,
+    progress,
+    emptyReason,
+    frames,
+    filters,
+    setFilters,
+    loadSession,
+    cancelLoad,
+  } = useReplay();
   const replaySettings = useAppSettingsStore((state) => state.settings);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loadedId, setLoadedId] = useState<string | null>(null);
+  const selectionGeneration = useRef(0);
   const [snapshot, setSnapshot] = useState<ReplayControllerSnapshot>({
     positionMs: 0,
     durationMs: 0,
@@ -50,8 +61,9 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
   }, [controller]);
 
   useEffect(() => {
-    const visible =
-      snapshot.currentIndex < 0 ? [] : frames.slice(0, snapshot.currentIndex + 1);
+    const end = snapshot.currentIndex + 1;
+    const start = Math.max(0, end - 500);
+    const visible = snapshot.currentIndex < 0 ? [] : frames.slice(start, end).reverse();
     useGameStore.getState().setEventLog(visible.map((entry) => entry.event));
   }, [frames, snapshot.currentIndex]);
 
@@ -61,15 +73,29 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
   );
 
   const handleSelect = async (sessionId: string) => {
+    const generation = selectionGeneration.current + 1;
+    selectionGeneration.current = generation;
     setSelectedId(sessionId);
     setLoadedId(null);
     controller.setFrames([]);
     try {
-      const loaded = await loadSession(sessionId);
-      useGameStore.getState().resetForReplay();
-      controller.setFrames(loaded);
-      controller.setSpeed(replaySettings?.replay_default_speed ?? 1);
-      setLoadedId(sessionId);
+      await loadSession(sessionId, {
+        onChunk: (chunk, offset) => {
+          if (selectionGeneration.current !== generation) return;
+          if (offset === 0) {
+            useGameStore.getState().resetForReplay();
+            controller.setFrames(chunk);
+            controller.setSpeed(replaySettings?.replay_default_speed ?? 1);
+            // The 0-second state must already contain Main before playback
+            // starts; waiting for the first animation frame made it look
+            // like Replay had lost the character.
+            controller.seek(0);
+          } else {
+            controller.appendFrames(chunk);
+          }
+        },
+      });
+      if (selectionGeneration.current === generation) setLoadedId(sessionId);
     } catch {
       // The hook exposes the API error state; keep the session selected so
       // the user can retry after the backend recovers.
@@ -153,7 +179,7 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
           </div>
           {snapshot.isPlaying && selected ? <div className="rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-300">▶ {t("replay.replay")} · {sessionLabel(selected)}</div> : null}
           {currentFrame ? <div className="text-right text-xs text-slate-400">{formatReplaySessionDate(currentFrame.event.timestamp)}<div className="mt-1 text-[10px] text-orange-300">{currentFrame.event.summary}</div></div> : null}
-          <button type="button" disabled={!selectedIsLoaded || loading || frames.length === 0} onClick={() => controller.play()} className="rounded-md bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"><Play size={14} className="mr-1 inline" />{t("replay.play")}</button>
+          <button type="button" disabled={!selectedIsLoaded || frames.length === 0} onClick={() => controller.play()} className="rounded-md bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"><Play size={14} className="mr-1 inline" />{t("replay.play")}</button>
         </div>
 
         <div className="flex-1" />
@@ -181,10 +207,50 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
               <span>{t("replay.compressIdle")}</span>
               <span>{snapshot.currentIndex + 1} / {frames.length}</span>
             </div>
+            {progress.phase === "error" ? (
+              <div className="mt-3 rounded-md border border-red-500/30 bg-red-500/10 px-3 py-2 text-[11px] text-red-300">
+                <div>{progress.stage}: {progress.error}</div>
+                <button type="button" onClick={() => { if (selected) void handleSelect(selected.id); }} className="mt-2 rounded border border-red-300/40 px-2 py-1 hover:bg-red-500/10">再試行</button>
+              </div>
+            ) : progress.phase !== "completed" && progress.phase !== "idle" && progress.phase !== "cancelled" && progress.total > progress.loaded ? (
+              <div className="mt-3 rounded-md border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-[11px] text-slate-400">
+                <div className="flex items-center justify-between gap-2"><span>{progress.stage}</span><span>{progress.loaded.toLocaleString()} / {progress.total.toLocaleString()} ({progress.percent}%)</span></div>
+                <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-800"><div className="h-full bg-orange-500" style={{ width: `${progress.percent}%` }} /></div>
+                <button type="button" onClick={cancelLoad} className="mt-2 rounded border border-slate-600 px-2 py-1 text-slate-300 hover:bg-slate-800">キャンセル</button>
+              </div>
+            ) : null}
             {completed ? <div className="mt-3 flex items-center justify-between rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300"><span>{t("replay.completed")}</span><button type="button" onClick={() => controller.reset()}>{t("replay.repeat")}</button></div> : null}
           </div>
-        ) : selected && loading ? <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs text-slate-400">{t("replay.loading")}</div> : selected && emptyReason === "api" ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-300">{t("replay.apiError")}</div> : selected && emptyReason === "empty" ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300">{t("replay.eventEmpty")}</div> : null}
+        ) : selected && (loading || progress.phase === "metadata" || progress.phase === "events") ? <ReplayProgress progress={progress} onCancel={cancelLoad} /> : selected && progress.phase === "error" ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-300"><div>{t("replay.apiError")}</div><div className="mt-1 text-[11px] text-red-200/70">{progress.error}</div><div className="mt-3 flex gap-2"><button type="button" onClick={() => void handleSelect(selected.id)} className="rounded-md border border-red-300/40 px-3 py-1.5 hover:bg-red-500/10">再試行</button><button type="button" onClick={() => { selectionGeneration.current += 1; setSelectedId(null); setLoadedId(null); cancelLoad(); }} className="rounded-md border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-800">セッション一覧へ戻る</button></div></div> : selected && emptyReason === "empty" ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300">{t("replay.eventEmpty")}</div> : null}
       </section>
+    </div>
+  );
+}
+
+function ReplayProgress({
+  progress,
+  onCancel,
+}: {
+  progress: ReturnType<typeof useReplay>["progress"];
+  onCancel: () => void;
+}): ReactNode {
+  const determinate = progress.total > 0;
+  const cancellable = progress.phase === "metadata" || progress.phase === "events" || progress.phase === "ready";
+  return (
+    <div className="rounded-lg border border-orange-500/30 bg-slate-900 p-4 text-xs text-slate-300">
+      <div className="flex items-center justify-between gap-3">
+        <span>{progress.stage || "再生データを準備しています…"}</span>
+        {cancellable ? <button type="button" onClick={onCancel} className="rounded-md border border-slate-600 px-3 py-1.5 text-slate-200 hover:bg-slate-800">キャンセル</button> : null}
+      </div>
+      {determinate ? <>
+        <div className="mt-3 flex justify-between text-[11px] text-slate-400"><span>{progress.loaded.toLocaleString()} / {progress.total.toLocaleString()} events</span><span>{progress.percent}%</span></div>
+        <div className="mt-1 h-2 overflow-hidden rounded-full bg-slate-800"><div className="h-full rounded-full bg-orange-500 transition-[width]" style={{ width: `${progress.percent}%` }} /></div>
+      </> : <div className="mt-3 h-2 animate-pulse rounded-full bg-slate-800" />}
+      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-slate-500">
+        <span>読み込み済み: {progress.loaded.toLocaleString()}</span>
+        {progress.firstPlayable ? <span className="text-emerald-300">再生開始可能</span> : null}
+        {progress.bufferedSeconds > 0 ? <span>バッファ: {Math.floor(progress.bufferedSeconds)}秒</span> : null}
+      </div>
     </div>
   );
 }

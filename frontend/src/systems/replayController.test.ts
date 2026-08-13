@@ -51,4 +51,23 @@ describe("ReplayController", () => {
     controller.setSpeed(3);
     expect(controller.getSpeed()).toBe(4);
   });
+
+  it("appends prefetched chunks without resetting the clock", () => {
+    const seen: number[] = [];
+    const controller = new ReplayController({
+      onFrame: (_frame, index) => seen.push(index),
+    });
+    controller.setFrames([frame("2026-01-01T00:00:00.000Z", "1")]);
+    controller.seek(0);
+    controller.appendFrames([
+      frame("2026-01-01T00:00:01.000Z", "2"),
+      frame("2026-01-01T00:00:02.000Z", "3"),
+    ]);
+
+    expect(controller.getSnapshot().durationMs).toBe(2_000);
+    expect(controller.getSnapshot().currentIndex).toBe(0);
+    controller.seek(1_500);
+    expect(controller.getCurrentFrame()?.event.id).toBe("2");
+    expect(seen).toContain(0);
+  });
 });

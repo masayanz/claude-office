@@ -318,3 +318,37 @@ def normalized_event_from_record(record: EventRecord) -> AnyEvent | None:
         )
     except Exception:
         return None
+
+
+def normalized_event_from_replay_record(record: ReplayEventRecord) -> AnyEvent | None:
+    """Rebuild the common event contract from a privacy-safe Replay row.
+
+    Replay rows intentionally do not contain prompt, command, or output
+    bodies.  State reconstruction only needs the allow-listed lifecycle
+    metadata, so this fallback keeps chunked Replay independent from the
+    legacy LIVE payload table (and also handles synthetic Replay rows).
+    """
+    detail = dict(record.safe_data or {})
+    data: dict[str, Any] = {
+        "agent_id": record.agent_id,
+        "agent_name": record.agent_name,
+        "agent_type": record.agent_type,
+        "source": record.source or detail.get("source"),
+        "model": record.model or detail.get("model"),
+        "tool_name": record.tool_name,
+        "tool_use_id": record.tool_use_id,
+        "error_type": record.error_type,
+        "project_name": record.project_name or detail.get("projectName"),
+        "restored": detail.get("restored", False),
+    }
+    try:
+        return EventAdapter.validate_python(
+            {
+                "event_type": EventType(record.event_type),
+                "session_id": record.session_id,
+                "timestamp": record.timestamp,
+                "data": data,
+            }
+        )
+    except Exception:
+        return None

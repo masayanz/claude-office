@@ -231,6 +231,26 @@ curl -X DELETE http://localhost:8000/api/v1/sessions \
 | `PATCH` | `/api/v1/sessions/{id}/label` | Update session label |
 | `POST` | `/api/v1/sessions/simulate` | Start background simulation |
 
+### Replay history
+
+Replay reads from the privacy-safe `replay_events` projection. The Viewer first
+requests session metadata, then requests bounded event chunks so a large LIVE
+session is never returned as one response.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/v1/replay/storage` | Return Replay storage counts and retention metadata |
+| `GET` | `/api/v1/replay/sessions` | List Replay sessions with optional source/project/model/date filters |
+| `GET` | `/api/v1/replay/sessions/{id}` | Return bounded session metadata, including the Replay event count |
+| `GET` | `/api/v1/replay/sessions/{id}/events?offset=0&limit=500` | Return a chunk envelope with `items`, `total`, `nextOffset`, `hasMore`, and buffered time metadata |
+| `DELETE` | `/api/v1/replay/sessions/{id}` | Delete Replay projection rows while retaining LIVE restoration data |
+| `DELETE` | `/api/v1/replay/history` | Delete all Replay projection rows |
+
+The chunk endpoint returns only allow-listed event metadata and redacted game
+state. `offset` is the ordered Replay-row cursor; the backend caches bounded
+state checkpoints so sequential prefetch and arbitrary seeks do not require the
+frontend to load the full session first.
+
 ### Floors
 
 | Method | Path | Description |

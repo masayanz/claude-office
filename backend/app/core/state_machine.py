@@ -738,6 +738,19 @@ class StateMachine:
     # Core methods
     # ---------------------------------------------------------------------------
 
+    def initialize_main(self, source: str | None = None, model: str | None = None) -> None:
+        """Seed the Main character before the first lifecycle event.
+
+        Replay can begin at a chunk boundary or from a legacy session whose
+        ``session_start`` hook was never persisted.  Main is a session-level
+        character and must not depend on a SubagentStart event to exist.
+        LIVE callers may use the same initializer when restoring metadata.
+        """
+        self.boss_name = main_agent_name_for_source(source)
+        self.boss_source = source
+        self.boss_model = model
+        self.boss_agent_type = "main"
+
     def append_capped(
         self,
         entry: ConversationEntry,
@@ -789,7 +802,18 @@ class StateMachine:
             ),
         )
 
-        agents_list: list[Agent] = list(self.agents.values())
+        # Standalone session agents are subagents in the Viewer hierarchy.
+        # Older lifecycle rows did not persist character metadata, so derive
+        # the same stable relationship during LIVE and Replay state builds.
+        agents_list: list[Agent] = [
+            agent.model_copy(
+                update={
+                    "character_type": agent.character_type or "subagent",
+                    "parent_session_id": agent.parent_session_id or session_id,
+                }
+            )
+            for agent in self.agents.values()
+        ]
 
         context_utilization = self.token_tracker.context_utilization
 

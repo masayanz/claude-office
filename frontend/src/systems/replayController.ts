@@ -68,6 +68,29 @@ export class ReplayController {
     this.options.onFrame(null, -1);
   }
 
+  /** Append a prefetched chunk without resetting the playback clock. */
+  appendFrames(frames: ReplayFrame[]): void {
+    if (frames.length === 0) return;
+    const compressIdle = this.options.compressIdle ?? true;
+    let elapsed = this.durationMs;
+    let previousTimestamp = this.frames.length > 0
+      ? Date.parse(this.frames[this.frames.length - 1].frame.event.timestamp)
+      : Number.NaN;
+    for (const frame of frames) {
+      const currentTimestamp = Date.parse(frame.event.timestamp);
+      const rawDelta = Number.isFinite(previousTimestamp) && Number.isFinite(currentTimestamp)
+        ? Math.max(0, currentTimestamp - previousTimestamp)
+        : 0;
+      elapsed += compressIdle && rawDelta > 30_000
+        ? Math.min(rawDelta, 5_000)
+        : rawDelta;
+      this.frames.push({ frame, atMs: elapsed });
+      previousTimestamp = currentTimestamp;
+    }
+    this.durationMs = elapsed;
+    this.emit();
+  }
+
   setSpeed(speed: number): void {
     if (REPLAY_SPEEDS.includes(speed as (typeof REPLAY_SPEEDS)[number])) {
       this.speed = speed;

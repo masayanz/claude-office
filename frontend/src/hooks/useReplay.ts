@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ReplayFrame } from "@/stores/gameStore";
 import { apiFetch } from "@/utils/api";
 
@@ -30,6 +30,31 @@ export interface ReplayFilters {
 
 export type ReplayEmptyReason = "disabled" | "empty" | "filtered" | "api" | null;
 
+export type ReplayLoadPhase =
+  | "idle"
+  | "metadata"
+  | "events"
+  | "ready"
+  | "completed"
+  | "cancelled"
+  | "error";
+
+export interface ReplayLoadProgress {
+  phase: ReplayLoadPhase;
+  stage: string;
+  loaded: number;
+  total: number;
+  percent: number;
+  firstPlayable: boolean;
+  bufferedSeconds: number;
+  loadedTimeRange: { start: string | null; end: string | null };
+  error: string | null;
+}
+
+export interface ReplayLoadOptions {
+  onChunk?: (frames: ReplayFrame[], offset: number) => void;
+}
+
 interface ReplayStorageSummary {
   enabled: boolean;
   eventCount: number;
@@ -41,6 +66,16 @@ interface ReplayApiResponse {
   state: ReplayFrame["state"];
 }
 
+interface ReplayChunkResponse {
+  items: ReplayApiResponse[];
+  offset: number;
+  total: number;
+  nextOffset: number;
+  hasMore: boolean;
+  bufferedSeconds?: number;
+  loadedTimeRange?: { start: string | null; end: string | null };
+}
+
 const EMPTY_FILTERS: ReplayFilters = {
   project: "",
   source: "",
@@ -50,21 +85,43 @@ const EMPTY_FILTERS: ReplayFilters = {
   order: "desc",
 };
 
+// A smaller first buffer keeps state reconstruction and JSON parsing below a
+// visible freeze on Windows.  The server still accepts larger explicit pages.
+const REPLAY_CHUNK_SIZE = 500;
+const REPLAY_REQUEST_TIMEOUT_MS = 20_000;
+
+const INITIAL_PROGRESS: ReplayLoadProgress = {
+  phase: "idle",
+  stage: "",
+  loaded: 0,
+  total: 0,
+  percent: 0,
+  firstPlayable: false,
+  bufferedSeconds: 0,
+  loadedTimeRange: { start: null, end: null },
+  error: null,
+};
+
 export function useReplay(): {
   sessions: ReplaySessionSummary[];
   loading: boolean;
+  progress: ReplayLoadProgress;
   emptyReason: ReplayEmptyReason;
   frames: ReplayFrame[];
   filters: ReplayFilters;
   setFilters: (filters: ReplayFilters) => void;
   refreshSessions: () => Promise<void>;
-  loadSession: (sessionId: string) => Promise<ReplayFrame[]>;
+  loadSession: (sessionId: string, options?: ReplayLoadOptions) => Promise<ReplayFrame[]>;
+  cancelLoad: () => void;
 } {
   const [sessions, setSessions] = useState<ReplaySessionSummary[]>([]);
   const [frames, setFrames] = useState<ReplayFrame[]>([]);
   const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<ReplayLoadProgress>(INITIAL_PROGRESS);
   const [emptyReason, setEmptyReason] = useState<ReplayEmptyReason>(null);
   const [filters, setFilters] = useState<ReplayFilters>(EMPTY_FILTERS);
+  const loadAbortRef = useRef<AbortController | null>(null);
+  const loadGenerationRef = useRef(0);
 
   const refreshSessions = useCallback(async () => {
     setLoading(true);
@@ -106,34 +163,243 @@ export function useReplay(): {
     void refreshSessions();
   }, [refreshSessions]);
 
-  const loadSession = useCallback(async (sessionId: string): Promise<ReplayFrame[]> => {
-    setLoading(true);
-    try {
-      const metadataResponse = await apiFetch(
-        `/api/v1/replay/sessions/${encodeURIComponent(sessionId)}`,
-      );
-      if (!metadataResponse.ok) throw new Error(`Replay metadata HTTP ${metadataResponse.status}`);
-      const response = await apiFetch(
-        `/api/v1/replay/sessions/${encodeURIComponent(sessionId)}/events`,
-      );
-      if (!response.ok) throw new Error(`Replay HTTP ${response.status}`);
-      const payload = (await response.json()) as ReplayApiResponse[];
-      const loaded = payload.map((entry) => ({ event: entry.event, state: entry.state }));
-      if (loaded.length === 0) {
-        setEmptyReason("empty");
-        throw new Error("Replay contains no events");
-      }
-      setFrames(loaded);
-      return loaded;
-    } catch (error) {
-      setEmptyReason((reason) => (reason === "empty" ? reason : "api"));
-      throw error;
-    } finally {
-      setLoading(false);
-    }
+  const cancelLoad = useCallback(() => {
+    loadGenerationRef.current += 1;
+    loadAbortRef.current?.abort();
+    loadAbortRef.current = null;
+    setLoading(false);
+    setProgress((current) => ({
+      ...current,
+      phase: "cancelled",
+      stage: "読み込みをキャンセルしました",
+    }));
   }, []);
 
-  return { sessions, loading, emptyReason, frames, filters, setFilters, refreshSessions, loadSession };
+  const loadSession = useCallback(
+    async (sessionId: string, options: ReplayLoadOptions = {}): Promise<ReplayFrame[]> => {
+      loadAbortRef.current?.abort();
+      const abortController = new AbortController();
+      loadAbortRef.current = abortController;
+      const generation = loadGenerationRef.current + 1;
+      loadGenerationRef.current = generation;
+      const encodedId = encodeURIComponent(sessionId);
+      const startedAt = now();
+      const isCurrent = () =>
+        loadGenerationRef.current === generation && !abortController.signal.aborted;
+      const updateProgress = (patch: Partial<ReplayLoadProgress>) => {
+        if (isCurrent()) setProgress((current) => ({ ...current, ...patch }));
+      };
+      const log = (message: string, details: Record<string, unknown> = {}) => {
+        if (typeof console !== "undefined") {
+          console.info(`[Replay] ${message}`, { session: sessionId, ...details });
+        }
+      };
+
+      setFrames([]);
+      setEmptyReason(null);
+      setLoading(true);
+      setProgress({
+        ...INITIAL_PROGRESS,
+        phase: "metadata",
+        stage: "セッション情報を取得中…",
+      });
+      log("load started");
+
+      const fetchChunk = async (offset: number): Promise<ReplayChunkResponse> => {
+        const requestStarted = now();
+        const response = await replayFetch(
+          `/api/v1/replay/sessions/${encodedId}/events?offset=${offset}&limit=${REPLAY_CHUNK_SIZE}`,
+          { signal: abortController.signal },
+        );
+        if (!response.ok) throw new Error(`Replay HTTP ${response.status}`);
+        const payload = (await response.json()) as ReplayChunkResponse | ReplayApiResponse[];
+        const parseMs = now() - requestStarted;
+        const rawItems = Array.isArray(payload) ? payload : payload.items;
+        const items = rawItems.map((entry) => ({ event: entry.event, state: entry.state }));
+        const chunk = Array.isArray(payload)
+          ? {
+              items,
+              offset,
+              total: offset + items.length,
+              nextOffset: offset + items.length,
+              hasMore: false,
+            }
+          : { ...payload, items };
+        log("chunk loaded", {
+          offset,
+          count: items.length,
+          total: chunk.total,
+          parseMs: Math.round(parseMs),
+          responseBytes: response.headers.get("content-length"),
+        });
+        return chunk;
+      };
+
+      try {
+        const metadataStarted = now();
+        const metadataResponse = await replayFetch(
+          `/api/v1/replay/sessions/${encodedId}`,
+          { signal: abortController.signal },
+        );
+        if (!metadataResponse.ok) {
+          throw new Error(`Replay metadata HTTP ${metadataResponse.status}`);
+        }
+        const metadata = (await metadataResponse.json()) as ReplaySessionSummary;
+        const total = Math.max(0, metadata.eventCount);
+        log("metadata loaded", { total, durationMs: Math.round(now() - metadataStarted) });
+        updateProgress({ total, phase: "events", stage: "イベントを読み込み中…" });
+
+        const firstChunk = await fetchChunk(0);
+        if (!isCurrent()) {
+          const cancelled = new Error("Replay load cancelled");
+          cancelled.name = "AbortError";
+          throw cancelled;
+        }
+        if (firstChunk.items.length === 0) {
+          setEmptyReason("empty");
+          throw new Error("Replay contains no events");
+        }
+        const firstFrames = firstChunk.items;
+        setFrames(firstFrames);
+        const firstRange = firstChunk.loadedTimeRange ?? {
+          start: firstFrames[0]?.event.timestamp ?? null,
+          end: firstFrames.at(-1)?.event.timestamp ?? null,
+        };
+        updateProgress({
+          phase: "ready",
+          stage: "再生準備完了（続きの履歴を読み込み中…）",
+          loaded: firstFrames.length,
+          total: firstChunk.total || total,
+          percent: Math.min(100, Math.round((firstFrames.length / Math.max(1, firstChunk.total || total)) * 100)),
+          firstPlayable: true,
+          bufferedSeconds: firstChunk.bufferedSeconds ?? 0,
+          loadedTimeRange: firstRange,
+        });
+        options.onChunk?.(firstFrames, 0);
+        log("first playable", { count: firstFrames.length, elapsedMs: Math.round(now() - startedAt) });
+
+        const drain = async (): Promise<void> => {
+          let nextOffset = firstChunk.nextOffset;
+          let latestRange = firstRange;
+          let bufferedSeconds = firstChunk.bufferedSeconds ?? 0;
+          try {
+            while (firstChunk.hasMore && isCurrent()) {
+              updateProgress({ phase: "events", stage: "イベントを読み込み中…" });
+              const chunk = await fetchChunk(nextOffset);
+              if (!isCurrent()) return;
+              if (chunk.items.length === 0) break;
+              setFrames((current) => [...current, ...chunk.items]);
+              options.onChunk?.(chunk.items, nextOffset);
+              nextOffset = chunk.nextOffset;
+              latestRange = chunk.loadedTimeRange ?? {
+                start: latestRange.start,
+                end: chunk.items.at(-1)?.event.timestamp ?? latestRange.end,
+              };
+              bufferedSeconds = chunk.bufferedSeconds ?? bufferedSeconds;
+              updateProgress({
+                loaded: Math.min(nextOffset, chunk.total || total),
+                total: chunk.total || total,
+                percent: Math.min(
+                  100,
+                  Math.round((nextOffset / Math.max(1, chunk.total || total)) * 100),
+                ),
+                bufferedSeconds,
+                loadedTimeRange: latestRange,
+              });
+              if (!chunk.hasMore) break;
+            }
+            if (isCurrent()) {
+              setLoading(false);
+              updateProgress({ phase: "completed", stage: "再生データの読み込み完了" });
+              log("load completed", { loaded: nextOffset, elapsedMs: Math.round(now() - startedAt) });
+            }
+          } catch (error) {
+            if (!isAbortError(error) && isCurrent()) {
+              setLoading(false);
+              setProgress((current) => ({
+                ...current,
+                phase: "error",
+                stage: "再生データの読み込みに失敗しました",
+                error: replayErrorMessage(error),
+              }));
+              log("load failed", { error: replayErrorMessage(error) });
+            }
+          }
+        };
+
+        // Let ReplayPanel install the first chunk before prefetch begins.
+        setTimeout(() => void drain(), 0);
+        return firstFrames;
+      } catch (error) {
+        if (!isAbortError(error) && isCurrent()) {
+          setLoading(false);
+          setProgress((current) => ({
+            ...current,
+            phase: "error",
+            stage: "再生データの読み込みに失敗しました",
+            error: replayErrorMessage(error),
+          }));
+          setEmptyReason((reason) => (reason === "empty" ? reason : "api"));
+        }
+        throw error;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => () => loadAbortRef.current?.abort(), []);
+
+  return {
+    sessions,
+    loading,
+    progress,
+    emptyReason,
+    frames,
+    filters,
+    setFilters,
+    refreshSessions,
+    loadSession,
+    cancelLoad,
+  };
+}
+
+function now(): number {
+  return typeof performance === "undefined" ? Date.now() : performance.now();
+}
+
+function isAbortError(error: unknown): boolean {
+  return error instanceof Error && error.name === "AbortError";
+}
+
+async function replayFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const requestController = new AbortController();
+  let timedOut = false;
+  const forwardAbort = () => requestController.abort();
+  init.signal?.addEventListener("abort", forwardAbort, { once: true });
+  const timeoutId = setTimeout(() => {
+    timedOut = true;
+    requestController.abort();
+  }, REPLAY_REQUEST_TIMEOUT_MS);
+  try {
+    return await apiFetch(path, { ...init, signal: requestController.signal });
+  } catch (error) {
+    if (timedOut && !init.signal?.aborted) {
+      const timeoutError = new Error("Replay request timed out");
+      timeoutError.name = "TimeoutError";
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+    init.signal?.removeEventListener("abort", forwardAbort);
+  }
+}
+
+function replayErrorMessage(error: unknown): string {
+  if (error instanceof Error && error.name === "TimeoutError") {
+    return "通信がタイムアウトしました。時間をおいて再試行してください。";
+  }
+  return error instanceof Error ? error.message : "Replay load failed";
 }
 
 function hasReplayFilters(filters: ReplayFilters): boolean {

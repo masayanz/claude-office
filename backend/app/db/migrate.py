@@ -77,11 +77,15 @@ async def migrate_schema(conn: AsyncConnection) -> None:
         "CREATE INDEX IF NOT EXISTS ix_events_session_id ON events(session_id)",
         "CREATE INDEX IF NOT EXISTS ix_events_session_timestamp "
         "ON events(session_id, timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_events_session_replay_order "
+        "ON events(session_id, timestamp, id)",
         "CREATE INDEX IF NOT EXISTS ix_replay_events_event_key ON replay_events(event_key)",
         "CREATE INDEX IF NOT EXISTS ix_replay_events_source_event_id "
         "ON replay_events(source_event_id)",
         "CREATE INDEX IF NOT EXISTS ix_replay_events_session_id ON replay_events(session_id)",
         "CREATE INDEX IF NOT EXISTS ix_replay_events_timestamp ON replay_events(timestamp)",
+        "CREATE INDEX IF NOT EXISTS ix_replay_events_session_replay_order "
+        "ON replay_events(session_id, timestamp, source_event_id, id)",
     ):
         await conn.execute(text(index_sql))
 

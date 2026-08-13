@@ -99,3 +99,64 @@ def test_replay_session_list_and_delete_keep_live_session() -> None:
     assert client.get("/api/v1/replay/storage").json()["eventCount"] == before_delete_count - 2
     # Deleting Replay metadata must not delete the LIVE restoration source.
     assert client.get(f"/api/v1/sessions/{session_id}/replay").status_code == 200
+
+
+def test_replay_chunk_response_is_bounded_and_restores_main_and_agents() -> None:
+    session_id = f"replay-chunk-{uuid4()}"
+    _post_event(session_id, "session_start", {"source": "codex", "model": "gpt-test"})
+    _post_event(session_id, "user_prompt_submit", {"source": "codex"})
+    _post_event(
+        session_id,
+        "subagent_start",
+        {"source": "codex", "agent_id": "agent-a", "agent_type": "subagent"},
+    )
+    _post_event(
+        session_id,
+        "subagent_start",
+        {"source": "codex", "agent_id": "agent-b", "agent_type": "subagent"},
+    )
+    _post_event(
+        session_id,
+        "subagent_stop",
+        {"source": "codex", "agent_id": "agent-a"},
+    )
+    _post_event(session_id, "stop", {"source": "codex"})
+
+    first = client.get(
+        f"/api/v1/replay/sessions/{session_id}/events",
+        params={"offset": 0, "limit": 2},
+    )
+    assert first.status_code == 200, first.text
+    first_payload = first.json()
+    assert set(first_payload) >= {"items", "total", "nextOffset", "hasMore"}
+    assert len(first_payload["items"]) == 2
+    assert first_payload["total"] >= 6
+    assert first_payload["nextOffset"] == 2
+    assert first_payload["items"][0]["state"]["boss"]["name"] == "Codex Main"
+
+    pages = list(first_payload["items"])
+    offset = first_payload["nextOffset"]
+    while first_payload["hasMore"]:
+        response = client.get(
+            f"/api/v1/replay/sessions/{session_id}/events",
+            params={"offset": offset, "limit": 2},
+        )
+        assert response.status_code == 200, response.text
+        first_payload = response.json()
+        pages.extend(first_payload["items"])
+        offset = first_payload["nextOffset"]
+
+    agent_a_frame = next(
+        item
+        for item in pages
+        if item["event"]["type"] == "subagent_start"
+        and item["event"]["agentId"] == "agent-a"
+    )
+    agent_b_frame = next(
+        item
+        for item in pages
+        if item["event"]["type"] == "subagent_start"
+        and item["event"]["agentId"] == "agent-b"
+    )
+    assert {agent["id"] for agent in agent_a_frame["state"]["agents"]} == {"agent-a"}
+    assert {agent["id"] for agent in agent_b_frame["state"]["agents"]} == {"agent-a", "agent-b"}

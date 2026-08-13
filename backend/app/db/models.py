@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Index, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -46,6 +46,9 @@ class EventRecord(Base):
     """Database model for events within a session."""
 
     __tablename__ = "events"
+    __table_args__ = (
+        Index("ix_events_session_replay_order", "session_id", "timestamp", "id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     session_id: Mapped[str] = mapped_column(String, ForeignKey("sessions.id"))
@@ -66,6 +69,15 @@ class ReplayEventRecord(Base):
     """
 
     __tablename__ = "replay_events"
+    __table_args__ = (
+        Index(
+            "ix_replay_events_session_replay_order",
+            "session_id",
+            "timestamp",
+            "source_event_id",
+            "id",
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     event_key: Mapped[str] = mapped_column(String, unique=True, index=True)

@@ -19,6 +19,11 @@ export interface AppSettings {
   clock_timezone: string;
   main_agent_name_mode: "auto" | "custom";
   main_agent_custom_name: string;
+  replay_history_enabled: boolean;
+  replay_retention_days: 0 | 7 | 30 | 90;
+  replay_compress_idle: boolean;
+  replay_default_speed: 0.5 | 1 | 2 | 4 | 8;
+  replay_clock_mode: "recorded" | "current";
   company_name: string;
   owner_name: string;
   owner_title: string;

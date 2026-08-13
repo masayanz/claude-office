@@ -45,6 +45,7 @@ import { ViewTransition } from "@/components/navigation/ViewTransition";
 import { BuildingView } from "@/components/views/BuildingView";
 import { FloorView } from "@/components/views/FloorView";
 import { CommandCenterView } from "@/components/command/CommandCenterView";
+import { ReplayPanel } from "@/components/replay/ReplayPanel";
 import { TourOverlay } from "@/components/tour/TourOverlay";
 import CommandBar from "@/components/attention/CommandBar";
 import AttentionToasts from "@/components/attention/AttentionToasts";
@@ -217,6 +218,7 @@ export default function V2TestPage(): React.ReactNode {
   );
   const [isRestoringCodexSessions, setIsRestoringCodexSessions] =
     useState(false);
+  const [isReplayMode, setIsReplayMode] = useState(false);
   const codexRestoreInFlight = useRef(false);
 
   // Session pending delete drives the delete-confirmation modal
@@ -340,6 +342,22 @@ export default function V2TestPage(): React.ReactNode {
     });
   }, []);
 
+  useEffect(() => {
+    if (new URLSearchParams(window.location.search).get("mode") === "replay") {
+      useNavigationStore.getState().goToSingle();
+      setIsReplayMode(true);
+      const url = new URL(window.location.href);
+      url.searchParams.delete("mode");
+      window.history.replaceState({}, "", url.pathname + (url.search ? url.search : ""));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isReplayMode && view !== "single") {
+      useNavigationStore.getState().goToSingle();
+    }
+  }, [isReplayMode, view]);
+
   const loadTourSeen = useTourStore((s) => s.loadTourSeen);
   useEffect(() => {
     loadTourSeen();
@@ -348,7 +366,7 @@ export default function V2TestPage(): React.ReactNode {
   // ------------------------------------------------------------------
   // WebSocket connection — reconnects when sessionId changes
   // ------------------------------------------------------------------
-  useWebSocketEvents({ sessionId });
+  useWebSocketEvents({ sessionId, enabled: !isReplayMode });
 
   // ------------------------------------------------------------------
   // One-time initialization effects
@@ -677,6 +695,10 @@ export default function V2TestPage(): React.ReactNode {
             onToggleDebug={handleToggleDebug}
             onOpenSettings={() => setIsSettingsModalOpen(true)}
             onOpenHelp={() => setIsHelpModalOpen(true)}
+            onOpenReplay={() => {
+              useNavigationStore.getState().goToSingle();
+              setIsReplayMode(true);
+            }}
           />
         )}
 
@@ -721,6 +743,10 @@ export default function V2TestPage(): React.ReactNode {
         <div className="flex-grow flex flex-col gap-1.5 overflow-hidden min-h-0">
           <div className="flex-[3] border border-slate-800 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative min-h-0">
             <OfficeGame />
+            {isReplayMode && <ReplayPanel onReturnLive={() => {
+              useGameStore.getState().resetForSessionSwitch();
+              setIsReplayMode(false);
+            }} />}
           </div>
           <MobileAgentActivity boss={boss} />
         </div>
@@ -747,6 +773,10 @@ export default function V2TestPage(): React.ReactNode {
             className="flex-grow border border-slate-800 rounded-lg shadow-2xl bg-slate-900 overflow-hidden relative"
           >
             <OfficeGame />
+            {isReplayMode && <ReplayPanel onReturnLive={() => {
+              useGameStore.getState().resetForSessionSwitch();
+              setIsReplayMode(false);
+            }} />}
           </div>
 
           <RightSidebar />

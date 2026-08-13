@@ -3,6 +3,8 @@
 import { Graphics } from "pixi.js";
 import { useState, useCallback, useEffect, type ReactNode } from "react";
 import { usePreferencesStore } from "@/stores/preferencesStore";
+import { useGameStore } from "@/stores/gameStore";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
 import { DigitalClock } from "./DigitalClock";
 import { getClockHands } from "@/utils/clock";
 
@@ -14,6 +16,9 @@ import { getClockHands } from "@/utils/clock";
  */
 export function WallClock(): ReactNode {
   const [time, setTime] = useState(new Date());
+  const isReplaying = useGameStore((state) => state.isReplaying);
+  const replayClockTime = useGameStore((state) => state.replayClockTime);
+  const replayClockMode = useAppSettingsStore((state) => state.settings?.replay_clock_mode ?? "recorded");
   const clockType = usePreferencesStore((s) => s.clockType);
   const clockFormat = usePreferencesStore((s) => s.clockFormat);
   const clockTimezone = usePreferencesStore((s) => s.clockTimezone);
@@ -47,8 +52,11 @@ export function WallClock(): ReactNode {
       }
 
       // Hands
+      const displayTime = isReplaying && replayClockMode === "recorded" && replayClockTime
+        ? replayClockTime
+        : time;
       const { hourAngle, minuteAngle, secondAngle } = getClockHands(
-        time,
+        displayTime,
         clockTimezone,
       );
 
@@ -70,7 +78,7 @@ export function WallClock(): ReactNode {
       g.lineTo(Math.sin(sAngle) * 35, -Math.cos(sAngle) * 35);
       g.stroke({ width: 1, color: 0xef4444 });
     },
-    [clockTimezone, time],
+    [clockTimezone, isReplaying, replayClockMode, replayClockTime, time],
   );
 
   // Draw a clickable hit area (sized for the larger of analog/digital)

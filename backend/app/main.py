@@ -23,6 +23,7 @@ from app.api.routes import (
     floors,
     integration_status,
     preferences,
+    replay,
     sessions,
     websockets,
 )
@@ -33,7 +34,7 @@ from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema
-from app.db.models import EventRecord, SessionRecord
+from app.db.models import EventRecord, ReplayEventRecord, SessionRecord
 from app.services.app_settings import load_settings
 from app.services.git_service import git_service
 
@@ -154,6 +155,9 @@ async def _reap_stale_sessions() -> None:
         # Opt-in event retention (ARC-015). Only fires when the admin sets
         # EVENT_RETENTION_DAYS > 0. Deleting events breaks replay for the
         # affected sessions, so the default (0) never deletes anything.
+        shared_settings, _ = load_settings()
+        replay_retention = int(shared_settings.get("replay_retention_days", 30) or 0)
+        replay_enabled = bool(shared_settings.get("replay_history_enabled", True))
         retention_days = settings.EVENT_RETENTION_DAYS
         if retention_days > 0:
             retention_cutoff = datetime.now(UTC) - timedelta(days=retention_days)
@@ -171,6 +175,30 @@ async def _reap_stale_sessions() -> None:
                     "Deleted %d event rows for completed sessions older than %dd (retention)",
                     del_count,
                     retention_days,
+                )
+
+        # Replay metadata follows the user-facing retention setting.  A value
+        # of 0 means unlimited; disabled history is cleaned at startup as well.
+        replay_cutoff = (
+            datetime.now(UTC) - timedelta(days=replay_retention)
+            if replay_retention > 0
+            else None
+        )
+        replay_del_count = 0
+        if not replay_enabled or replay_cutoff is not None:
+            replay_stmt = delete(ReplayEventRecord)
+            if not replay_enabled:
+                replay_stmt = replay_stmt.where(
+                    ReplayEventRecord.session_id.in_(select(SessionRecord.id))
+                )
+            else:
+                replay_stmt = replay_stmt.where(ReplayEventRecord.timestamp < replay_cutoff)
+            replay_deleted = await db.execute(replay_stmt)
+            replay_del_count = getattr(replay_deleted, "rowcount", 0) or 0
+            if replay_del_count > 0:
+                await db.commit()
+                reap_logger.info(
+                    "Deleted %d Replay metadata rows by retention policy", replay_del_count
                 )
 
 
@@ -223,6 +251,7 @@ app.include_router(events.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(integration_status.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(floors.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(preferences.router, prefix=f"{settings.API_V1_STR}")
+app.include_router(replay.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(app_settings.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(codex_restore.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")

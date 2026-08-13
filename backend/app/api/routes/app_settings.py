@@ -67,6 +67,11 @@ class AppSettingsUpdate(BaseModel):
     clock_timezone: str | None = Field(default=None, max_length=100)
     main_agent_name_mode: Literal["auto", "custom"] | None = None
     main_agent_custom_name: str | None = Field(default=None, max_length=50)
+    replay_history_enabled: bool | None = None
+    replay_retention_days: Literal[0, 7, 30, 90] | None = None
+    replay_compress_idle: bool | None = None
+    replay_default_speed: Literal[0.5, 1, 2, 4, 8] | None = None
+    replay_clock_mode: Literal["recorded", "current"] | None = None
 
 
 def _public_settings() -> dict[str, object]:

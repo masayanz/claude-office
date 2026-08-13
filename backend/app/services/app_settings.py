@@ -44,6 +44,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "clock_timezone": "",
     "main_agent_name_mode": "auto",
     "main_agent_custom_name": "",
+    "replay_history_enabled": True,
+    "replay_retention_days": 30,
+    "replay_compress_idle": True,
+    "replay_default_speed": 1,
+    "replay_clock_mode": "recorded",
 }
 
 
@@ -149,6 +154,16 @@ def validate_settings(raw: object) -> dict[str, Any]:
     result["main_agent_custom_name"] = _validate_text(
         result["main_agent_custom_name"], "main_agent_custom_name", 50
     )
+    if not isinstance(result["replay_history_enabled"], bool):
+        raise ValueError("replay_history_enabled must be boolean")
+    if result["replay_retention_days"] not in {0, 7, 30, 90}:
+        raise ValueError("replay_retention_days must be 0, 7, 30, or 90")
+    if not isinstance(result["replay_compress_idle"], bool):
+        raise ValueError("replay_compress_idle must be boolean")
+    if result["replay_default_speed"] not in {0.5, 1, 2, 4, 8}:
+        raise ValueError("replay_default_speed must be 0.5, 1, 2, 4, or 8")
+    if result["replay_clock_mode"] not in {"recorded", "current"}:
+        raise ValueError("replay_clock_mode must be recorded or current")
     image = result.get("owner_image_filename")
     if image is not None and (
         not isinstance(image, str)

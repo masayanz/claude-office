@@ -15,11 +15,13 @@ export type ReplaySlice = {
   replaySpeed: number;
   replayEvents: ReplayFrame[];
   currentReplayIndex: number;
+  replayClockTime: Date | null;
   setConnected: (isConnected: boolean) => void;
   setReplaying: (replaying: boolean) => void;
   setReplaySpeed: (speed: number) => void;
   setReplayEvents: (events: ReplayFrame[]) => void;
   setReplayIndex: (index: number) => void;
+  setReplayClockTime: (time: Date | null) => void;
 };
 
 export const initialReplayState = {
@@ -28,6 +30,7 @@ export const initialReplayState = {
   replaySpeed: 1,
   replayEvents: [] as ReplayFrame[],
   currentReplayIndex: -1,
+  replayClockTime: null as Date | null,
 };
 
 export const createReplaySlice: StateCreator<GameStore, [], [], ReplaySlice> = (
@@ -40,4 +43,5 @@ export const createReplaySlice: StateCreator<GameStore, [], [], ReplaySlice> = (
   setReplaySpeed: (replaySpeed) => set({ replaySpeed }),
   setReplayEvents: (replayEvents) => set({ replayEvents }),
   setReplayIndex: (currentReplayIndex) => set({ currentReplayIndex }),
+  setReplayClockTime: (replayClockTime) => set({ replayClockTime }),
 });

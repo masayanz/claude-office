@@ -37,6 +37,9 @@ class SessionRecord(Base):
     events: Mapped[list[EventRecord]] = relationship(
         "EventRecord", back_populates="session", cascade="all, delete-orphan"
     )
+    replay_events: Mapped[list[ReplayEventRecord]] = relationship(
+        "ReplayEventRecord", back_populates="session", cascade="all, delete-orphan"
+    )
 
 
 class EventRecord(Base):
@@ -51,6 +54,55 @@ class EventRecord(Base):
     data: Mapped[dict[str, Any]] = mapped_column(JSON)
 
     session: Mapped[SessionRecord] = relationship("SessionRecord", back_populates="events")
+
+
+class ReplayEventRecord(Base):
+    """Privacy-safe metadata retained for the Viewer Replay mode.
+
+    This table is deliberately separate from ``events``.  The latter is still
+    used by the LIVE state-restoration path and may contain legacy payloads;
+    Replay APIs must never expose it directly.  Only allow-listed metadata is
+    copied here and ``safe_data`` must never contain prompt/tool bodies.
+    """
+
+    __tablename__ = "replay_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    event_key: Mapped[str] = mapped_column(String, unique=True, index=True)
+    source_event_id: Mapped[int | None] = mapped_column(nullable=True, index=True)
+    session_id: Mapped[str] = mapped_column(String, ForeignKey("sessions.id"), index=True)
+    timestamp: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
+    event_type: Mapped[str] = mapped_column(String)
+    agent_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    agent_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    source: Mapped[str | None] = mapped_column(String, nullable=True)
+    project_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    model: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    tool_use_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    error_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    safe_state: Mapped[str] = mapped_column(String, default="idle")
+    safe_data: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+
+    session: Mapped[SessionRecord] = relationship(
+        "SessionRecord", back_populates="replay_events"
+    )
+
+
+class ReplaySessionTombstone(Base):
+    """Remember sessions whose Replay history was explicitly deleted.
+
+    LIVE event rows are retained for state restoration, so a separate marker
+    prevents the privacy-safe API from rebuilding deleted history from them.
+    """
+
+    __tablename__ = "replay_session_tombstones"
+
+    session_id: Mapped[str] = mapped_column(String, primary_key=True)
+    deleted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
 
 
 class TaskRecord(Base):

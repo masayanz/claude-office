@@ -1214,6 +1214,12 @@ class ServiceManager:
                 return
         webbrowser.open(url)
 
+    def open_replay(self) -> None:
+        """Open the Viewer directly in its Replay history mode."""
+        settings = self._settings()
+        url = f"http://{settings['frontend_host']}:{settings['frontend_port']}?mode=replay"
+        webbrowser.open(url)
+
     def open_web_settings(self, section: str = "office") -> None:
         """Open a stable deep link to the Web settings screen.
 

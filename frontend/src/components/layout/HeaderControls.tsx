@@ -1,6 +1,6 @@
 "use client";
 
-import { Activity, HelpCircle, Settings, Bell, LayoutGrid } from "lucide-react";
+import { Activity, HelpCircle, Settings, Bell, LayoutGrid, Radio } from "lucide-react";
 import { useTranslation } from "@/hooks/useTranslation";
 import { useNavigationStore } from "@/stores/navigationStore";
 import { useAttentionStore, selectUnreadCount } from "@/stores/attentionStore";
@@ -29,6 +29,7 @@ interface HeaderControlsProps {
   onToggleDebug: () => void;
   onOpenSettings: () => void;
   onOpenHelp: () => void;
+  onOpenReplay: () => void;
 }
 
 // ============================================================================
@@ -57,6 +58,7 @@ export function HeaderControls({
   onToggleDebug,
   onOpenSettings,
   onOpenHelp,
+  onOpenReplay,
 }: HeaderControlsProps): React.ReactNode {
   const { t, language } = useTranslation();
   const view = useNavigationStore((s) => s.view);
@@ -118,6 +120,14 @@ export function HeaderControls({
           {t("header.commandCenter")}
         </button>
       )}
+
+      <button
+        onClick={onOpenReplay}
+        className="flex items-center gap-2 px-3 py-1.5 bg-orange-500/10 hover:bg-orange-500/20 text-orange-400 border border-orange-500/30 rounded text-xs font-bold transition-colors"
+      >
+        <Radio size={14} />
+        {t("replay.replay")}
+      </button>
 
       <button
         onClick={onOpenSettings}

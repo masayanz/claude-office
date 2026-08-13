@@ -23,6 +23,11 @@ export function OfficeSettingsTab(): ReactNode {
   const [backendPort, setBackendPort] = useState(8000);
   const [frontendPort, setFrontendPort] = useState(3000);
   const [browserMode, setBrowserMode] = useState<"normal" | "app">("normal");
+  const [replayHistoryEnabled, setReplayHistoryEnabled] = useState(true);
+  const [replayRetentionDays, setReplayRetentionDays] = useState<0 | 7 | 30 | 90>(30);
+  const [replayCompressIdle, setReplayCompressIdle] = useState(true);
+  const [replayDefaultSpeed, setReplayDefaultSpeed] = useState<0.5 | 1 | 2 | 4 | 8>(1);
+  const [replayClockMode, setReplayClockMode] = useState<"recorded" | "current">("recorded");
   const [message, setMessage] = useState("");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPreviewValid, setIsPreviewValid] = useState(true);
@@ -39,6 +44,11 @@ export function OfficeSettingsTab(): ReactNode {
     setBackendPort(settings.backend_port);
     setFrontendPort(settings.frontend_port);
     setBrowserMode(settings.browser_mode);
+    setReplayHistoryEnabled(settings.replay_history_enabled ?? true);
+    setReplayRetentionDays(settings.replay_retention_days ?? 30);
+    setReplayCompressIdle(settings.replay_compress_idle ?? true);
+    setReplayDefaultSpeed(settings.replay_default_speed ?? 1);
+    setReplayClockMode(settings.replay_clock_mode ?? "recorded");
   }, [settings]);
 
   useEffect(
@@ -57,6 +67,11 @@ export function OfficeSettingsTab(): ReactNode {
       backend_port: backendPort,
       frontend_port: frontendPort,
       browser_mode: browserMode,
+      replay_history_enabled: replayHistoryEnabled,
+      replay_retention_days: replayRetentionDays,
+      replay_compress_idle: replayCompressIdle,
+      replay_default_speed: replayDefaultSpeed,
+      replay_clock_mode: replayClockMode,
     });
     setMessage(
       updated ? t("settings.office.saved") : t("settings.office.saveFailed"),
@@ -290,6 +305,35 @@ export function OfficeSettingsTab(): ReactNode {
           <option value="app">{t("settings.office.browserApp")}</option>
         </select>
       </label>
+      <section className="space-y-3 rounded-lg border border-orange-500/20 bg-orange-500/5 p-4">
+        <h3 className="text-sm font-bold text-orange-300">{t("settings.replay.title")}</h3>
+        <label className="flex items-center gap-3 text-sm text-slate-300">
+          <input type="checkbox" checked={replayHistoryEnabled} onChange={(event) => setReplayHistoryEnabled(event.target.checked)} />
+          {t("settings.replay.enabled")}
+        </label>
+        <label className="block text-xs font-bold text-slate-400">
+          {t("settings.replay.retention")}
+          <select value={replayRetentionDays} onChange={(event) => setReplayRetentionDays(Number(event.target.value) as 0 | 7 | 30 | 90)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white">
+            <option value={7}>7日 / 7 days</option><option value={30}>30日 / 30 days</option><option value={90}>90日 / 90 days</option><option value={0}>無期限 / Unlimited</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-3 text-sm text-slate-300">
+          <input type="checkbox" checked={replayCompressIdle} onChange={(event) => setReplayCompressIdle(event.target.checked)} />
+          {t("settings.replay.compressIdle")}
+        </label>
+        <div className="grid grid-cols-2 gap-3">
+          <label className="text-xs font-bold text-slate-400">{t("settings.replay.defaultSpeed")}
+            <select value={replayDefaultSpeed} onChange={(event) => setReplayDefaultSpeed(Number(event.target.value) as 0.5 | 1 | 2 | 4 | 8)} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white">
+              {[0.5, 1, 2, 4, 8].map((speed) => <option key={speed} value={speed}>{speed}x</option>)}
+            </select>
+          </label>
+          <label className="text-xs font-bold text-slate-400">{t("settings.replay.clock")}
+            <select value={replayClockMode} onChange={(event) => setReplayClockMode(event.target.value as "recorded" | "current")} className="mt-2 w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-white">
+              <option value="recorded">{t("settings.replay.recorded")}</option><option value="current">{t("settings.replay.current")}</option>
+            </select>
+          </label>
+        </div>
+      </section>
       <button
         type="button"
         onClick={() => void save()}

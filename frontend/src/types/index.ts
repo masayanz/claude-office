@@ -137,6 +137,27 @@ export interface WebSocketMessage {
   message?: string;
 }
 
+/** Safe session metadata returned by the replay history API. */
+export interface ReplaySessionSummary {
+  id: string;
+  sessionId?: string;
+  projectName?: string | null;
+  source?: string | null;
+  startedAt: string;
+  endedAt?: string | null;
+  duration?: number | null;
+  eventCount: number;
+  maxAgents?: number;
+  models?: string[];
+  status?: "active" | "completed" | "incomplete" | string;
+}
+
+/** Safe replay frame contract. No prompt, command, tool input/output, or text body. */
+export interface ReplayEventResponse {
+  event: NonNullable<WebSocketMessage["event"]>;
+  state: import("./generated").GameState;
+}
+
 // ============================================================================
 // NAVIGATION TYPES — re-exported from ./navigation
 // ============================================================================

@@ -4,6 +4,8 @@ import { Graphics, TextStyle } from "pixi.js";
 import { useState, useCallback, useEffect, type ReactNode } from "react";
 import type { ClockFormat } from "@/stores/preferencesStore";
 import { formatClockTime, getClockPeriod } from "@/utils/clock";
+import { useGameStore } from "@/stores/gameStore";
+import { useAppSettingsStore } from "@/stores/appSettingsStore";
 
 /**
  * DigitalClock - LED-style digital clock display for the office wall
@@ -18,6 +20,9 @@ interface DigitalClockProps {
 
 export function DigitalClock({ format, timeZone }: DigitalClockProps): ReactNode {
   const [time, setTime] = useState(new Date());
+  const isReplaying = useGameStore((state) => state.isReplaying);
+  const replayClockTime = useGameStore((state) => state.replayClockTime);
+  const replayClockMode = useAppSettingsStore((state) => state.settings?.replay_clock_mode ?? "recorded");
 
   useEffect(() => {
     const interval = setInterval(() => setTime(new Date()), 1000);
@@ -46,7 +51,10 @@ export function DigitalClock({ format, timeZone }: DigitalClockProps): ReactNode
     g.fill({ color: 0x1a3a1a, alpha: 0.5 });
   }, []);
 
-  const timeString = formatClockTime(time, format, timeZone);
+  const displayTime = isReplaying && replayClockMode === "recorded" && replayClockTime
+    ? replayClockTime
+    : time;
+  const timeString = formatClockTime(displayTime, format, timeZone);
 
   return (
     <pixiContainer>
@@ -75,7 +83,7 @@ export function DigitalClock({ format, timeZone }: DigitalClockProps): ReactNode
       {/* AM/PM indicator for 12h format */}
       {format === "12h" && (
         <pixiText
-          text={getClockPeriod(time, timeZone)}
+        text={getClockPeriod(displayTime, timeZone)}
           x={36}
           y={-2}
           anchor={0.5}

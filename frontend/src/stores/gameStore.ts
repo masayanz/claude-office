@@ -199,6 +199,7 @@ export interface GameStore {
   hydrateEventLog: (
     events: NonNullable<WebSocketMessage["event"]>[],
   ) => void;
+  setEventLog: (events: NonNullable<WebSocketMessage["event"]>[]) => void;
   conversation: ConversationEntry[];
   setConversation: (conversation: ConversationEntry[]) => void;
 
@@ -215,6 +216,7 @@ export interface GameStore {
   replaySpeed: number;
   replayEvents: ReplayFrame[];
   currentReplayIndex: number;
+  replayClockTime: Date | null;
 
   // Debug state
   debugMode: boolean;
@@ -229,6 +231,7 @@ export interface GameStore {
   setReplaySpeed: (speed: number) => void;
   setReplayEvents: (events: ReplayFrame[]) => void;
   setReplayIndex: (index: number) => void;
+  setReplayClockTime: (time: Date | null) => void;
   setDebugMode: (enabled: boolean) => void;
   toggleDebugOverlay: (
     overlay: "paths" | "queueSlots" | "phaseLabels" | "obstacles",
@@ -240,6 +243,7 @@ export interface GameStore {
   resetForReplay: () => void;
   resetForSessionSwitch: () => void;
   processBackendState: (state: BackendGameState) => void;
+  applyReplayState: (state: BackendGameState) => void;
 }
 
 // ============================================================================
@@ -329,6 +333,7 @@ export const useGameStore = create<GameStore>()(
         isReplaying: false, // Important: allow WebSocket to reconnect
         replayEvents: [],
         currentReplayIndex: -1,
+        replayClockTime: null,
         conversation: [], // Clear conversation for new session
         // Debug settings are preserved (not reset)
       }),
@@ -455,6 +460,89 @@ export const useGameStore = create<GameStore>()(
           todos: backendState.todos,
           whiteboardData,
           conversation: backendState.conversation ?? [],
+        };
+      }),
+
+    // Replay seeks are state reconstruction, not LIVE arrival choreography.
+    // Apply the complete safe snapshot synchronously so seeking backwards can
+    // restore departed agents without waiting for the animation machines.
+    applyReplayState: (backendState) =>
+      set((state) => {
+        const agents = new Map<string, AgentAnimationState>();
+        for (const backendAgent of backendState.agents) {
+          const phase: AgentPhase =
+            backendAgent.state === "arriving"
+              ? "arriving"
+              : backendAgent.state === "leaving"
+                ? "departing"
+                : backendAgent.state === "in_elevator"
+                  ? "in_elevator"
+                  : "idle";
+          const position = backendAgent.position as Position;
+          agents.set(backendAgent.id, {
+            id: backendAgent.id,
+            name: backendAgent.name ?? null,
+            color: backendAgent.color,
+            number: backendAgent.number,
+            desk: backendAgent.desk ?? null,
+            backendState: backendAgent.state,
+            currentTask: null,
+            characterType: backendAgent.characterType ?? null,
+            parentSessionId: backendAgent.parentSessionId ?? null,
+            parentId: backendAgent.parentId ?? null,
+            source: backendAgent.source ?? null,
+            model: backendAgent.model ?? null,
+            agentType: backendAgent.agentType ?? null,
+            phase,
+            currentPosition: position,
+            targetPosition: position,
+            path: null,
+            bubble: createEmptyBubbleState(),
+            queueType: (backendState.arrivalQueue ?? []).includes(backendAgent.id)
+              ? "arrival"
+              : (backendState.departureQueue ?? []).includes(backendAgent.id)
+                ? "departure"
+                : null,
+            queueIndex: Math.max(
+              (backendState.arrivalQueue ?? []).indexOf(backendAgent.id),
+              (backendState.departureQueue ?? []).indexOf(backendAgent.id),
+            ),
+            isTyping: backendAgent.state === "working",
+          });
+        }
+        const safeWhiteboard = backendState.whiteboardData ?? state.whiteboardData;
+        return {
+          agents,
+          arrivalQueue: [...(backendState.arrivalQueue ?? [])],
+          departureQueue: [...(backendState.departureQueue ?? [])],
+          boss: {
+            ...state.boss,
+            backendState: backendState.boss.state,
+            position: backendState.boss.position as Position,
+            currentTask: null,
+            bubble: createEmptyBubbleState(),
+            name: backendState.boss.name ?? null,
+            source: backendState.boss.source ?? null,
+            model: backendState.boss.model ?? null,
+            lastToolName: backendState.boss.lastToolName ?? null,
+            isTyping: backendState.boss.state === "working",
+          },
+          sessionId: backendState.sessionId,
+          deskCount: backendState.office.deskCount,
+          elevatorState: backendState.office.elevatorState,
+          phoneState: backendState.office.phoneState,
+          contextUtilization: backendState.office.contextUtilization ?? 0,
+          toolUsesSinceCompaction: backendState.office.toolUsesSinceCompaction ?? 0,
+          printReport: backendState.office.printReport ?? false,
+          todos: [],
+          conversation: [],
+          whiteboardData: {
+            ...safeWhiteboard,
+            kanbanTasks: [],
+            newsItems: [],
+            fileEdits: {},
+            backgroundTasks: [],
+          },
         };
       }),
   })),

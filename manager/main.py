@@ -339,6 +339,7 @@ class ManagerWindow(QMainWindow):
             ("再起動", self._restart),
             ("AIオフィスを開く", self._open_normal),
             ("専用表示", self._open_app),
+            ("作業履歴を再生", self._open_replay),
             ("設定", self._settings_dialog),
             ("Web設定を開く", self._open_web_settings),
             ("ログ", self._logs_dialog),
@@ -458,6 +459,7 @@ class ManagerWindow(QMainWindow):
         self._add_tray_action(menu, "通常ブラウザで開く", self._open_normal)
         self._add_tray_action(menu, f"{PRODUCT_NAME}専用表示", self._open_app)
         self._add_tray_action(menu, "Web設定を開く", self._open_web_settings)
+        self._add_tray_action(menu, "作業履歴を再生", self._open_replay)
         self._add_tray_action(menu, "ホワイトボード設定", self._open_board_settings)
         menu.addSeparator()
         self._add_tray_action(menu, "設定", self._settings_dialog)
@@ -922,6 +924,9 @@ class ManagerWindow(QMainWindow):
 
     def _open_app(self) -> None:
         self.manager.open_office(True)
+
+    def _open_replay(self) -> None:
+        self.manager.open_replay()
 
     def _open_web_settings(self) -> None:
         self.manager.open_web_settings("office")

@@ -49,13 +49,19 @@ from app.core.handlers import (
 )
 from app.core.jsonl_parser import get_last_assistant_response
 from app.core.product_mapper import get_product_mapper
+from app.core.replay import safe_display_text, safe_event_payload, safe_state_for_event
 from app.core.room_orchestrator import RoomOrchestrator
 from app.core.state_machine import StateMachine, main_agent_name_for_source
 from app.core.task_file_poller import init_task_file_poller
 from app.core.task_persistence import load_tasks, save_tasks
 from app.core.transcript_poller import init_transcript_poller
 from app.db.database import AsyncSessionLocal
-from app.db.models import EventRecord, SessionRecord
+from app.db.models import (
+    EventRecord,
+    ReplayEventRecord,
+    ReplaySessionTombstone,
+    SessionRecord,
+)
 from app.models.agents import AgentState, BossState, ElevatorState
 from app.models.common import TodoItem
 from app.models.events import (
@@ -76,6 +82,7 @@ from app.models.events import (
 )
 from app.models.overview import OverviewState
 from app.models.sessions import ConversationEntry, GameState, HistoryEntry
+from app.services.app_settings import load_settings
 from app.services.git_service import git_service
 
 logger = logging.getLogger(__name__)
@@ -544,9 +551,7 @@ class EventProcessor:
                 )
             await db.commit()
 
-    async def merge_codex_restored_session(
-        self, snapshot: Any, *, start_sequence: int
-    ) -> bool:
+    async def merge_codex_restored_session(self, snapshot: Any, *, start_sequence: int) -> bool:
         """Idempotently merge a snapshot without overwriting newer live state."""
         session_lock = self._get_session_event_lock(snapshot.session_id)
         async with session_lock:
@@ -557,9 +562,7 @@ class EventProcessor:
 
             async with AsyncSessionLocal() as db:
                 persisted_status = await db.scalar(
-                    select(SessionRecord.status).where(
-                        SessionRecord.id == snapshot.session_id
-                    )
+                    select(SessionRecord.status).where(SessionRecord.id == snapshot.session_id)
                 )
             if persisted_status == "completed":
                 return False
@@ -1017,6 +1020,35 @@ class EventProcessor:
                 data=payload,
             )
             db.add(event_rec)
+            await db.flush()
+            safe_agent_id = safe_display_text(payload.get("agent_id") or "main", 128) or "main"
+            safe_type = event_type.value
+            safe_state = safe_state_for_event(safe_type)
+            safe_agent_type = safe_display_text(payload.get("agent_type"), 48)
+            safe_source = safe_display_text(payload.get("source"), 32)
+            safe_model = safe_display_text(payload.get("model"), 120)
+            replay_insert = sqlite_insert(ReplayEventRecord).values(
+                event_key=f"synthetic:{session_id}:{safe_type}:{event_rec.id}",
+                source_event_id=event_rec.id,
+                session_id=session_id,
+                timestamp=event_rec.timestamp,
+                event_type=safe_type,
+                agent_id=safe_agent_id,
+                agent_type=safe_agent_type,
+                source=safe_source,
+                model=safe_model,
+                safe_state=safe_state,
+                safe_data={
+                    "safeState": safe_state,
+                    "source": safe_source,
+                    "model": safe_model,
+                    "agentType": safe_agent_type,
+                },
+            )
+            replay_settings, _ = load_settings()
+            if bool(replay_settings.get("replay_history_enabled", True)):
+                replay_insert = replay_insert.on_conflict_do_nothing(index_elements=["event_key"])
+                await db.execute(replay_insert)
             await db.commit()
 
     async def _build_restored_state_machine(self, session_id: str) -> StateMachine | None:
@@ -1075,9 +1107,7 @@ class EventProcessor:
                         "summary": self._get_event_summary(evt),
                         "timestamp": evt.timestamp.isoformat(),
                         "detail": (
-                            {"source": "codex", "restored": True}
-                            if evt.data.restored
-                            else {}
+                            {"source": "codex", "restored": True} if evt.data.restored else {}
                         ),
                     }
                     sm.history.append(history_entry)
@@ -1265,7 +1295,17 @@ class EventProcessor:
 
             if is_session_start:
                 await db.execute(
+                    delete(ReplaySessionTombstone).where(
+                        ReplaySessionTombstone.session_id == event.session_id
+                    )
+                )
+                await db.execute(
                     delete(EventRecord).where(EventRecord.session_id == event.session_id)
+                )
+                await db.execute(
+                    delete(ReplayEventRecord).where(
+                        ReplayEventRecord.session_id == event.session_id
+                    )
                 )
                 session_rec.status = "active"
                 session_rec.updated_at = datetime.now(UTC)
@@ -1296,6 +1336,15 @@ class EventProcessor:
                 data=event.data.model_dump(),
             )
             db.add(event_rec)
+            await db.flush()
+            replay_settings, _ = load_settings()
+            if bool(replay_settings.get("replay_history_enabled", True)):
+                replay_payload = safe_event_payload(event, source_event_id=event_rec.id)
+                # A deterministic key makes duplicate hook/JSONL delivery harmless
+                # for Replay without changing the LIVE EventRecord contract.
+                replay_insert = sqlite_insert(ReplayEventRecord).values(**replay_payload)
+                replay_insert = replay_insert.on_conflict_do_nothing(index_elements=["event_key"])
+                await db.execute(replay_insert)
             await db.commit()
 
     # ------------------------------------------------------------------

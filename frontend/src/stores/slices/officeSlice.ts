@@ -51,6 +51,7 @@ export type OfficeSlice = {
   hydrateEventLog: (
     events: NonNullable<WebSocketMessage["event"]>[],
   ) => void;
+  setEventLog: (events: NonNullable<WebSocketMessage["event"]>[]) => void;
   setConversation: (conversation: ConversationEntry[]) => void;
 };
 
@@ -137,6 +138,14 @@ export const createOfficeSlice: StateCreator<GameStore, [], [], OfficeSlice> = (
         })
         .slice(0, MAX_EVENT_LOG);
       return { eventLog };
+    }),
+
+  setEventLog: (events) =>
+    set({
+      eventLog: events.map((event) => ({
+        ...event,
+        timestamp: event.timestamp ? new Date(event.timestamp) : new Date(),
+      })),
     }),
 
   setConversation: (conversation) => set({ conversation }),

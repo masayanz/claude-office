@@ -14,7 +14,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.connection_manager import get_manager
 from app.core.event_processor import get_event_processor
 from app.db.database import get_db
-from app.db.models import EventRecord, SessionRecord, TaskRecord, UserPreference
+from app.db.models import (
+    EventRecord,
+    ReplayEventRecord,
+    ReplaySessionTombstone,
+    SessionRecord,
+    TaskRecord,
+    UserPreference,
+)
 from app.services.git_service import git_service
 
 logger = logging.getLogger(__name__)
@@ -547,6 +554,8 @@ async def clear_database(db: Annotated[AsyncSession, Depends(get_db)]) -> dict[s
     # Preserve building/floor configuration while clearing everything else.
     await db.execute(delete(UserPreference).where(UserPreference.key != "building_config"))
     await db.execute(delete(TaskRecord))
+    await db.execute(delete(ReplayEventRecord))
+    await db.execute(delete(ReplaySessionTombstone))
     await db.execute(delete(EventRecord))
     await db.execute(delete(SessionRecord))
     await db.commit()
@@ -590,6 +599,12 @@ async def delete_session(
         raise HTTPException(status_code=404, detail="Session not found")
 
     await db.execute(delete(TaskRecord).where(TaskRecord.session_id == session_id))
+    await db.execute(delete(ReplayEventRecord).where(ReplayEventRecord.session_id == session_id))
+    await db.execute(
+        delete(ReplaySessionTombstone).where(
+            ReplaySessionTombstone.session_id == session_id
+        )
+    )
     await db.execute(delete(EventRecord).where(EventRecord.session_id == session_id))
     await db.execute(delete(SessionRecord).where(SessionRecord.id == session_id))
     await db.commit()

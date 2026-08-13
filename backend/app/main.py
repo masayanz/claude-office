@@ -35,6 +35,7 @@ from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema
 from app.db.models import EventRecord, ReplayEventRecord, SessionRecord
+from app.db.replay_backfill import backfill_replay_history
 from app.services.app_settings import load_settings
 from app.services.git_service import git_service
 
@@ -60,6 +61,12 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await migrate_schema(conn)
+
+    # Older databases contain safe-normalizable LIVE events but no Replay
+    # rows.  Start the backfill after the schema transaction so it cannot delay
+    # LIVE startup; the Replay API also has a safe legacy fallback while this
+    # bounded/idempotent task catches up.
+    replay_backfill_task = asyncio.create_task(_run_replay_backfill())
 
     await _reap_stale_sessions()
 
@@ -115,6 +122,9 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
 
     yield
 
+    replay_backfill_task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await replay_backfill_task
     if codex_restorer is not None:
         await codex_restorer.cancel()
     await codex_tail_monitor.stop()
@@ -125,6 +135,16 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await idle_evictor
     await git_service.stop()
     await get_engine().dispose()
+
+
+async def _run_replay_backfill() -> None:
+    """Backfill legacy Replay rows without delaying LIVE startup."""
+    try:
+        await backfill_replay_history()
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.exception("Replay history backfill failed")
 
 
 async def _reap_stale_sessions() -> None:

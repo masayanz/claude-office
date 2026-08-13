@@ -105,6 +105,17 @@ class ReplaySessionTombstone(Base):
     )
 
 
+class ReplayMigration(Base):
+    """Version markers for one-time Replay compatibility migrations."""
+
+    __tablename__ = "replay_migrations"
+
+    key: Mapped[str] = mapped_column(String, primary_key=True)
+    completed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+
+
 class TaskRecord(Base):
     """Database model for tasks within a session.
 

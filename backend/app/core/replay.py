@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import UTC
+from datetime import UTC, datetime
 from typing import Any
 
 from app.db.models import EventRecord, ReplayEventRecord
@@ -50,10 +50,15 @@ def safe_state_for_event(event_type: str | EventType) -> str:
 
 
 def _event_key(event: AnyEvent) -> str:
+    timestamp = (
+        event.timestamp.replace(tzinfo=UTC)
+        if event.timestamp.tzinfo is None
+        else event.timestamp.astimezone(UTC)
+    )
     raw = "|".join(
         (
             event.session_id,
-            event.timestamp.astimezone(UTC).isoformat(),
+            timestamp.isoformat(),
             str(event.event_type),
             str(getattr(event.data, "agent_id", None) or "main"),
             str(getattr(event.data, "tool_use_id", None) or ""),
@@ -143,6 +148,93 @@ def safe_event_payload(event: AnyEvent, source_event_id: int | None = None) -> d
         "tool_use_id": tool_use_id,
         "error_type": error_type,
         "safe_state": safe_state_for_event(event_type),
+        "safe_data": safe_data,
+    }
+
+
+def safe_event_payload_from_legacy(
+    *,
+    session_id: str,
+    timestamp: datetime,
+    event_type: str,
+    source_event_id: int,
+    agent_id: object | None = None,
+    agent_name: object | None = None,
+    agent_type: object | None = None,
+    source: object | None = None,
+    project_name: object | None = None,
+    model: object | None = None,
+    tool_name: object | None = None,
+    tool_use_id: object | None = None,
+    error_type: object | None = None,
+    restored: object | None = None,
+) -> dict[str, Any] | None:
+    """Build the same safe projection without validating a full legacy body.
+
+    Startup backfill can encounter hundreds of thousands of historical rows.
+    Only the explicitly selected JSON columns reach this helper, which avoids
+    parsing prompt/tool bodies while preserving the same privacy allow-list as
+    live Replay persistence.
+    """
+    try:
+        safe_type = EventType(event_type).value
+    except ValueError:
+        return None
+    safe_agent_id = _safe_text(agent_id or "main", 128) or "main"
+    safe_agent_name = _safe_text(agent_name, 80)
+    safe_agent_type = _safe_text(agent_type, 48)
+    safe_source = _safe_text(source, 32)
+    safe_project_name = _safe_text(project_name, 120)
+    safe_model = _safe_text(model, 120)
+    safe_tool_name = _safe_text(tool_name, 80)
+    safe_tool_use_id = _safe_text(tool_use_id, 160)
+    safe_error_type = _safe_text(error_type, 80)
+    safe_data: dict[str, Any] = {
+        "source": safe_source,
+        "model": safe_model,
+        "agentType": safe_agent_type,
+        "safeState": safe_state_for_event(safe_type),
+    }
+    if safe_project_name:
+        safe_data["projectName"] = safe_project_name
+    if safe_agent_name:
+        safe_data["agentName"] = safe_agent_name
+    if safe_error_type:
+        safe_data["errorType"] = safe_error_type
+    if safe_tool_name:
+        safe_data["toolName"] = safe_tool_name
+    if safe_tool_use_id:
+        safe_data["toolUseId"] = safe_tool_use_id
+    if restored is True:
+        safe_data["restored"] = True
+    safe_timestamp = (
+        timestamp.replace(tzinfo=UTC) if timestamp.tzinfo is None else timestamp
+    )
+    raw_key = "|".join(
+        (
+            session_id,
+            safe_timestamp.astimezone(UTC).isoformat(),
+            safe_type,
+            safe_agent_id,
+            safe_tool_use_id or "",
+        )
+    )
+    return {
+        "event_key": hashlib.sha256(raw_key.encode("utf-8")).hexdigest(),
+        "source_event_id": source_event_id,
+        "session_id": session_id,
+        "timestamp": timestamp,
+        "event_type": safe_type,
+        "agent_id": safe_agent_id,
+        "agent_name": safe_agent_name,
+        "agent_type": safe_agent_type,
+        "source": safe_source,
+        "project_name": safe_project_name,
+        "model": safe_model,
+        "tool_name": safe_tool_name,
+        "tool_use_id": safe_tool_use_id,
+        "error_type": safe_error_type,
+        "safe_state": safe_state_for_event(safe_type),
         "safe_data": safe_data,
     }
 

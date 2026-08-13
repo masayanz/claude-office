@@ -30,11 +30,13 @@ from app.db.models import (
     ReplaySessionTombstone,
     SessionRecord,
 )
+from app.models.events import EventType
 from app.services.app_settings import load_settings
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/replay", tags=["replay"])
 _SESSION_ID = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+_REPLAY_EVENT_TYPES = tuple(event_type.value for event_type in EventType)
 
 
 def _require_session_id(session_id: str) -> None:
@@ -145,7 +147,7 @@ def _summary(record: SessionRecord, events: list[dict[str, Any]]) -> dict[str, A
             for item in events
             if item.get("detail", {}).get("projectName")
         ),
-        None,
+        safe_display_text(record.project_name),
     )
     display_name = safe_display_text(record.display_name)
     return {
@@ -166,6 +168,86 @@ def _summary(record: SessionRecord, events: list[dict[str, Any]]) -> dict[str, A
     }
 
 
+async def _legacy_summary(
+    db: AsyncSession, record: SessionRecord
+) -> dict[str, Any] | None:
+    """Summarize legacy LIVE rows without parsing their private payloads.
+
+    This is the fast path used by the session list while the asynchronous
+    Replay backfill is catching up.  Only allow-listed JSON metadata columns
+    are selected; prompts, tool input, transcripts, and response bodies never
+    leave SQLite.
+    """
+    valid = EventRecord.event_type.in_(_REPLAY_EVENT_TYPES)
+    base = EventRecord.session_id == record.id
+    event_count = int(
+        await db.scalar(select(func.count(EventRecord.id)).where(base, valid)) or 0
+    )
+    if event_count == 0:
+        return None
+    started = await db.scalar(
+        select(func.min(EventRecord.timestamp)).where(base, valid)
+    )
+    ended = await db.scalar(select(func.max(EventRecord.timestamp)).where(base, valid))
+    started_at = _utc(started or record.created_at)
+    ended_at = _utc(ended or record.updated_at)
+    source_result = await db.execute(
+        select(func.json_extract(EventRecord.data, "$.source"))
+        .where(base, valid)
+        .distinct()
+    )
+    sources = sorted(
+        {
+            safe_value
+            for value in source_result.scalars().all()
+            if (safe_value := safe_display_text(value))
+        }
+    )
+    model_result = await db.execute(
+        select(func.json_extract(EventRecord.data, "$.model"))
+        .where(base, valid)
+        .distinct()
+    )
+    models = sorted(
+        {
+            safe_value
+            for value in model_result.scalars().all()
+            if (safe_value := safe_display_text(value))
+        }
+    )
+    project_result = await db.execute(
+        select(func.json_extract(EventRecord.data, "$.project_name"))
+        .where(base, valid)
+        .distinct()
+    )
+    project_names = [
+        safe_value
+        for value in project_result.scalars().all()
+        if (safe_value := safe_display_text(value))
+    ]
+    project_name = project_names[0] if project_names else safe_display_text(record.project_name)
+    duration_seconds = max(0, int((ended_at - started_at).total_seconds()))
+    return {
+        "id": record.id,
+        "projectName": project_name,
+        "source": sources[0] if len(sources) == 1 else (", ".join(sources) if sources else None),
+        "sources": sources,
+        "startedAt": started_at.isoformat().replace("+00:00", "Z"),
+        "endedAt": ended_at.isoformat().replace("+00:00", "Z")
+        if record.status == "completed"
+        else None,
+        "durationSeconds": duration_seconds,
+        "status": "in_progress" if record.status == "active" else record.status,
+        "eventCount": event_count,
+        # The exact live agent peak is available once the safe rows are
+        # backfilled.  Legacy list summaries remain replayable and show 0
+        # until that asynchronous catch-up has completed.
+        "maxAgents": 0,
+        "models": models,
+        "displayName": safe_display_text(record.display_name),
+    }
+
+
 def _history_enabled() -> bool:
     settings, _ = load_settings()
     return bool(settings.get("replay_history_enabled", True))
@@ -177,6 +259,7 @@ async def get_replay_storage(
 ) -> dict[str, Any]:
     """Return bounded Replay storage statistics for the settings screen."""
     settings, _ = load_settings()
+    enabled = bool(settings.get("replay_history_enabled", True))
     event_count = int(
         await db.scalar(select(func.count(ReplayEventRecord.id))) or 0
     )
@@ -185,8 +268,33 @@ async def get_replay_storage(
     )
     oldest = await db.scalar(select(func.min(ReplayEventRecord.timestamp)))
     newest = await db.scalar(select(func.max(ReplayEventRecord.timestamp)))
+    if enabled:
+        tombstoned = select(1).where(
+            ReplaySessionTombstone.session_id == EventRecord.session_id
+        ).exists()
+        live_filter = EventRecord.event_type.in_(_REPLAY_EVENT_TYPES)
+        live_event_count = int(
+            await db.scalar(
+                select(func.count(EventRecord.id)).where(live_filter, ~tombstoned)
+            )
+            or 0
+        )
+        live_session_count = int(
+            await db.scalar(
+                select(func.count(func.distinct(EventRecord.session_id))).where(
+                    live_filter, ~tombstoned
+                )
+            )
+            or 0
+        )
+        event_count = max(event_count, live_event_count)
+        session_count = max(session_count, live_session_count)
+        if oldest is None:
+            oldest = await db.scalar(select(func.min(EventRecord.timestamp)).where(live_filter))
+        if newest is None:
+            newest = await db.scalar(select(func.max(EventRecord.timestamp)).where(live_filter))
     return {
-        "enabled": bool(settings.get("replay_history_enabled", True)),
+        "enabled": enabled,
         "retentionDays": int(settings.get("replay_retention_days", 30) or 0),
         "eventCount": event_count,
         "sessionCount": session_count,
@@ -211,10 +319,17 @@ async def list_replay_sessions(
     result = await db.execute(select(SessionRecord).order_by(SessionRecord.updated_at.desc()))
     output: list[dict[str, Any]] = []
     for record in result.scalars().all():
-        events, _ = await _safe_event_views(db, record.id)
-        if not events:
+        legacy_summary = await _legacy_summary(db, record)
+        if legacy_summary is None:
             continue
-        summary = _summary(record, events)
+        safe_records = await _safe_records(db, record.id)
+        if safe_records and len(safe_records) >= legacy_summary["eventCount"]:
+            summary = _summary(record, [safe_event_from_record(row) for row in safe_records])
+        else:
+            # The background backfill may still be in progress.  The SQL
+            # summary is complete and does not force a full private-payload
+            # parse just to render the list.
+            summary = legacy_summary
         if project and project.lower() not in str(summary.get("projectName") or "").lower():
             continue
         if source and source.lower() not in {str(value).lower() for value in summary["sources"]}:

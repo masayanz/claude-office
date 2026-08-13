@@ -19,6 +19,7 @@ from typing import Any
 from pydantic import ValidationError
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.exc import OperationalError
 
 from app.config import get_settings
 from app.core.beads_poller import get_beads_poller, has_beads, init_beads_poller
@@ -1048,7 +1049,24 @@ class EventProcessor:
             replay_settings, _ = load_settings()
             if bool(replay_settings.get("replay_history_enabled", True)):
                 replay_insert = replay_insert.on_conflict_do_nothing(index_elements=["event_key"])
-                await db.execute(replay_insert)
+                replay_error: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        async with db.begin_nested():
+                            await db.execute(replay_insert)
+                        replay_error = None
+                        break
+                    except OperationalError as exc:
+                        replay_error = exc
+                        if attempt < 2:
+                            await asyncio.sleep(0.05 * (attempt + 1))
+                if replay_error is not None:
+                    logger.warning(
+                        "Replay event save failed session=%s type=%s error=%s",
+                        session_id,
+                        safe_type,
+                        type(replay_error).__name__,
+                    )
             await db.commit()
 
     async def _build_restored_state_machine(self, session_id: str) -> StateMachine | None:
@@ -1267,6 +1285,17 @@ class EventProcessor:
                 select(SessionRecord).where(SessionRecord.id == event.session_id)
             )
             session_rec = result.scalar_one()
+            previous_status = session_rec.status
+            has_existing_events = bool(
+                await db.scalar(
+                    select(EventRecord.id)
+                    .where(EventRecord.session_id == event.session_id)
+                    .limit(1)
+                )
+            )
+            has_replay_tombstone = (
+                await db.get(ReplaySessionTombstone, event.session_id)
+            ) is not None
 
             # Persist floor/room assignment in the same session/transaction.
             if floor_id and room_id:
@@ -1293,7 +1322,17 @@ class EventProcessor:
             if team_name and session_rec.is_lead is False and not session_rec.teammate_name:
                 session_rec.is_lead = True
 
-            if is_session_start:
+            # A restored/resumed session can receive SessionStart after the
+            # Viewer has already rebuilt it.  Do not erase its history in that
+            # case.  A completed session, a genuinely empty session, or a
+            # session whose Replay history was explicitly deleted starts a
+            # fresh logical recording.
+            reset_existing_history = is_session_start and (
+                not has_existing_events
+                or previous_status == "completed"
+                or has_replay_tombstone
+            )
+            if reset_existing_history:
                 await db.execute(
                     delete(ReplaySessionTombstone).where(
                         ReplaySessionTombstone.session_id == event.session_id
@@ -1344,7 +1383,24 @@ class EventProcessor:
                 # for Replay without changing the LIVE EventRecord contract.
                 replay_insert = sqlite_insert(ReplayEventRecord).values(**replay_payload)
                 replay_insert = replay_insert.on_conflict_do_nothing(index_elements=["event_key"])
-                await db.execute(replay_insert)
+                replay_error: Exception | None = None
+                for attempt in range(3):
+                    try:
+                        async with db.begin_nested():
+                            await db.execute(replay_insert)
+                        replay_error = None
+                        break
+                    except OperationalError as exc:
+                        replay_error = exc
+                        if attempt < 2:
+                            await asyncio.sleep(0.05 * (attempt + 1))
+                if replay_error is not None:
+                    logger.warning(
+                        "Replay event save failed session=%s type=%s error=%s",
+                        event.session_id,
+                        event.event_type.value,
+                        type(replay_error).__name__,
+                    )
             await db.commit()
 
     # ------------------------------------------------------------------

@@ -18,9 +18,10 @@ function sessionLabel(session: ReplaySessionSummary): string {
 
 export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
   const { t } = useTranslation();
-  const { sessions, loading, frames, filters, setFilters, loadSession } = useReplay();
+  const { sessions, loading, emptyReason, frames, filters, setFilters, loadSession } = useReplay();
   const replaySettings = useAppSettingsStore((state) => state.settings);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [loadedId, setLoadedId] = useState<string | null>(null);
   const [snapshot, setSnapshot] = useState<ReplayControllerSnapshot>({
     positionMs: 0,
     durationMs: 0,
@@ -61,14 +62,23 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
 
   const handleSelect = async (sessionId: string) => {
     setSelectedId(sessionId);
-    const loaded = await loadSession(sessionId);
-    useGameStore.getState().resetForReplay();
-    controller.setFrames(loaded);
-    controller.setSpeed(replaySettings?.replay_default_speed ?? 1);
+    setLoadedId(null);
+    controller.setFrames([]);
+    try {
+      const loaded = await loadSession(sessionId);
+      useGameStore.getState().resetForReplay();
+      controller.setFrames(loaded);
+      controller.setSpeed(replaySettings?.replay_default_speed ?? 1);
+      setLoadedId(sessionId);
+    } catch {
+      // The hook exposes the API error state; keep the session selected so
+      // the user can retry after the backend recovers.
+    }
   };
 
+  const selectedIsLoaded = selectedId !== null && selectedId === loadedId;
   const currentFrame =
-    snapshot.currentIndex >= 0 ? frames[snapshot.currentIndex] ?? null : null;
+    selectedIsLoaded && snapshot.currentIndex >= 0 ? frames[snapshot.currentIndex] ?? null : null;
   const completed =
     frames.length > 0 &&
     !snapshot.isPlaying &&
@@ -112,9 +122,17 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
         </div>
         <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
           {loading && sessions.length === 0 ? <div className="p-4 text-center text-xs text-slate-500">{t("replay.loading")}</div> : null}
-          {!loading && sessions.length === 0 ? <div className="p-4 text-center text-xs text-slate-500">{t("replay.noSessions")}</div> : null}
+          {!loading && sessions.length === 0 ? <div className="p-4 text-center text-xs text-slate-500">
+            {emptyReason === "disabled"
+              ? t("replay.historyDisabled")
+              : emptyReason === "filtered"
+                ? t("replay.filteredEmpty")
+                : emptyReason === "api"
+                  ? t("replay.apiError")
+                  : t("replay.historyEmpty")}
+          </div> : null}
           {sessions.map((session) => (
-            <button key={session.id} type="button" onClick={() => void handleSelect(session.id)} className={`w-full rounded-lg border p-3 text-left transition-colors ${selectedId === session.id ? "border-orange-500/70 bg-orange-500/10" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
+            <button key={session.id} type="button" aria-pressed={selectedId === session.id} onClick={() => void handleSelect(session.id)} className={`w-full rounded-lg border p-3 text-left transition-colors ${selectedId === session.id ? "border-orange-500/70 bg-orange-500/10" : "border-slate-800 bg-slate-900 hover:border-slate-600"}`}>
               <div className="truncate text-xs font-bold text-white">{sessionLabel(session)}</div>
               <div className="mt-1 text-[10px] text-slate-400">{formatReplaySessionDate(session.startedAt)}</div>
               <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[10px] text-slate-500">
@@ -133,12 +151,14 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
             <h2 className="mt-1 text-xl font-bold text-white">{selected ? sessionLabel(selected) : t("replay.selectSession")}</h2>
             {selected ? <div className="mt-1 text-xs text-slate-400">{t("replay.recordedAt")}: {formatReplaySessionDate(selected.startedAt)}</div> : null}
           </div>
+          {snapshot.isPlaying && selected ? <div className="rounded-md border border-orange-500/40 bg-orange-500/10 px-3 py-2 text-xs font-bold text-orange-300">▶ {t("replay.replay")} · {sessionLabel(selected)}</div> : null}
           {currentFrame ? <div className="text-right text-xs text-slate-400">{formatReplaySessionDate(currentFrame.event.timestamp)}<div className="mt-1 text-[10px] text-orange-300">{currentFrame.event.summary}</div></div> : null}
+          <button type="button" disabled={!selectedIsLoaded || loading || frames.length === 0} onClick={() => controller.play()} className="rounded-md bg-emerald-500 px-3 py-2 text-xs font-bold text-slate-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"><Play size={14} className="mr-1 inline" />{t("replay.play")}</button>
         </div>
 
         <div className="flex-1" />
 
-        {selected && frames.length > 0 ? (
+        {selectedIsLoaded && frames.length > 0 ? (
           <div className="rounded-xl border border-slate-700 bg-slate-950/90 p-4 shadow-2xl">
             <div className="mb-3 flex items-center justify-between text-xs text-slate-400">
               <span>{formatReplayDuration(snapshot.positionMs)}</span>
@@ -163,7 +183,7 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
             </div>
             {completed ? <div className="mt-3 flex items-center justify-between rounded-md border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-xs text-emerald-300"><span>{t("replay.completed")}</span><button type="button" onClick={() => controller.reset()}>{t("replay.repeat")}</button></div> : null}
           </div>
-        ) : selected && loading ? <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs text-slate-400">{t("replay.loading")}</div> : null}
+        ) : selected && loading ? <div className="rounded-lg border border-slate-800 bg-slate-900 p-4 text-xs text-slate-400">{t("replay.loading")}</div> : selected && emptyReason === "api" ? <div className="rounded-lg border border-red-500/30 bg-red-500/10 p-4 text-xs text-red-300">{t("replay.apiError")}</div> : selected && emptyReason === "empty" ? <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4 text-xs text-amber-300">{t("replay.eventEmpty")}</div> : null}
       </section>
     </div>
   );

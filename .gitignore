@@ -101,6 +101,7 @@ config/owner-image/*
 !config/owner-image/.gitkeep
 runtime/logs/
 runtime/processes.json
+runtime/dedicated-view-profile/
 .pytest-temp/
 dist/manager/
 build/manager/

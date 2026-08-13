@@ -445,6 +445,7 @@ def test_dedicated_view_uses_app_mode_and_reuses_its_process(
     )
     monkeypatch.setattr(process_manager, "RUNTIME_DIR", tmp_path / "runtime")
     commands: list[list[str]] = []
+    popen_kwargs: list[dict[str, Any]] = []
 
     class Process:
         pid = 4321
@@ -456,7 +457,9 @@ def test_dedicated_view_uses_app_mode_and_reuses_its_process(
     monkeypatch.setattr(
         process_manager.subprocess,
         "Popen",
-        lambda command, **_kwargs: commands.append(command) or process,
+        lambda command, **kwargs: (
+            commands.append(command) or popen_kwargs.append(kwargs) or process
+        ),
     )
 
     first = manager.open_dedicated_view((100, 200, 1600, 900))
@@ -473,6 +476,7 @@ def test_dedicated_view_uses_app_mode_and_reuses_its_process(
     assert "--window-size=1408,792" in commands[0]
     assert "--window-position=196,254" in commands[0]
     assert any(item.startswith("--user-data-dir=") for item in commands[0])
+    assert popen_kwargs[0]["shell"] is False
 
 
 def test_dedicated_view_reports_unavailable_frontend_or_browser(
@@ -489,6 +493,31 @@ def test_dedicated_view_reports_unavailable_frontend_or_browser(
     missing_browser = manager.open_dedicated_view()
     assert missing_browser.succeeded is False
     assert "Edge" in missing_browser.detail
+
+
+def test_dedicated_browser_start_failure_does_not_touch_server_processes(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(
+        manager,
+        "_find_dedicated_browser",
+        lambda: ("Edge", r"C:\\Program Files\\Microsoft\\Edge\\msedge.exe"),
+    )
+    monkeypatch.setattr(process_manager, "RUNTIME_DIR", tmp_path / "runtime")
+    monkeypatch.setattr(
+        process_manager.subprocess,
+        "Popen",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(OSError("browser unavailable")),
+    )
+
+    result = manager.open_dedicated_view()
+
+    assert result.succeeded is False
+    assert manager.processes == {}
+    assert manager._dedicated_view_processes == {}
 
 
 def test_service_commands_do_not_use_shell_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:

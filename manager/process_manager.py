@@ -222,7 +222,10 @@ class ServiceManager:
         self._states: dict[str, str] = {"backend": "stopped", "frontend": "stopped"}
         self._manager_instance_id = uuid.uuid4().hex
         self._lifecycle_lock = threading.RLock()
-        self._dedicated_view_process: subprocess.Popen[Any] | None = None
+        # ``processes`` contains server processes only.  Dedicated browser
+        # processes intentionally live in a separate collection and are never
+        # included in server stop/restart/cleanup operations.
+        self._dedicated_view_processes: dict[int, subprocess.Popen[Any]] = {}
         self._dedicated_view_browser: str | None = None
         LOG_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -1035,6 +1038,18 @@ class ServiceManager:
         except OSError:
             pass
 
+    def log_dedicated_view_request(
+        self, backend: ServiceStatus, frontend: ServiceStatus
+    ) -> None:
+        """Log the non-mutating state observed by the dedicated-view handler."""
+        detail = (
+            f"backend_state={backend.state} backend_healthy={backend.healthy} "
+            f"backend_pid={backend.pid if backend.pid is not None else '-'} "
+            f"frontend_state={frontend.state} frontend_healthy={frontend.healthy} "
+            f"frontend_pid={frontend.pid if frontend.pid is not None else '-'}"
+        )
+        self._log_process_event("viewer", "dedicated_request", detail)
+
     def _record_for_process(
         self, service: str, process: subprocess.Popen[Any], command: list[str], cwd: Path
     ) -> ProcessRecord:
@@ -1321,7 +1336,12 @@ class ServiceManager:
             self._log_process_event("viewer", "dedicated_open_failed", detail)
             return ViewerLaunchResult(False, "dedicated", url, detail)
 
-        process = getattr(self, "_dedicated_view_process", None)
+        self.cleanup_dedicated_view()
+        dedicated_processes = getattr(self, "_dedicated_view_processes", None)
+        if dedicated_processes is None:
+            dedicated_processes = {}
+            self._dedicated_view_processes = dedicated_processes
+        process = next(iter(dedicated_processes.values()), None)
         if process is not None:
             try:
                 if process.poll() is None:
@@ -1337,7 +1357,7 @@ class ServiceManager:
                     )
             except (AttributeError, OSError):
                 pass
-            self._dedicated_view_process = None
+            dedicated_processes.pop(getattr(process, "pid", -1), None)
 
         discovered = self._find_dedicated_browser()
         if discovered is None:
@@ -1345,6 +1365,9 @@ class ServiceManager:
             self._log_process_event("viewer", "dedicated_open_failed", detail)
             return ViewerLaunchResult(False, "dedicated", url, detail)
         browser_name, browser = discovered
+        self._log_process_event(
+            "viewer", "dedicated_browser_selected", f"browser={browser_name} path={browser}"
+        )
 
         command = [
             browser,
@@ -1371,6 +1394,7 @@ class ServiceManager:
             process = subprocess.Popen(
                 command,
                 cwd=ROOT,
+                shell=False,
                 **self._hidden_subprocess_kwargs(),
             )
         except (OSError, subprocess.SubprocessError) as exc:
@@ -1382,12 +1406,18 @@ class ServiceManager:
             return_code = process.poll()
         except (AttributeError, OSError):
             return_code = None
+        self._log_process_event(
+            "viewer",
+            "dedicated_process_started",
+            f"browser={browser_name} pid={getattr(process, 'pid', '-')} "
+            f"returncode={return_code if return_code is not None else '-'}",
+        )
         if return_code is not None and return_code != 0:
             detail = f"専用画面プロセスが起動直後に終了しました（code={return_code}）。"
             self._log_process_event("viewer", "dedicated_open_failed", detail)
             return ViewerLaunchResult(False, "dedicated", url, detail, browser)
 
-        self._dedicated_view_process = process
+        dedicated_processes[process.pid] = process
         self._dedicated_view_browser = browser_name
         self._log_process_event(
             "viewer",
@@ -1395,6 +1425,24 @@ class ServiceManager:
             f"browser={browser_name} pid={process.pid} url={url}",
         )
         return ViewerLaunchResult(True, "dedicated", url, browser=browser_name)
+
+    def cleanup_dedicated_view(self) -> None:
+        """Prune only dedicated browser handles; never touch server processes."""
+        dedicated_processes = getattr(self, "_dedicated_view_processes", None)
+        if not dedicated_processes:
+            return
+        for pid, process in list(dedicated_processes.items()):
+            try:
+                return_code = process.poll()
+            except (AttributeError, OSError):
+                return_code = 0
+            if return_code is not None:
+                dedicated_processes.pop(pid, None)
+                self._log_process_event(
+                    "viewer",
+                    "dedicated_view_closed",
+                    f"pid={pid} returncode={return_code}",
+                )
 
     def open_office(self, app_mode: bool = False) -> ViewerLaunchResult:
         """Backward-compatible dispatcher for existing Manager callers."""

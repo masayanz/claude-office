@@ -11,7 +11,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 
 from manager import main
-from manager.process_manager import ServiceStatus
+from manager.process_manager import ServiceStatus, ViewerLaunchResult
 
 
 class _Timer:
@@ -45,6 +45,12 @@ def _window(manager: object) -> object:
     window._is_quitting = False
     window._service_action_in_flight = False
     window._service_buttons = []
+    window._last_backend_healthy = False
+    window._last_frontend_healthy = False
+    window._last_backend_state = "stopped"
+    window._last_frontend_state = "stopped"
+    window._pending_dedicated_view = False
+    window._dedicated_view_deadline = 0.0
     window.manager = manager
     window._status_timer = _Timer()
     window._executor = _Executor()
@@ -181,3 +187,129 @@ def test_restart_backend_reports_stop_failure(monkeypatch: pytest.MonkeyPatch) -
     main.ManagerWindow._restart_backend(window)
 
     assert errors and "停止未確認" in str(errors[0])
+
+
+def test_dedicated_view_does_not_touch_running_servers(monkeypatch: pytest.MonkeyPatch) -> None:
+    lifecycle_calls: list[str] = []
+    opened: list[tuple[int, int, int, int] | None] = []
+
+    class Manager:
+        def status(self, service: str) -> ServiceStatus:
+            pid = 1000 if service == "backend" else 2000
+            return ServiceStatus(service, True, True, pid, "", True, "running")
+
+        def open_dedicated_view(
+            self, geometry: tuple[int, int, int, int] | None
+        ) -> ViewerLaunchResult:
+            opened.append(geometry)
+            return ViewerLaunchResult(True, "dedicated", "http://127.0.0.1:3123")
+
+        def start(self, _service: str) -> None:
+            lifecycle_calls.append("start")
+
+        def stop(self, _service: str) -> None:
+            lifecycle_calls.append("stop")
+
+        def restart(self, _service: str) -> None:
+            lifecycle_calls.append("restart")
+
+    window = _window(Manager())
+    monkeypatch.setattr(window, "_viewer_screen_geometry", lambda: (0, 0, 100, 100))
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "warning",
+        lambda *_args: pytest.fail("unexpected warning"),
+    )
+    monkeypatch.setattr(
+        main.ManagerWindow,
+        "_launch_dedicated_view",
+        lambda self: opened.append((0, 0, 100, 100)),
+    )
+
+    main.ManagerWindow._open_app(window)
+
+    assert lifecycle_calls == []
+    assert opened == [(0, 0, 100, 100)]
+
+
+def test_dedicated_view_waits_for_starting_servers_without_double_start(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    lifecycle_calls: list[str] = []
+    messages: list[str] = []
+
+    class Manager:
+        def status(self, service: str) -> ServiceStatus:
+            return ServiceStatus(service, True, False, 1000, "起動中", True, "starting")
+
+        def start(self, _service: str) -> None:
+            lifecycle_calls.append("start")
+
+    window = _window(Manager())
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "information",
+        lambda _parent, _title, text: messages.append(text),
+    )
+
+    main.ManagerWindow._open_app(window)
+
+    assert lifecycle_calls == []
+    assert window._pending_dedicated_view is True
+    assert messages and "起動完了後" in messages[0]
+
+
+def test_dedicated_view_starts_only_after_explicit_confirmation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    start_calls: list[bool] = []
+
+    class Manager:
+        def status(self, service: str) -> ServiceStatus:
+            return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
+
+    window = _window(Manager())
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "question",
+        lambda *_args: main.QMessageBox.StandardButton.No,
+    )
+    monkeypatch.setattr(window, "_start", lambda: start_calls.append(True))
+
+    main.ManagerWindow._open_app(window)
+
+    assert start_calls == []
+    assert window._pending_dedicated_view is False
+
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "question",
+        lambda *_args: main.QMessageBox.StandardButton.Yes,
+    )
+    main.ManagerWindow._open_app(window)
+
+    assert start_calls == [True]
+    assert window._pending_dedicated_view is True
+
+
+def test_pending_dedicated_view_requires_both_services_healthy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    window = _window(object())
+    window._pending_dedicated_view = True
+    window._dedicated_view_deadline = 9999999999.0
+    window._service_action_in_flight = False
+    window._last_frontend_healthy = True
+    window._last_backend_healthy = False
+    window._last_frontend_state = "running"
+    window._last_backend_state = "running"
+    launched: list[bool] = []
+    monkeypatch.setattr(window, "_launch_dedicated_view", lambda: launched.append(True))
+
+    main.ManagerWindow._maybe_open_pending_dedicated_view(window)
+
+    assert launched == []
+
+    window._last_backend_healthy = True
+    main.ManagerWindow._maybe_open_pending_dedicated_view(window)
+    assert launched == [True]

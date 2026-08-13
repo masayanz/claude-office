@@ -15,8 +15,8 @@ from app.models.events import EventAdapter, EventType
 
 def test_jsonl_reader_keeps_unterminated_utf8_line_until_next_append() -> None:
     reader = JsonlTailReader()
-    assert reader.feed('{"type":"event_msg","payload":"'.encode("utf-8")) == []
-    records = reader.feed('秘密"}\n'.encode("utf-8"))
+    assert reader.feed(b'{"type":"event_msg","payload":"') == []
+    records = reader.feed('秘密"}\n'.encode())
     assert records == [{"type": "event_msg", "payload": "秘密"}]
     assert reader.parse_errors == 0
 
@@ -108,3 +108,48 @@ def test_native_rollout_mapping_is_allowlisted() -> None:
     assert received[0].data.tool_name == "Bash"
     assert received[0].data.tool_input is None
     assert received[0].data.result_summary is None
+
+
+def test_jsonl_task_started_emits_main_prompt_event_without_subagents() -> None:
+    received = []
+
+    class Processor:
+        async def process_event(self, event):
+            received.append(event)
+
+    async def run() -> None:
+        coordinator = HybridCoordinator()
+        coordinator.bind(Processor())
+        monitor = CodexJsonlTailMonitor()
+        monitor._coordinator = coordinator
+        meta = _RolloutMeta(
+            session_id="session-3",
+            thread_id="session-3",
+            project_name="project",
+            model="gpt-5.6-sol",
+        )
+        cursor = type("Cursor", (), {"meta": meta})()
+        await monitor._handle_record(
+            cursor,
+            {
+                "type": "event_msg",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "payload": {"type": "task_started", "turn_id": "turn-1"},
+            },
+        )
+        await monitor._handle_record(
+            cursor,
+            {
+                "type": "event_msg",
+                "timestamp": datetime.now(UTC).isoformat(),
+                "payload": {"type": "task_complete", "turn_id": "turn-1"},
+            },
+        )
+
+    asyncio.run(run())
+    assert [event.event_type for event in received] == [
+        EventType.USER_PROMPT_SUBMIT,
+        EventType.STOP,
+    ]
+    assert received[0].data.source == "codex"
+    assert received[0].data.agent_id is None

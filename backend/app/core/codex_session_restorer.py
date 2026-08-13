@@ -932,7 +932,8 @@ def _scan_snapshots(
                 model=acc.model,
                 boss_state=(
                     "reviewing" if last_main and last_main[0] == "AgentWait" else
-                    "working" if last_main or acc.main_turn_active else "idle"
+                    "working" if last_main else
+                    "thinking" if acc.main_turn_active else "idle"
                 ),
                 last_tool_name=last_main[0] if last_main else None,
                 agents=sorted(

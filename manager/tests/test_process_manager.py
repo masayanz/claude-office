@@ -16,6 +16,8 @@ import pytest
 from manager.process_manager import (
     CodexRestoreStatus,
     GlobalHooksRepairResult,
+    ProcessProbe,
+    ProcessRecord,
     ServiceManager,
     ServiceStatus,
 )
@@ -49,6 +51,8 @@ def _manager(monkeypatch: pytest.MonkeyPatch) -> ServiceManager:
     )
     manager.processes = {}
     manager._log_streams = {}
+    manager._records = {}
+    manager._states = {"backend": "stopped", "frontend": "stopped"}
     return manager
 
 
@@ -388,6 +392,142 @@ def test_open_web_settings_rejects_unknown_section(monkeypatch: pytest.MonkeyPat
         manager.open_web_settings("unknown")
 
 
+def test_service_commands_do_not_use_shell_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+    backend, _ = manager._command("backend")
+    frontend, _ = manager._command("frontend")
+
+    assert backend[0].lower().endswith(("python.exe", "python"))
+    assert "uv" not in backend[:2]
+    assert frontend[0].lower().endswith(("node.exe", "node"))
+    assert "cmd.exe" not in [item.lower() for item in frontend]
+    assert "powershell" not in " ".join(frontend).lower()
+
+
+def test_status_marks_healthy_external_port_as_not_manager_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(manager, "_port_in_use", lambda _service: True)
+
+    result = manager.status("backend")
+
+    assert result.running is True
+    assert result.healthy is True
+    assert result.owned is False
+    assert result.state == "external"
+    assert "停止しません" in result.detail
+
+
+def test_restart_does_not_start_after_stop_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+    failed = ServiceStatus("backend", True, False, 4321, "停止未確認", True, "error")
+    monkeypatch.setattr(manager, "stop", lambda _service: failed)
+    started = False
+
+    def start(_service: str) -> ServiceStatus:
+        nonlocal started
+        started = True
+        return failed
+
+    monkeypatch.setattr(manager, "start", start)
+
+    result = manager.restart("backend")
+
+    assert result.running is True
+    assert result.state == "error"
+    assert started is False
+
+
+def test_pid_file_contains_identity_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+    manager._records = {
+        "backend": ProcessRecord(
+            "backend",
+            4321,
+            r"C:\Python\python.exe",
+            (r"C:\Python\python.exe", "-m", "uvicorn"),
+            r"C:\viewer\backend",
+            "2026-08-13T00:00:00+00:00",
+            123.5,
+            "manager-test",
+        )
+    }
+    path = Path(__file__).resolve().parents[2] / "runtime" / ".manager-test-processes.json"
+    monkeypatch.setattr("manager.process_manager.PID_PATH", path)
+    monkeypatch.setattr("manager.process_manager.RUNTIME_DIR", path.parent)
+    try:
+        manager._save_pid_file()
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        assert payload["schema"] == 2
+        assert payload["backend"]["executable"].endswith("python.exe")
+        assert payload["backend"]["cwd"].endswith("backend")
+        assert payload["backend"]["creation_time"] == 123.5
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_access_denied_probe_is_not_treated_as_dead(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        ServiceManager,
+        "_windows_process_probe",
+        staticmethod(lambda _pid: ProcessProbe("unknown")),
+    )
+
+    assert ServiceManager._pid_state(4321) == "unknown"
+    assert ServiceManager._pid_exists(4321) is False
+
+
+def test_status_keeps_unverifiable_pid_record(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+    record = ProcessRecord(
+        "backend",
+        4321,
+        r"C:\Python\python.exe",
+        (r"C:\Python\python.exe", "-m", "uvicorn"),
+        r"C:\viewer\backend",
+        "2026-08-13T00:00:00+00:00",
+        123.5,
+        "manager-test",
+    )
+    manager._records = {"backend": record}
+    monkeypatch.setattr(manager, "_record_matches", lambda _record: False)
+    monkeypatch.setattr(manager, "_record_verification", lambda _record: "unknown")
+    monkeypatch.setattr(manager, "_healthy", lambda _service: False)
+    monkeypatch.setattr(manager, "_port_in_use", lambda _service: False)
+
+    result = manager.status("backend")
+
+    assert result.state == "unknown"
+    assert result.owned is False
+    assert result.pid == 4321
+    assert manager._records["backend"] == record
+
+
+def test_stop_waits_for_tracked_child_after_root_exits(monkeypatch: pytest.MonkeyPatch) -> None:
+    manager = _manager(monkeypatch)
+
+    class Process:
+        pid = 4321
+
+        def poll(self) -> int:
+            return 0
+
+        def wait(self, timeout: float) -> None:
+            return None
+
+    process = Process()
+    monkeypatch.setattr(manager, "_extend_tracked_tree", lambda _pid, _tracked: None)
+    monkeypatch.setattr(
+        manager,
+        "_pid_state",
+        lambda pid: "alive" if pid == 9876 else "dead",
+    )
+
+    assert manager._wait_for_exit(process, 4321, 0.1, {9876}) is False
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows CTRL_BREAK fallback")
 def test_stop_falls_back_when_ctrl_break_handle_is_invalid(
     monkeypatch: pytest.MonkeyPatch,
@@ -396,25 +536,29 @@ def test_stop_falls_back_when_ctrl_break_handle_is_invalid(
 
     class Process:
         terminated = False
+        alive = True
+        pid = 43209
 
-        def poll(self) -> None:
-            return None
+        def poll(self) -> int | None:
+            return None if self.alive else 0
 
         def send_signal(self, _signal: int) -> None:
             raise OSError(6, "The handle is invalid")
 
         def terminate(self) -> None:
             self.terminated = True
+            self.alive = False
 
         def wait(self, timeout: int) -> None:
-            assert timeout == 5
+            assert 0 < timeout <= 5
+            self.alive = False
 
     process = Process()
     manager.processes = {"backend": process}  # type: ignore[dict-item]
     monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
-    monkeypatch.setattr(manager, "status", lambda service: service)
 
-    assert manager.stop("backend") == "backend"
+    result = manager.stop("backend")
+    assert result.running is False
     assert process.terminated is True
 
 
@@ -427,26 +571,31 @@ def test_stop_terminates_the_entire_windows_process_tree(
 
     class Process:
         pid = 43210
+        alive = True
 
-        def poll(self) -> None:
-            return None
+        def poll(self) -> int | None:
+            return None if self.alive else 0
 
         def wait(self, timeout: int) -> None:
-            assert timeout == 5
+            assert 0 < timeout <= 5
+            if self.alive:
+                raise subprocess.TimeoutExpired("test", timeout)
 
     process = Process()
     manager.processes = {"backend": process}  # type: ignore[dict-item]
     manager._log_streams = {}
     monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
-    monkeypatch.setattr(manager, "status", lambda service: service)
-    monkeypatch.setattr(
-        subprocess,
-        "run",
-        lambda command, **_kwargs: (
-            commands.append(command)
-            or subprocess.CompletedProcess(command, 0, stdout="", stderr="")
-        ),
-    )
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        if command[-1] == "/F":
+            process.alive = False
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
-    assert manager.stop("backend") == "backend"
-    assert commands == [["taskkill.exe", "/PID", "43210", "/T", "/F"]]
+    monkeypatch.setattr(subprocess, "run", run)
+
+    result = manager.stop("backend")
+    assert result.running is False
+    assert commands == [
+        ["taskkill.exe", "/PID", "43210", "/T"],
+        ["taskkill.exe", "/PID", "43210", "/T", "/F"],
+    ]

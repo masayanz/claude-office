@@ -96,6 +96,8 @@ import {
 import { ZoomControls } from "./ZoomControls";
 import { LoadingScreen } from "./LoadingScreen";
 import { OfficeBackground } from "./OfficeBackground";
+import { useTranslation } from "@/hooks/useTranslation";
+import type { BubbleContent } from "@/types";
 
 // Register PixiJS components
 extend({ Container, Text, Graphics, Sprite });
@@ -179,6 +181,7 @@ function FloorSign({
 // ============================================================================
 
 export function OfficeGame(): ReactNode {
+  const { t } = useTranslation();
   // Track PixiJS app for cleanup
   const appRef = useRef<PixiApplication | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -224,6 +227,29 @@ export function OfficeGame(): ReactNode {
   const contextUtilization = useGameStore(selectContextUtilization);
   const isCompacting = useGameStore(selectIsCompacting);
   const printReport = useGameStore(selectPrintReport);
+
+  // Codex hooks intentionally do not carry prompt/tool contents. Provide a
+  // localized, derived bubble for the short thinking/reviewing gaps so the
+  // Main character visibly reacts immediately without adding new backend
+  // events or leaking prompt text.
+  const bossBubble = useMemo<BubbleContent | null>(() => {
+    if (boss.bubble.content) return boss.bubble.content;
+    const key =
+      boss.backendState === "thinking"
+        ? "agentStatus.bubble.thinking"
+        : boss.backendState === "preparing"
+          ? "agentStatus.bubble.preparing"
+          : boss.backendState === "working"
+            ? "agentStatus.bubble.working"
+          : boss.backendState === "reviewing"
+            ? "agentStatus.bubble.reviewing"
+            : boss.backendState === "waiting"
+              ? "agentStatus.bubble.waiting"
+              : boss.backendState === "completed"
+                ? "agentStatus.bubble.completed"
+                : null;
+    return key ? { type: "thought", text: t(key), icon: "💭" } : null;
+  }, [boss.backendState, boss.bubble.content, t]);
 
   // Floor info for elevator label
   const floorId = useNavigationStore((s) => s.floorId);
@@ -582,7 +608,7 @@ export function OfficeGame(): ReactNode {
                   <BossSprite
                     position={boss.position}
                     state={boss.backendState}
-                    bubble={boss.bubble.content}
+                    bubble={bossBubble}
                     inUseBy={boss.inUseBy}
                     currentTask={boss.currentTask}
                     chairTexture={textures.chair}
@@ -593,7 +619,11 @@ export function OfficeGame(): ReactNode {
                     headsetTexture={textures.headset}
                     sunglassesTexture={textures.sunglasses}
                     renderBubble={false}
-                    isTyping={boss.isTyping}
+                    isTyping={
+                      boss.isTyping ||
+                      boss.backendState === "thinking" ||
+                      boss.backendState === "preparing"
+                    }
                     isAway={compactionAnimation.phase !== "idle"}
                     name={boss.name}
                     source={boss.source}
@@ -757,9 +787,9 @@ export function OfficeGame(): ReactNode {
                         />
                       </pixiContainer>
                     ))}
-                  {boss.bubble.content && (
+                  {bossBubble && (
                     <pixiContainer x={boss.position.x} y={boss.position.y}>
-                      <BossBubble content={boss.bubble.content} yOffset={-80} />
+                      <BossBubble content={bossBubble} yOffset={-80} />
                     </pixiContainer>
                   )}
                 </>

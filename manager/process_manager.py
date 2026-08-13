@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import re
+import signal
+import socket
 import subprocess
 import sys
+import tempfile
+import threading
 import urllib.error
 import urllib.request
+import uuid
 import webbrowser
+from contextlib import suppress
+from ctypes import wintypes
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 from shutil import which
+from time import monotonic, sleep
 from typing import Any, TextIO
 
 from .codex_diagnostics import (
@@ -32,6 +41,46 @@ from .settings import ROOT, load_settings
 RUNTIME_DIR = ROOT / "runtime"
 LOG_DIR = RUNTIME_DIR / "logs"
 PID_PATH = RUNTIME_DIR / "processes.json"
+_WIN32_KERNEL32: Any | None = None
+
+
+def _win32_kernel32() -> Any:
+    """Load Win32 process APIs with explicit 64-bit-safe signatures."""
+    global _WIN32_KERNEL32
+    if _WIN32_KERNEL32 is not None:
+        return _WIN32_KERNEL32
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        wintypes.HANDLE,
+        wintypes.DWORD,
+        wintypes.LPWSTR,
+        ctypes.POINTER(wintypes.DWORD),
+    ]
+    kernel32.QueryFullProcessImageNameW.restype = wintypes.BOOL
+    kernel32.GetProcessTimes.argtypes = [
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+        ctypes.POINTER(wintypes.FILETIME),
+    ]
+    kernel32.GetProcessTimes.restype = wintypes.BOOL
+    kernel32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+    kernel32.CloseHandle.restype = wintypes.BOOL
+    kernel32.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+    kernel32.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+    kernel32.Process32FirstW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel32.Process32FirstW.restype = wintypes.BOOL
+    kernel32.Process32NextW.argtypes = [wintypes.HANDLE, ctypes.c_void_p]
+    kernel32.Process32NextW.restype = wintypes.BOOL
+    kernel32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
+    kernel32.TerminateProcess.restype = wintypes.BOOL
+    _WIN32_KERNEL32 = kernel32
+    return kernel32
 
 
 @dataclass
@@ -41,6 +90,90 @@ class ServiceStatus:
     healthy: bool
     pid: int | None = None
     detail: str = ""
+    owned: bool = False
+    state: str = "stopped"
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessProbe:
+    state: str
+    executable: str | None = None
+    creation_time: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessRecord:
+    """Persisted identity for a process started by this Manager instance."""
+
+    service: str
+    pid: int
+    executable: str
+    command: tuple[str, ...]
+    cwd: str
+    started_at: str
+    creation_time: float | None
+    manager_instance_id: str
+    descendant_pids: tuple[int, ...] = ()
+
+    def as_dict(self) -> dict[str, Any]:
+        return {
+            "service": self.service,
+            "pid": self.pid,
+            "executable": self.executable,
+            "command": list(self.command),
+            "cwd": self.cwd,
+            "started_at": self.started_at,
+            "creation_time": self.creation_time,
+            "manager_instance_id": self.manager_instance_id,
+            "descendant_pids": list(self.descendant_pids),
+            "schema": 2,
+        }
+
+    @classmethod
+    def from_dict(cls, service: str, value: object) -> ProcessRecord | None:
+        if not isinstance(value, dict):
+            return None
+        pid = value.get("pid")
+        executable = value.get("executable")
+        command = value.get("command")
+        cwd = value.get("cwd")
+        started_at = value.get("started_at")
+        creation_time = value.get("creation_time")
+        instance_id = value.get("manager_instance_id")
+        descendant_pids = value.get("descendant_pids", [])
+        if (
+            not isinstance(pid, int)
+            or isinstance(pid, bool)
+            or pid <= 0
+            or not isinstance(executable, str)
+            or not executable
+            or not isinstance(command, list)
+            or not all(isinstance(item, str) for item in command)
+            or not isinstance(cwd, str)
+            or not isinstance(started_at, str)
+            or not isinstance(instance_id, str)
+            or not isinstance(descendant_pids, list)
+            or not all(
+                isinstance(item, int) and not isinstance(item, bool) and item > 0
+                for item in descendant_pids
+            )
+        ):
+            return None
+        if creation_time is not None and (
+            isinstance(creation_time, bool) or not isinstance(creation_time, (int, float))
+        ):
+            return None
+        return cls(
+            service=service,
+            pid=pid,
+            executable=executable,
+            command=tuple(command),
+            cwd=cwd,
+            started_at=started_at,
+            creation_time=float(creation_time) if creation_time is not None else None,
+            manager_instance_id=instance_id,
+            descendant_pids=tuple(descendant_pids),
+        )
 
 
 @dataclass
@@ -73,7 +206,31 @@ class ServiceManager:
         # The child receives its own inheritable handle on Windows, but retaining
         # this one also makes the intended append-only log lifetime explicit.
         self._log_streams: dict[str, TextIO] = {}
+        self._records: dict[str, ProcessRecord] = self._load_pid_file()
+        self._states: dict[str, str] = {"backend": "stopped", "frontend": "stopped"}
+        self._manager_instance_id = uuid.uuid4().hex
+        self._lifecycle_lock = threading.RLock()
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    @staticmethod
+    def _load_pid_file() -> dict[str, ProcessRecord]:
+        """Load only the new, identity-bearing PID format.
+
+        Old files intentionally are not adopted: a PID by itself is not safe
+        enough to stop after the Manager has been restarted.
+        """
+        try:
+            payload = json.loads(PID_PATH.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        records: dict[str, ProcessRecord] = {}
+        for service in ("backend", "frontend"):
+            record = ProcessRecord.from_dict(service, payload.get(service))
+            if record is not None:
+                records[service] = record
+        return records
 
     @staticmethod
     def _hidden_subprocess_kwargs(
@@ -375,7 +532,10 @@ class ServiceManager:
             detail = "Codex Global Hooks設定を読み込めませんでした。"
             stage = "parse_hooks"
         elif "access" in combined or "denied" in combined or "permission" in combined:
-            detail = "Codex設定ファイルを更新できませんでした。\nファイルのアクセス権を確認してください。"
+            detail = (
+                "Codex設定ファイルを更新できませんでした。\n"
+                "ファイルのアクセス権を確認してください。"
+            )
             stage = "write_hooks"
         elif "launcher" in combined:
             detail = "AI Office Viewer用Hook Launcherが見つかりません。"
@@ -442,120 +602,607 @@ class ServiceManager:
         except (OSError, ValueError):
             return False
 
-    def status(self, service: str) -> ServiceStatus:
-        process = self.processes.get(service)
-        if process is not None and process.poll() is not None:
-            self.processes.pop(service, None)
-            log = getattr(self, "_log_streams", {}).pop(service, None)
+    def _port_in_use(self, service: str) -> bool:
+        settings = self._settings()
+        host_key = "backend_host" if service == "backend" else "frontend_host"
+        port_key = "backend_port" if service == "backend" else "frontend_port"
+        try:
+            with socket.create_connection(
+                (str(settings[host_key]), int(settings[port_key])), timeout=0.25
+            ):
+                return True
+        except (OSError, ValueError):
+            return False
+
+    @staticmethod
+    def _normalise_path(value: str) -> str:
+        return os.path.normcase(os.path.abspath(value))
+
+    @staticmethod
+    def _windows_process_probe(pid: int) -> ProcessProbe:
+        """Read process identity and distinguish dead from access denied."""
+        if sys.platform != "win32" or pid <= 0:
+            return ProcessProbe("dead")
+        kernel32 = _win32_kernel32()
+        process_query_limited_information = 0x1000
+        process_synchronize = 0x00100000
+        handle = kernel32.OpenProcess(
+            process_query_limited_information | process_synchronize, False, pid
+        )
+        if not handle:
+            error = ctypes.get_last_error()
+            return ProcessProbe("dead" if error == 87 else "unknown")
+        try:
+            exit_code = wintypes.DWORD()
+            if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+                return ProcessProbe("unknown")
+            if exit_code.value != 259:  # STILL_ACTIVE
+                return ProcessProbe("dead")
+            buffer = ctypes.create_unicode_buffer(32768)
+            size = wintypes.DWORD(len(buffer))
+            if not kernel32.QueryFullProcessImageNameW(
+                handle, 0, buffer, ctypes.byref(size)
+            ):
+                return ProcessProbe("unknown")
+            creation = wintypes.FILETIME()
+            exit_time = wintypes.FILETIME()
+            kernel_time = wintypes.FILETIME()
+            user_time = wintypes.FILETIME()
+            if not kernel32.GetProcessTimes(
+                handle,
+                ctypes.byref(creation),
+                ctypes.byref(exit_time),
+                ctypes.byref(kernel_time),
+                ctypes.byref(user_time),
+            ):
+                return ProcessProbe("unknown", buffer.value)
+            filetime = (creation.dwHighDateTime << 32) | creation.dwLowDateTime
+            creation_time = filetime / 10_000_000 - 11_644_473_600
+            return ProcessProbe("alive", buffer.value, creation_time)
+        finally:
+            kernel32.CloseHandle(handle)
+
+    @classmethod
+    def _windows_process_identity(cls, pid: int) -> tuple[str, float | None] | None:
+        probe = cls._windows_process_probe(pid)
+        if probe.state != "alive" or probe.executable is None:
+            return None
+        return probe.executable, probe.creation_time
+
+    @staticmethod
+    def _windows_descendant_pids(root_pid: int) -> list[int]:
+        """Return descendants using Toolhelp32Snapshot, without PowerShell."""
+        if sys.platform != "win32" or root_pid <= 0:
+            return []
+
+        class ProcessEntry(ctypes.Structure):
+            _fields_ = [
+                ("dwSize", wintypes.DWORD),
+                ("cntUsage", wintypes.DWORD),
+                ("th32ProcessID", wintypes.DWORD),
+                ("th32DefaultHeapID", ctypes.c_size_t),
+                ("th32ModuleID", wintypes.DWORD),
+                ("cntThreads", wintypes.DWORD),
+                ("th32ParentProcessID", wintypes.DWORD),
+                ("pcPriClassBase", wintypes.LONG),
+                ("dwFlags", wintypes.DWORD),
+                ("szExeFile", wintypes.WCHAR * 260),
+            ]
+
+        kernel32 = _win32_kernel32()
+        snapshot = kernel32.CreateToolhelp32Snapshot(0x00000002, 0)
+        if snapshot in (0, ctypes.c_void_p(-1).value):
+            return []
+        try:
+            entry = ProcessEntry()
+            entry.dwSize = ctypes.sizeof(ProcessEntry)
+            parents: dict[int, int] = {}
+            if not kernel32.Process32FirstW(snapshot, ctypes.byref(entry)):
+                return []
+            while True:
+                parents[int(entry.th32ProcessID)] = int(entry.th32ParentProcessID)
+                entry.dwSize = ctypes.sizeof(ProcessEntry)
+                if not kernel32.Process32NextW(snapshot, ctypes.byref(entry)):
+                    break
+        finally:
+            kernel32.CloseHandle(snapshot)
+
+        descendants: list[int] = []
+        pending = [root_pid]
+        while pending:
+            parent = pending.pop()
+            children = [pid for pid, parent_pid in parents.items() if parent_pid == parent]
+            descendants.extend(children)
+            pending.extend(children)
+        return descendants
+
+    @classmethod
+    def _terminate_windows_process_tree(cls, root_pid: int) -> int:
+        """Terminate a validated root and descendants through Win32 APIs."""
+        if sys.platform != "win32" or root_pid <= 0:
+            return 0
+        kernel32 = _win32_kernel32()
+        process_terminate = 0x0001
+        process_query_limited_information = 0x1000
+        process_synchronize = 0x00100000
+        candidates = [root_pid, *cls._windows_descendant_pids(root_pid)]
+        terminated = 0
+        for pid in reversed(candidates):
+            handle = kernel32.OpenProcess(
+                process_terminate | process_query_limited_information | process_synchronize,
+                False,
+                pid,
+            )
+            if not handle:
+                continue
+            try:
+                if kernel32.TerminateProcess(handle, 1):
+                    terminated += 1
+            finally:
+                kernel32.CloseHandle(handle)
+        return terminated
+
+    @classmethod
+    def _process_creation_time(cls, pid: int) -> float | None:
+        identity = cls._windows_process_identity(pid)
+        return identity[1] if identity is not None else None
+
+    @staticmethod
+    def _pid_exists(pid: int) -> bool:
+        return ServiceManager._pid_state(pid) == "alive"
+
+    @staticmethod
+    def _pid_state(pid: int) -> str:
+        if pid <= 0:
+            return "dead"
+        if sys.platform == "win32":
+            return ServiceManager._windows_process_probe(pid).state
+        try:
+            os.kill(pid, 0)
+        except (OSError, ProcessLookupError):
+            return "dead"
+        return "alive"
+
+    def _record_matches(self, record: ProcessRecord) -> bool:
+        if self._pid_state(record.pid) != "alive":
+            return False
+        if sys.platform != "win32":
+            # A persisted PID cannot be adopted safely without an equivalent
+            # executable/creation-time query. Current-process Popen handles
+            # remain safe on POSIX and are handled separately.
+            return False
+        identity = self._windows_process_identity(record.pid)
+        if identity is None:
+            return False
+        if self._normalise_path(identity[0]) != self._normalise_path(record.executable):
+            return False
+        if record.creation_time is None or identity[1] is None:
+            return False
+        return abs(identity[1] - record.creation_time) < 2.0
+
+    def _record_verification(self, record: ProcessRecord) -> str:
+        probe = self._windows_process_probe(record.pid)
+        if probe.state != "alive":
+            return probe.state
+        if probe.executable is None or probe.creation_time is None:
+            return "unknown"
+        if self._normalise_path(probe.executable) != self._normalise_path(record.executable):
+            return "mismatch"
+        if abs(probe.creation_time - (record.creation_time or 0)) >= 2.0:
+            return "mismatch"
+        return "match"
+
+    def _active_process(
+        self, service: str
+    ) -> tuple[subprocess.Popen[Any] | None, ProcessRecord | None]:
+        changed = False
+        processes = getattr(self, "processes", {})
+        process = processes.get(service)
+        if process is not None:
+            try:
+                alive = process.poll() is None
+            except (OSError, AttributeError):
+                alive = False
+            if alive:
+                return process, getattr(self, "_records", {}).get(service)
+            processes.pop(service, None)
+            changed = True
+            logs = getattr(self, "_log_streams", {})
+            log = logs.pop(service, None)
             if log is not None:
                 log.close()
-            process = None
+
+        record = getattr(self, "_records", {}).get(service)
+        if record is not None:
+            if self._record_matches(record):
+                return None, record
+            if self._record_verification(record) == "dead":
+                getattr(self, "_records", {}).pop(service, None)
+                getattr(self, "_states", {})[service] = "stopped"
+                changed = True
+        if changed and hasattr(self, "_manager_instance_id"):
+            self._save_pid_file()
+        return None, None
+
+    def status(self, service: str) -> ServiceStatus:
+        if service not in {"backend", "frontend"}:
+            raise ValueError("サービス名が不正です")
+        process, record = self._active_process(service)
         healthy = self._healthy(service)
-        return ServiceStatus(
-            service, process is not None or healthy, healthy, process.pid if process else None
-        )
+        state = getattr(self, "_states", {}).get(service, "stopped")
+        if healthy and state == "starting":
+            getattr(self, "_states", {})[service] = "running"
+            state = "running"
+        persisted = getattr(self, "_records", {}).get(service)
+        if persisted is not None:
+            verification = self._record_verification(persisted)
+            if verification == "unknown":
+                return ServiceStatus(
+                    service,
+                    True,
+                    healthy,
+                    persisted.pid,
+                    "プロセスの所有確認ができないため、安全のため停止しません。",
+                    False,
+                    "unknown",
+                )
+            if verification == "mismatch":
+                getattr(self, "_records", {}).pop(service, None)
+                self._save_pid_file()
+        if process is not None or record is not None:
+            pid = process.pid if process is not None else record.pid
+            detail = "Manager管理"
+            if process is None:
+                detail = "前回Managerから引き継いだプロセス"
+            elif not healthy and state == "starting":
+                detail = "起動中"
+            return ServiceStatus(service, True, healthy, pid, detail, True, state)
+        if healthy or self._port_in_use(service):
+            return ServiceStatus(
+                service,
+                True,
+                healthy,
+                None,
+                "外部プロセスがポートを使用中（Managerは停止しません）",
+                False,
+                "external",
+            )
+        return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
 
     def _command(self, service: str) -> tuple[list[str], Path]:
         settings = self._settings()
         if service == "backend":
-            return (
+            cwd = ROOT / "backend"
+            python_candidates = (
+                cwd / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "python.exe",
+                cwd / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "python",
+            )
+            python = next((path for path in python_candidates if path.is_file()), None)
+            if python is not None:
+                executable = str(python)
+                command = [executable, "-m", "uvicorn", "app.main:app"]
+            else:
+                executable = which("uv.exe" if os.name == "nt" else "uv")
+                if executable is None:
+                    raise FileNotFoundError("Backend起動用のPythonまたはuvが見つかりません")
+                command = [executable, "run", "uvicorn", "app.main:app"]
+            command.extend(
                 [
-                    "uv",
-                    "run",
-                    "uvicorn",
-                    "app.main:app",
                     "--host",
                     str(settings["backend_host"]),
                     "--port",
                     str(settings["backend_port"]),
-                ],
-                ROOT / "backend",
+                ]
             )
-        return (
-            [
-                "bun",
-                "run",
-                "dev",
-                "--",
-                "--hostname",
-                str(settings["frontend_host"]),
-                "--port",
-                str(settings["frontend_port"]),
-            ],
-            ROOT / "frontend",
+            return command, cwd
+
+        cwd = ROOT / "frontend"
+        # Invoke Next directly and use its webpack development mode. This
+        # avoids the extra Turbopack worker process that can fail with EPERM
+        # when a windowed Manager launches the dev server on Windows.
+        node = which("node.exe" if os.name == "nt" else "node")
+        next_cli = cwd / "node_modules" / "next" / "dist" / "bin" / "next"
+        if node is not None and next_cli.is_file():
+            return (
+                [
+                    node,
+                    str(next_cli),
+                    "dev",
+                    "--webpack",
+                    "--hostname",
+                    str(settings["frontend_host"]),
+                    "--port",
+                    str(settings["frontend_port"]),
+                ],
+                cwd,
+            )
+        bun = which("bun.exe" if os.name == "nt" else "bun")
+        if bun is not None:
+            return (
+                [
+                    bun,
+                    "run",
+                    "dev",
+                    "--",
+                    "--hostname",
+                    str(settings["frontend_host"]),
+                    "--port",
+                    str(settings["frontend_port"]),
+                ],
+                cwd,
+            )
+        raise FileNotFoundError("Frontend起動用のNodeまたはBunが見つかりません")
+
+    def _log_process_event(self, service: str, event: str, detail: str = "") -> None:
+        process = getattr(self, "processes", {}).get(service)
+        pid = getattr(process, "pid", None)
+        if pid is None:
+            pid = getattr(getattr(self, "_records", {}).get(service), "pid", None)
+        line = (
+            f"{datetime.now(UTC).isoformat()} process service={service} event={event}"
+            f" pid={pid if pid is not None else '-'}"
+        )
+        if detail:
+            line += f" detail={self._safe_subprocess_summary(detail)}"
+        try:
+            with (LOG_DIR / "manager.log").open("a", encoding="utf-8") as stream:
+                stream.write(line + "\n")
+        except OSError:
+            pass
+
+    def _record_for_process(
+        self, service: str, process: subprocess.Popen[Any], command: list[str], cwd: Path
+    ) -> ProcessRecord:
+        executable = Path(command[0]).resolve()
+        return ProcessRecord(
+            service=service,
+            pid=process.pid,
+            executable=str(executable),
+            command=tuple(command),
+            cwd=str(cwd.resolve()),
+            started_at=datetime.now(UTC).isoformat(),
+            creation_time=self._process_creation_time(process.pid),
+            manager_instance_id=getattr(self, "_manager_instance_id", "legacy"),
+            descendant_pids=tuple(self._windows_descendant_pids(process.pid)),
         )
 
     def start(self, service: str) -> ServiceStatus:
-        current = self.status(service)
-        if current.running:
-            return current
-        command, cwd = self._command(service)
-        log = (LOG_DIR / f"{service}.log").open("a", encoding="utf-8")
-        environment = os.environ.copy()
-        environment["CLAUDE_OFFICE_ROOT"] = str(ROOT)
-        settings = self._settings()
-        if service == "frontend":
-            environment["NEXT_PUBLIC_API_URL"] = (
-                f"http://{settings['backend_host']}:{settings['backend_port']}"
+        if service not in {"backend", "frontend"}:
+            raise ValueError("サービス名が不正です")
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            current = self.status(service)
+            if current.running:
+                return current
+            command, cwd = self._command(service)
+            log = (LOG_DIR / f"{service}.log").open("a", encoding="utf-8")
+            environment = os.environ.copy()
+            environment["CLAUDE_OFFICE_ROOT"] = str(ROOT)
+            settings = self._settings()
+            if service == "frontend":
+                environment["NEXT_PUBLIC_API_URL"] = (
+                    f"http://{settings['backend_host']}:{settings['backend_port']}"
+                )
+                environment["NEXT_PUBLIC_WS_URL"] = (
+                    f"ws://{settings['backend_host']}:{settings['backend_port']}"
+                )
+            try:
+                process = subprocess.Popen(
+                    command,
+                    cwd=cwd,
+                    env=environment,
+                    stdin=subprocess.DEVNULL,
+                    stdout=log,
+                    stderr=subprocess.STDOUT,
+                    **self._hidden_subprocess_kwargs(new_process_group=True),
+                )
+            except (OSError, ValueError):
+                log.close()
+                getattr(self, "_states", {})[service] = "error"
+                self._log_process_event(service, "start_failed")
+                raise
+            self.processes[service] = process
+            self._log_streams[service] = log
+            getattr(self, "_records", {})[service] = self._record_for_process(
+                service, process, command, cwd
             )
-            environment["NEXT_PUBLIC_WS_URL"] = (
-                f"ws://{settings['backend_host']}:{settings['backend_port']}"
-            )
-        try:
-            process = subprocess.Popen(
-                command,
-                cwd=cwd,
-                env=environment,
-                stdin=subprocess.DEVNULL,
-                stdout=log,
-                stderr=subprocess.STDOUT,
-                **self._hidden_subprocess_kwargs(new_process_group=True),
-            )
-        except (OSError, ValueError):
+            getattr(self, "_states", {})[service] = "starting"
+            self._save_pid_file()
+            self._log_process_event(service, "started")
+            return ServiceStatus(service, True, False, process.pid, "起動中", True, "starting")
+
+    @staticmethod
+    def _process_alive(process: subprocess.Popen[Any] | None, pid: int | None) -> bool:
+        if process is not None:
+            try:
+                return process.poll() is None
+            except (OSError, AttributeError):
+                return True
+        return bool(pid and ServiceManager._pid_state(pid) != "dead")
+
+    def _tree_alive(
+        self,
+        process: subprocess.Popen[Any] | None,
+        pid: int | None,
+        tracked_pids: set[int],
+    ) -> bool:
+        if self._process_alive(process, pid):
+            return True
+        return any(self._pid_state(child_pid) != "dead" for child_pid in tracked_pids)
+
+    def _extend_tracked_tree(self, pid: int | None, tracked_pids: set[int]) -> None:
+        if os.name == "nt" and isinstance(pid, int) and pid > 0:
+            tracked_pids.update(self._windows_descendant_pids(pid))
+
+    def _wait_for_exit(
+        self,
+        process: subprocess.Popen[Any] | None,
+        pid: int | None,
+        timeout: float,
+        tracked_pids: set[int] | None = None,
+    ) -> bool:
+        tracked = tracked_pids if tracked_pids is not None else set()
+        self._extend_tracked_tree(pid, tracked)
+        if process is not None:
+            wait = getattr(process, "wait", None)
+            if callable(wait):
+                try:
+                    wait(timeout=min(timeout, 5))
+                except subprocess.TimeoutExpired:
+                    pass
+                except (OSError, ValueError):
+                    pass
+        deadline = monotonic() + timeout
+        while self._tree_alive(process, pid, tracked) and monotonic() < deadline:
+            self._extend_tracked_tree(pid, tracked)
+            sleep(0.1)
+        return not self._tree_alive(process, pid, tracked)
+
+    def _taskkill(self, pid: int, *, force: bool) -> subprocess.CompletedProcess[str]:
+        command = ["taskkill.exe", "/PID", str(pid), "/T"]
+        if force:
+            command.append("/F")
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=8,
+            **self._hidden_subprocess_kwargs(),
+        )
+
+    def _close_service_log(self, service: str) -> None:
+        log = getattr(self, "_log_streams", {}).pop(service, None)
+        if log is not None:
             log.close()
-            raise
-        self.processes[service] = process
-        self._log_streams[service] = log
-        self._save_pid_file()
-        return ServiceStatus(service, True, False, process.pid, "starting")
+
+    def _forget_service(self, service: str) -> None:
+        getattr(self, "processes", {}).pop(service, None)
+        getattr(self, "_records", {}).pop(service, None)
+        getattr(self, "_states", {})[service] = "stopped"
+        self._close_service_log(service)
 
     def stop(self, service: str) -> ServiceStatus:
-        process = self.processes.pop(service, None)
-        try:
-            if process is not None and process.poll() is None:
-                if os.name == "nt":
-                    pid = getattr(process, "pid", None)
-                    if isinstance(pid, int) and pid > 0:
-                        completed = subprocess.run(
-                            ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
-                            capture_output=True,
-                            check=False,
-                            text=True,
-                            timeout=8,
-                            **self._hidden_subprocess_kwargs(),
-                        )
-                        if completed.returncode != 0 and process.poll() is None:
-                            process.terminate()
-                    else:
-                        # Compatibility for process-like test doubles and rare
-                        # launchers without a usable PID.
-                        process.terminate()
-                else:
-                    process.terminate()
+        if service not in {"backend", "frontend"}:
+            raise ValueError("サービス名が不正です")
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            process, record = self._active_process(service)
+            current = self.status(service)
+            if process is None and record is None:
+                # External processes are deliberately never stopped by port.
+                return current
+
+            pid = getattr(process, "pid", None) if process is not None else record.pid
+            tracked_pids = set(record.descendant_pids if record is not None else ())
+            self._extend_tracked_tree(pid, tracked_pids)
+            getattr(self, "_states", {})[service] = "stopping"
+            self._log_process_event(service, "stop_requested")
+            graceful_detail = ""
+            if process is not None and os.name == "nt":
                 try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
+                    process.send_signal(signal.CTRL_BREAK_EVENT)
+                    graceful_detail = "CTRL_BREAK送信済み"
+                    self._log_process_event(service, "graceful_signal_sent")
+                except (OSError, ValueError, AttributeError) as exc:
+                    graceful_detail = f"CTRL_BREAK送信不可: {type(exc).__name__}"
+                    self._log_process_event(service, "graceful_signal_failed", graceful_detail)
+                    with suppress(OSError, ValueError, AttributeError):
+                        process.terminate()
+            elif process is not None:
+                try:
                     process.terminate()
-        finally:
-            log = getattr(self, "_log_streams", {}).pop(service, None)
-            if log is not None:
-                log.close()
-        self._save_pid_file()
-        return self.status(service)
+                    graceful_detail = "SIGTERM送信済み"
+                except (OSError, ValueError, AttributeError) as exc:
+                    graceful_detail = f"SIGTERM送信不可: {type(exc).__name__}"
+
+            exited = self._wait_for_exit(process, pid, 8, tracked_pids)
+            if process is not None and pid is None and not exited:
+                try:
+                    process.terminate()
+                    process.wait(timeout=5)
+                    exited = True
+                except (OSError, subprocess.SubprocessError, AttributeError):
+                    exited = False
+            if not exited and os.name == "nt" and isinstance(pid, int) and pid > 0:
+                # /T without /F gives the process tree a graceful termination
+                # opportunity before the last-resort force kill.
+                try:
+                    result = self._taskkill(pid, force=False)
+                    self._log_process_event(
+                        service, "tree_terminate_requested", str(result.returncode)
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    self._log_process_event(service, "tree_terminate_failed", type(exc).__name__)
+                exited = self._wait_for_exit(process, pid, 4, tracked_pids)
+
+            if not exited and os.name == "nt" and isinstance(pid, int) and pid > 0:
+                try:
+                    result = self._taskkill(pid, force=True)
+                    self._log_process_event(
+                        service, "tree_force_kill_requested", str(result.returncode)
+                    )
+                except (OSError, subprocess.SubprocessError) as exc:
+                    self._log_process_event(service, "tree_force_kill_failed", type(exc).__name__)
+                exited = self._wait_for_exit(process, pid, 8, tracked_pids)
+
+            if not exited and os.name == "nt" and isinstance(pid, int) and pid > 0:
+                try:
+                    terminated = self._terminate_windows_process_tree(pid)
+                    self._log_process_event(
+                        service, "win32_tree_terminate_requested", str(terminated)
+                    )
+                except (OSError, ValueError):
+                    terminated = 0
+                exited = self._wait_for_exit(process, pid, 4, tracked_pids)
+
+            if not exited and process is not None:
+                try:
+                    process.terminate()
+                    process.wait(timeout=2)
+                except (OSError, subprocess.SubprocessError, AttributeError):
+                    with suppress(Exception):
+                        process.kill()
+                exited = self._wait_for_exit(process, pid, 2, tracked_pids)
+
+            if not exited:
+                getattr(self, "_states", {})[service] = "error"
+                detail = "停止を確認できませんでした。プロセスは管理下に残しています。"
+                if graceful_detail:
+                    detail += f" ({graceful_detail})"
+                self._save_pid_file()
+                self._log_process_event(service, "stop_failed", detail)
+                return ServiceStatus(
+                    service, True, self._healthy(service), pid, detail, True, "error"
+                )
+
+            self._forget_service(service)
+            self._save_pid_file()
+            final = self.status(service)
+            if not isinstance(final, ServiceStatus):
+                return final
+            if final.running:
+                # The owned PID is gone, but a different process still answers
+                # the port. Report the conflict instead of claiming success.
+                detail = "Managerプロセスは停止しましたが、別プロセスがポートを使用中です。"
+                final = ServiceStatus(
+                    service, True, final.healthy, final.pid, detail, False, "external"
+                )
+            self._log_process_event(service, "stopped", final.detail)
+            return final
 
     def restart(self, service: str) -> ServiceStatus:
-        self.stop(service)
-        return self.start(service)
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            stopped = self.stop(service)
+            if stopped.running:
+                return ServiceStatus(
+                    service,
+                    True,
+                    stopped.healthy,
+                    stopped.pid,
+                    "停止完了を確認できないため、再起動を中止しました。",
+                    stopped.owned,
+                    "error",
+                )
+            return self.start(service)
 
     def open_office(self, app_mode: bool = False) -> None:
         settings = self._settings()
@@ -616,8 +1263,19 @@ class ServiceManager:
 
     def _save_pid_file(self) -> None:
         RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
-        data = {
-            name: {"pid": process.pid, "updated_at": datetime.now(UTC).isoformat()}
-            for name, process in self.processes.items()
-        }
-        PID_PATH.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        records = getattr(self, "_records", {})
+        data = {name: record.as_dict() for name, record in records.items()}
+        data["schema"] = 2
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        temporary = None
+        try:
+            fd, temporary = tempfile.mkstemp(
+                prefix="processes-", suffix=".json", dir=RUNTIME_DIR
+            )
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(data, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            os.replace(temporary, PID_PATH)
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)

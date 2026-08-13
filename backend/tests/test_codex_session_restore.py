@@ -141,6 +141,27 @@ def test_pre_post_and_subagent_stop_do_not_restore_work(tmp_path: Path) -> None:
     assert snapshots[0].agents == []
 
 
+def test_active_prompt_without_tool_restores_as_thinking(tmp_path: Path) -> None:
+    now = datetime.now(UTC)
+    path = tmp_path / "claude-office-events" / f"{now:%Y-%m-%d}.jsonl"
+    _write_lines(
+        path,
+        [
+            _journal_event("session_start", ROOT, now - timedelta(minutes=2)),
+            _journal_event("user_prompt_submit", ROOT, now - timedelta(seconds=5)),
+        ],
+        now.timestamp(),
+    )
+
+    snapshots, _ = _scan_snapshots(
+        tmp_path, cutoff=now - timedelta(minutes=30), boundary=now
+    )
+
+    assert len(snapshots) == 1
+    assert snapshots[0].boss_state == "thinking"
+    assert snapshots[0].last_tool_name is None
+
+
 def test_multiple_model_less_sessions_are_distinct_and_capped_at_ten(tmp_path: Path) -> None:
     now = datetime.now(UTC)
     rows: list[dict[str, object] | str] = []
@@ -268,7 +289,7 @@ def test_newer_journal_post_suppresses_older_native_pending_tool(
     )
 
     assert len(snapshots) == 1
-    assert snapshots[0].boss_state == "working"
+    assert snapshots[0].boss_state == "thinking"
     assert snapshots[0].last_tool_name is None
 
 

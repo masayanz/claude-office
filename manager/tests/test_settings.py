@@ -21,8 +21,21 @@ def test_restore_settings_have_safe_defaults(monkeypatch: pytest.MonkeyPatch) ->
     try:
         values, warning = settings.load_settings()
         assert warning is None
+        assert values["stop_servers_on_manager_exit"] is True
         assert values["restore_codex_sessions"] is True
         assert values["restore_window_minutes"] == 30
+    finally:
+        path.unlink(missing_ok=True)
+
+
+def test_existing_stop_setting_is_preserved(monkeypatch: pytest.MonkeyPatch) -> None:
+    path = _test_path("stop-setting")
+    path.write_text(json.dumps({"stop_servers_on_manager_exit": False}), encoding="utf-8")
+    monkeypatch.setattr(settings, "SETTINGS_PATH", path)
+    try:
+        values, warning = settings.load_settings()
+        assert warning is None
+        assert values["stop_servers_on_manager_exit"] is False
     finally:
         path.unlink(missing_ok=True)
 

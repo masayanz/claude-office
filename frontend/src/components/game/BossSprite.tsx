@@ -55,14 +55,19 @@ const STROKE_WIDTH = 4;
 // State colors for the boss (kept for reference, not currently used)
 const _STATE_COLORS: Record<BossState, number> = {
   idle: 0x2d3748, // Gray
+  thinking: 0x8b5cf6, // Violet - considering the prompt
+  preparing: 0xa855f7, // Purple - preparing a tool call
   phone_ringing: 0xfbbf24, // Yellow
   on_phone: 0xfbbf24, // Yellow
   receiving: 0x06b6d4, // Cyan - receiving user input
   working: 0xef4444, // Red - active
   delegating: 0x8b5cf6, // Purple - spawning agents
   waiting_permission: 0xf97316, // Orange - waiting for permission
+  waiting: 0x06b6d4, // Cyan - waiting for a child/permission
   reviewing: 0x3b82f6, // Blue - reviewing agent work
   completing: 0x22c55e, // Green - finishing up
+  completed: 0x22c55e, // Green - turn completed
+  error: 0xef4444, // Red - error
 };
 
 // ============================================================================

@@ -5,9 +5,12 @@ export type DisplayAgentStatus =
   | "error"
   | "departing"
   | "walking"
+  | "thinking"
+  | "preparing"
   | "working"
   | "reviewing"
   | "waiting"
+  | "completed"
   | "idle";
 
 type Translate = (key: TranslationKey) => string;
@@ -45,9 +48,22 @@ export function getDisplayAgentStatus(
   if (WALKING_PHASES.has(phase) || backend === "walking_to_desk") {
     return "walking";
   }
-  if (["working", "thinking", "reporting", "reporting_done"].includes(backend)) {
+  if (backend === "thinking" || backend === "receiving") return "thinking";
+  if (backend === "preparing") return "preparing";
+  if (backend === "completed") return "completed";
+  if (
+    [
+      "working",
+      "delegating",
+      "completing",
+      "reporting",
+      "reporting_done",
+      "on_phone",
+    ].includes(backend)
+  ) {
     return "working";
   }
+  if (backend === "phone_ringing") return "waiting";
   if (backend === "reviewing") return "reviewing";
   if (["waiting", "waiting_permission"].includes(backend)) return "waiting";
   return "idle";

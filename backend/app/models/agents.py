@@ -37,14 +37,19 @@ class BossState(StrEnum):
     """Visual states for the boss character."""
 
     IDLE = "idle"
+    THINKING = "thinking"
+    PREPARING = "preparing"
     PHONE_RINGING = "phone_ringing"
     ON_PHONE = "on_phone"
     RECEIVING = "receiving"
     WORKING = "working"
     DELEGATING = "delegating"
     WAITING_PERMISSION = "waiting_permission"
+    WAITING = "waiting"
     REVIEWING = "reviewing"
     COMPLETING = "completing"
+    COMPLETED = "completed"
+    ERROR = "error"
 
 
 class Agent(BaseModel):
@@ -83,6 +88,7 @@ class Boss(BaseModel):
     source: str | None = None
     model: str | None = None
     agent_type: str | None = None
+    last_tool_name: str | None = None
     position: dict[str, int] = {"x": 640, "y": 830}
 
 

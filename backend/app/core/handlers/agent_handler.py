@@ -106,9 +106,16 @@ async def handle_subagent_start(
             await poller.start_polling(agent_id, event.session_id, transcript_path)
 
     await update_agent_state_fn(event.session_id, agent_id, AgentState.WALKING_TO_DESK)
-    # Boss returns to IDLE after the agent starts walking to desk.
-    # This is a post-transition adjustment for the animation sequence.
-    sm.boss_state = BossState.IDLE
+    # Keep Codex Main visible while a child is walking to its desk. For other
+    # integrations retain the existing arrival choreography.
+    if event.data.source == "codex":
+        if (
+            sm.boss_state != BossState.WORKING
+            or sm.boss_last_tool_name in ("Task", "Agent")
+        ):
+            sm.boss_state = BossState.REVIEWING
+    else:
+        sm.boss_state = BossState.IDLE
     await broadcast_state(event.session_id, sm)
 
 

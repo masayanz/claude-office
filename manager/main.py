@@ -128,8 +128,13 @@ class SettingsDialog(QDialog):
         self.browser_mode.addItem(f"{PRODUCT_NAME}専用表示", "app")
         index = self.browser_mode.findData(settings["browser_mode"])
         self.browser_mode.setCurrentIndex(max(index, 0))
-        self.stop_on_exit = QCheckBox("Manager終了時にBackend/Frontendも停止する")
-        self.stop_on_exit.setChecked(bool(settings.get("stop_servers_on_manager_exit", False)))
+        self.stop_on_exit = QComboBox()
+        self.stop_on_exit.addItem("AI Office Viewerも停止する", True)
+        self.stop_on_exit.addItem("AI Office Viewerは動作を続ける", False)
+        stop_on_exit_index = self.stop_on_exit.findData(
+            bool(settings.get("stop_servers_on_manager_exit", True))
+        )
+        self.stop_on_exit.setCurrentIndex(max(stop_on_exit_index, 0))
         self.restore_codex_sessions = QCheckBox("起動時に進行中のCodexセッションを復元する")
         self.restore_codex_sessions.setChecked(bool(settings.get("restore_codex_sessions", True)))
         self.restore_window_minutes = QSpinBox()
@@ -210,7 +215,7 @@ class SettingsDialog(QDialog):
                     "backend_port": self.backend_port.value(),
                     "frontend_port": self.frontend_port.value(),
                     "browser_mode": self.browser_mode.currentData(),
-                    "stop_servers_on_manager_exit": self.stop_on_exit.isChecked(),
+                    "stop_servers_on_manager_exit": bool(self.stop_on_exit.currentData()),
                     "restore_codex_sessions": self.restore_codex_sessions.isChecked(),
                     "restore_window_minutes": self.restore_window_minutes.value(),
                     "clock_timezone_mode": self.clock_timezone_mode.currentData(),
@@ -230,6 +235,7 @@ class ManagerWindow(QMainWindow):
     _restore_request_finished = Signal(object)
     _diagnostic_received = Signal(object)
     _repair_finished = Signal(object)
+    _service_action_finished = Signal(object)
 
     def __init__(self, icon: QIcon) -> None:
         super().__init__()
@@ -245,6 +251,8 @@ class ManagerWindow(QMainWindow):
         self._last_frontend_healthy = False
         self._startup_grace_until = 0.0
         self._start_requested: set[str] = set()
+        self._service_action_in_flight = False
+        self._service_buttons: list[QPushButton] = []
         self._restore_maximized = False
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="manager-api")
         self._restore_status_in_flight = False
@@ -259,6 +267,7 @@ class ManagerWindow(QMainWindow):
         self._restore_request_finished.connect(self._apply_restore_request)
         self._diagnostic_received.connect(self._apply_codex_diagnostic)
         self._repair_finished.connect(self._apply_repair_result)
+        self._service_action_finished.connect(self._apply_manager_action)
         self._build_window()
         self._build_tray()
         self._restore_window_geometry()
@@ -337,6 +346,8 @@ class ManagerWindow(QMainWindow):
             button = QPushButton(text)
             button.clicked.connect(lambda _checked=False, fn=callback: fn())
             buttons.addWidget(button)
+            if text in {"起動", "停止", "再起動"}:
+                self._service_buttons.append(button)
         layout.addLayout(buttons)
         restore_actions = QHBoxLayout()
         self._diagnose_button = QPushButton("Codex連携を診断")
@@ -502,12 +513,14 @@ class ManagerWindow(QMainWindow):
         in_startup_grace = time.monotonic() < self._startup_grace_until
         self._status_labels["backend"].setText(
             self._status_text(
-                "backend", backend.running, backend.healthy, in_startup_grace
+                "backend", backend.running, backend.healthy, in_startup_grace,
+                backend.state, backend.detail,
             )
         )
         self._status_labels["frontend"].setText(
             self._status_text(
-                "frontend", frontend.running, frontend.healthy, in_startup_grace
+                "frontend", frontend.running, frontend.healthy, in_startup_grace,
+                frontend.state, frontend.detail,
             )
         )
         codex_text = self._codex_report.overall.summary if self._codex_report else "確認中"
@@ -521,21 +534,68 @@ class ManagerWindow(QMainWindow):
             self._poll_codex_diagnostic(full=self._codex_report is None)
 
     def _status_text(
-        self, service: str, running: bool, healthy: bool, starting: bool = False
+        self,
+        service: str,
+        running: bool,
+        healthy: bool,
+        starting: bool = False,
+        state: str = "stopped",
+        detail: str = "",
     ) -> str:
+        if state == "stopping":
+            return "停止中…"
+        if state == "starting" and not healthy:
+            return "起動中…"
+        if state == "error":
+            return detail or "処理に失敗しました。\n「ログ」を確認してください。"
+        if state == "external":
+            return "外部で稼働中（停止対象外）"
         if healthy:
             return "稼働中"
         if running or (starting and service in self._start_requested):
-            return "起動中"
+            return "起動中…"
         if service in self._start_requested:
             return f"{service.capitalize()}の起動に失敗しました。\n「ログ」を確認してください。"
         return "停止中"
 
-    def _run_manager_action(self, callback: Callable[[], None], label: str) -> None:
-        try:
-            callback()
-        except (OSError, RuntimeError, ValueError) as exc:
-            QMessageBox.critical(self, f"{label}エラー", str(exc))
+    def _run_manager_action(self, callback: Callable[[], object], label: str) -> None:
+        if self._service_action_in_flight or self._is_quitting:
+            return
+        self._service_action_in_flight = True
+        for button in self._service_buttons:
+            button.setEnabled(False)
+        self._status_labels["backend"].setText(f"{label}中…")
+        self._status_labels["frontend"].setText(f"{label}中…")
+        future = self._executor.submit(callback)
+        future.add_done_callback(
+            lambda completed: self._service_action_finished.emit(
+                (label, self._future_result(completed))
+            )
+        )
+
+    def _apply_manager_action(self, result: object) -> None:
+        self._service_action_in_flight = False
+        for button in self._service_buttons:
+            button.setEnabled(True)
+        if isinstance(result, tuple) and len(result) == 2:
+            label, value = result
+            if label == "終了":
+                failures = [str(item) for item in value] if isinstance(value, list) else []
+                if isinstance(value, Exception):
+                    failures = [str(value)]
+                if failures:
+                    self._refresh_status()
+                    QMessageBox.warning(
+                        self,
+                        "AI Office Viewerを停止できません",
+                        "Managerは終了せず、サーバーの管理を継続します。\n\n"
+                        + "\n".join(failures),
+                    )
+                    return
+                self._finalize_quit()
+                return
+            if isinstance(value, Exception):
+                QMessageBox.critical(self, f"{label}エラー", str(value))
         self._refresh_status()
 
     @staticmethod
@@ -768,11 +828,16 @@ class ManagerWindow(QMainWindow):
         if report.cli_discovery is not None and report.cli_discovery.source is not None:
             cli_source = report.cli_discovery.detail
         settings, _ = load_settings()
+        path_status = (
+            "存在確認済み（場所は非表示）"
+            if report.cli.state == DiagnosticState.OK
+            else "未確認"
+        )
         details = "\n".join(
             (
                 f"Codex CLI\n{self._check_text(report.cli)}",
                 f"検出方法: {cli_source}",
-                f"Path: {'存在確認済み（場所は非表示）' if report.cli.state == DiagnosticState.OK else '未確認'}",
+                f"Path: {path_status}",
                 f"Version: {report.cli_version or '未確認'}",
                 f"\nGlobal Hooks\n{self._check_text(report.hooks)}",
                 f"設定数: {report.hooks_inspection.configured_events}/8",
@@ -831,9 +896,12 @@ class ManagerWindow(QMainWindow):
 
         def action() -> None:
             self.manager.stop("frontend")
-            self.manager.stop("backend")
-            self.manager.start("backend")
-            self.manager.start("frontend")
+            backend = self.manager.restart("backend")
+            if backend.state not in {"starting", "running"}:
+                raise RuntimeError(backend.detail or "Backendを再起動できませんでした。")
+            frontend = self.manager.start("frontend")
+            if frontend.state not in {"starting", "running"}:
+                raise RuntimeError(frontend.detail or "Frontendを起動できませんでした。")
 
         self._run_manager_action(action, "再起動")
 
@@ -842,8 +910,9 @@ class ManagerWindow(QMainWindow):
         self._start_requested.add("backend")
 
         def action() -> None:
-            self.manager.stop("backend")
-            self.manager.start("backend")
+            result = self.manager.restart("backend")
+            if result.state not in {"starting", "running"}:
+                raise RuntimeError(result.detail or "Backendを再起動できませんでした。")
 
         self._run_manager_action(action, "Backend再起動")
         QTimer.singleShot(1500, lambda: self._poll_codex_diagnostic(full=False))
@@ -877,7 +946,10 @@ class ManagerWindow(QMainWindow):
         layout.addWidget(selector)
         text = QTextEdit()
         text.setReadOnly(True)
-        refresh = lambda: text.setPlainText(self.manager.read_logs(str(selector.currentData())))
+
+        def refresh() -> None:
+            text.setPlainText(self.manager.read_logs(str(selector.currentData())))
+
         selector.currentIndexChanged.connect(lambda _index: refresh())
         refresh()
         layout.addWidget(text)
@@ -890,12 +962,34 @@ class ManagerWindow(QMainWindow):
         dialog.exec()
 
     def _quit_from_tray(self) -> None:
-        self._is_quitting = True
+        if self._is_quitting:
+            return
+        if self._service_action_in_flight:
+            QMessageBox.information(
+                self,
+                "終了できません",
+                "起動・停止・再起動の完了を待ってから、もう一度「終了」を選択してください。",
+            )
+            return
         self._save_window_geometry()
         settings, _ = load_settings()
-        if settings.get("stop_servers_on_manager_exit", False):
-            self.manager.stop("frontend")
-            self.manager.stop("backend")
+        if settings.get("stop_servers_on_manager_exit", True):
+            self._run_manager_action(self._stop_services_for_quit, "終了")
+            return
+        self._finalize_quit()
+
+    def _stop_services_for_quit(self) -> list[str]:
+        failures: list[str] = []
+        for service in ("frontend", "backend"):
+            try:
+                result = self.manager.stop(service)
+                if result.running:
+                    failures.append(f"{service}: {result.detail or '停止未確認'}")
+            except (OSError, RuntimeError, ValueError) as exc:
+                failures.append(f"{service}: {exc}")
+        return failures
+
+    def _finalize_quit(self) -> None:
         self._is_quitting = True
         self._status_timer.stop()
         self._executor.shutdown(wait=False, cancel_futures=True)

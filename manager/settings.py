@@ -50,7 +50,9 @@ DEFAULTS: dict[str, Any] = {
     "custom_board_message": "",
     "board_auto_rotate": False,
     "board_rotate_seconds": 10,
-    "stop_servers_on_manager_exit": False,
+    # Safe-by-default for newly created settings. An explicit user value in
+    # app-settings.json is always preserved by _validate/load_settings.
+    "stop_servers_on_manager_exit": True,
     "restore_codex_sessions": True,
     "restore_window_minutes": 30,
     "clock_timezone_mode": "local",

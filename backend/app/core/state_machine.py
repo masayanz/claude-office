@@ -251,6 +251,7 @@ def _handle_session_start(sm: "StateMachine", event: AnyEvent) -> None:
     sm.phase = OfficePhase.STARTING
     sm.boss_state = BossState.IDLE
     sm.turn_active = False
+    sm.boss_last_tool_name = None
     sm.boss_name = main_agent_name_for_source(event.data.source)
     sm.boss_source = event.data.source
     if event.data.source == "codex":
@@ -286,15 +287,29 @@ def _handle_pre_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
             sm.todos = parsed
 
     if tool_name in ("Task", "Agent"):
-        sm.phase = OfficePhase.DELEGATING
-        sm.boss_state = BossState.DELEGATING
+        if event.data.source == "codex":
+            sm.phase = OfficePhase.WORKING
+            sm.boss_last_tool_name = tool_name
+            sm.boss_bubble = sm.tool_to_thought(event)
+            sm.boss_state = BossState.WORKING
+        else:
+            sm.phase = OfficePhase.DELEGATING
+            sm.boss_state = BossState.DELEGATING
         sm.elevator_state = ElevatorState.ARRIVING
     else:
         agent_id = event.data.agent_id or "main"
 
         bubble = sm.tool_to_thought(event)
         if agent_id == "main":
-            sm.boss_bubble = bubble
+            sm.boss_last_tool_name = tool_name or sm.boss_last_tool_name
+            # AgentWait means the Main is reviewing while the child agents
+            # finish.  Codex has explicit thinking/working states so the
+            # short gap before a tool starts remains visible to the user.
+            sm.boss_bubble = (
+                None
+                if event.data.source == "codex" and tool_name == "AgentWait"
+                else bubble
+            )
             sm.boss_state = (
                 BossState.REVIEWING if tool_name == "AgentWait" else BossState.WORKING
             )
@@ -327,7 +342,18 @@ def _handle_pre_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
 def _handle_user_prompt_submit(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle USER_PROMPT_SUBMIT: boss receives a new user prompt."""
     assert isinstance(event, PromptEvent)
-    sm.boss_state = BossState.RECEIVING
+    if event.data.source == "codex":
+        sm.boss_state = BossState.THINKING
+        sm.phase = OfficePhase.WORKING
+        # The frontend supplies a localized thinking bubble. Clearing the
+        # previous completion/tool bubble is important for the first frame.
+        sm.boss_bubble = None
+        sm.boss_name = main_agent_name_for_source("codex")
+        sm.boss_source = "codex"
+        sm.boss_model = event.data.model or sm.boss_model
+        sm.boss_agent_type = "main"
+    else:
+        sm.boss_state = BossState.RECEIVING
     prompt_text = event.data.prompt
     sm.print_report = False
     sm.turn_active = True
@@ -368,7 +394,18 @@ def _handle_post_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
     agent_id = event.data.agent_id or "main"
     tool_name = event.data.tool_name
     if agent_id == "main":
-        sm.boss_state = BossState.IDLE
+        sm.boss_last_tool_name = tool_name or sm.boss_last_tool_name
+        if event.data.source == "codex":
+            sm.boss_bubble = None
+            sm.boss_state = (
+                BossState.REVIEWING
+                if tool_name == "AgentWait"
+                else BossState.THINKING
+                if sm.turn_active
+                else BossState.IDLE
+            )
+        else:
+            sm.boss_state = BossState.IDLE
     elif agent_id in sm.agents and (
         sm.agents[agent_id].state == AgentState.WAITING_PERMISSION
         or (
@@ -402,7 +439,14 @@ def _handle_subagent_start(sm: "StateMachine", event: AnyEvent) -> None:
         )
         return
     agent = sm.create_agent(event.data)
-    sm.boss_state = BossState.DELEGATING
+    if event.data.source == "codex":
+        # A child can be active without replacing the Main character. Keep a
+        # Main tool in progress as the highest-priority visual state.
+        if sm.boss_state != BossState.WORKING or sm.boss_last_tool_name in ("Task", "Agent"):
+            sm.boss_state = BossState.REVIEWING
+        sm.boss_bubble = None
+    else:
+        sm.boss_state = BossState.DELEGATING
     sm.elevator_state = ElevatorState.OPEN
 
     if agent.id not in sm.arrival_queue:
@@ -434,7 +478,10 @@ def _handle_subagent_stop(sm: "StateMachine", event: AnyEvent) -> None:
         if agent_id not in sm.handin_queue:
             sm.handin_queue.append(agent_id)
 
-        sm.boss_state = BossState.IDLE
+        if event.data.source == "codex":
+            sm.boss_state = BossState.THINKING if sm.turn_active else BossState.IDLE
+        else:
+            sm.boss_state = BossState.IDLE
 
         if not sm.agents:
             sm.phase = OfficePhase.WORKING
@@ -461,7 +508,9 @@ def _handle_stop(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle STOP: main agent completes work, show completion message."""
     assert isinstance(event, LifecycleEvent)
     sm.phase = OfficePhase.COMPLETING
-    sm.boss_state = BossState.COMPLETING
+    sm.boss_state = (
+        BossState.COMPLETED if event.data.source == "codex" else BossState.COMPLETING
+    )
     sm.turn_active = False
 
     speech_text = (
@@ -485,6 +534,13 @@ def _handle_session_end(sm: "StateMachine", event: AnyEvent) -> None:
     sm.boss_state = BossState.IDLE
     sm.boss_current_task = None
     sm.turn_active = False
+
+
+def _handle_error(sm: "StateMachine", event: AnyEvent) -> None:
+    """Keep a Codex error visible until the next prompt or session end."""
+    if event.data.source == "codex":
+        sm.boss_state = BossState.ERROR
+        sm.turn_active = False
 
 
 def _handle_background_task_notification(sm: "StateMachine", event: AnyEvent) -> None:
@@ -565,6 +621,7 @@ _DISPATCH_TABLE: dict[EventType, Callable[["StateMachine", AnyEvent], None]] = {
     EventType.TASK_CREATED: _handle_task_created,
     EventType.TASK_COMPLETED: _handle_task_completed,
     EventType.TEAMMATE_IDLE: _handle_teammate_idle,
+    EventType.ERROR: _handle_error,
 }
 
 
@@ -632,6 +689,7 @@ class StateMachine:
     boss_source: str | None = None
     boss_model: str | None = None
     boss_agent_type: str | None = None
+    boss_last_tool_name: str | None = None
     elevator_state: ElevatorState = ElevatorState.CLOSED
     agents: dict[str, Agent] = field(default_factory=_empty_agents)
     # Stable display ordinals for Codex agents, retained after an agent leaves.
@@ -719,6 +777,7 @@ class StateMachine:
             source=self.boss_source,
             model=self.boss_model,
             agent_type=self.boss_agent_type,
+            last_tool_name=self.boss_last_tool_name,
         )
 
         desk_count = min(

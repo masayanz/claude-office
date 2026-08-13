@@ -92,6 +92,11 @@ export function MobileAgentActivity({
               &quot;{boss.bubble.content.text}&quot;
             </p>
           )}
+          {boss.lastToolName && (
+            <p className="text-slate-500 text-[10px] mt-1 truncate">
+              {t("agentStatus.recentTool", { tool: boss.lastToolName })}
+            </p>
+          )}
         </div>
 
         {/* Agent List */}

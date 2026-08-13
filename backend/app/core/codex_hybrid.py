@@ -7,13 +7,13 @@ hook and the JSONL tail cannot create two office actions for one operation.
 
 from __future__ import annotations
 
+import re
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
-import re
 from typing import Any
 
-from app.models.events import AnyEvent, EventType
+from app.models.events import AnyEvent
 
 _SAFE_RE = re.compile(r"[A-Za-z0-9._:/+\-]{1,128}\Z")
 _DEDUP_TTL_SECONDS = 30.0
@@ -189,8 +189,12 @@ class HybridCoordinator:
         now = datetime.now(UTC)
         modes: dict[str, str] = {}
         for session_id, session in self._sessions.items():
-            hook_live = (self._age(session.last_hook_event_at, now) or 10**9) <= _HOOK_HEALTH_SECONDS
-            tail_live = (self._age(session.last_tail_event_at, now) or 10**9) <= _TAIL_HEALTH_SECONDS
+            hook_live = (
+                self._age(session.last_hook_event_at, now) or 10**9
+            ) <= _HOOK_HEALTH_SECONDS
+            tail_live = (
+                self._age(session.last_tail_event_at, now) or 10**9
+            ) <= _TAIL_HEALTH_SECONDS
             if hook_live and tail_live:
                 modes[session_id] = "HYBRID"
             elif hook_live:

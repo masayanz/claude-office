@@ -37,14 +37,19 @@ _TEAMMATE_COLORS = [
 # Maps BossState to AgentState for teammate character rendering
 _BOSS_TO_AGENT: dict[BossState, AgentState] = {
     BossState.IDLE: AgentState.IDLE,
+    BossState.THINKING: AgentState.THINKING,
+    BossState.PREPARING: AgentState.THINKING,
     BossState.PHONE_RINGING: AgentState.WAITING,
     BossState.ON_PHONE: AgentState.WORKING,
     BossState.RECEIVING: AgentState.THINKING,
     BossState.WORKING: AgentState.WORKING,
     BossState.DELEGATING: AgentState.WORKING,
     BossState.WAITING_PERMISSION: AgentState.WAITING_PERMISSION,
+    BossState.WAITING: AgentState.WAITING,
     BossState.REVIEWING: AgentState.WORKING,
     BossState.COMPLETING: AgentState.COMPLETED,
+    BossState.COMPLETED: AgentState.COMPLETED,
+    BossState.ERROR: AgentState.WAITING_PERMISSION,
 }
 
 # Maps BossState to a Command Center status bucket. "needs_you" surfaces the
@@ -56,9 +61,14 @@ _BOSS_TO_BUCKET: dict[BossState, OverviewBucket] = {
     BossState.DELEGATING: "working",
     BossState.REVIEWING: "working",
     BossState.RECEIVING: "working",
+    BossState.THINKING: "working",
+    BossState.PREPARING: "working",
+    BossState.WAITING: "working",
     BossState.ON_PHONE: "working",
     BossState.IDLE: "done",
     BossState.COMPLETING: "done",
+    BossState.COMPLETED: "done",
+    BossState.ERROR: "needs_you",
 }
 
 
@@ -288,7 +298,8 @@ class RoomOrchestrator:
         active_assignees: set[str] = set()
         for entry in self._sessions.values():
             if (
-                entry.sm.boss_state not in (BossState.IDLE, BossState.COMPLETING)
+                entry.sm.boss_state
+                not in (BossState.IDLE, BossState.COMPLETING, BossState.COMPLETED)
                 and entry.teammate_name is not None
             ):
                 active_assignees.add(entry.teammate_name)

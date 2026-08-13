@@ -112,6 +112,7 @@ export interface BossAnimationState {
   name: string | null;
   source: string | null;
   model: string | null;
+  lastToolName: string | null;
 }
 
 /**

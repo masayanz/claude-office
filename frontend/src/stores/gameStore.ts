@@ -400,6 +400,10 @@ export const useGameStore = create<GameStore>()(
             typeof backendState.boss.model === "string"
               ? backendState.boss.model
               : null,
+          lastToolName:
+            typeof backendState.boss.lastToolName === "string"
+              ? backendState.boss.lastToolName
+              : null,
         };
 
         // Process bubbles from backend state

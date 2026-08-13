@@ -8,20 +8,23 @@ allowlisted lifecycle/tool identity fields are converted into Viewer events.
 from __future__ import annotations
 
 import asyncio
-from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
 import json
 import logging
 import ntpath
 import os
-from pathlib import Path
 import re
+from contextlib import suppress
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Any
 
+from app.core.codex_hybrid import HybridCoordinator
 from app.models.events import (
     AgentEvent,
     AgentEventData,
     AnyEvent,
+    EventType,
     LifecycleEvent,
     LifecycleEventData,
     PromptEvent,
@@ -30,10 +33,7 @@ from app.models.events import (
     SessionEventData,
     ToolEvent,
     ToolEventData,
-    EventType,
 )
-
-from app.core.codex_hybrid import HybridCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -178,10 +178,8 @@ class CodexJsonlTailMonitor:
         self._processor_task = None
         if task is not None and not task.done():
             task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await task
-            except asyncio.CancelledError:
-                pass
 
     def status(self) -> dict[str, object]:
         now = datetime.now(UTC)
@@ -197,7 +195,9 @@ class CodexJsonlTailMonitor:
                 if self._processor_task is not None and (age is None or age <= 120)
                 else "idle"
             ),
-            "monitored_sessions": len({c.meta.session_id for c in self._cursors.values() if c.meta}),
+            "monitored_sessions": len(
+                {c.meta.session_id for c in self._cursors.values() if c.meta}
+            ),
             "monitored_files": len(self._cursors),
             "event_count": self._event_count,
             "last_jsonl_event_at": self._last_event_at.isoformat() if self._last_event_at else None,
@@ -380,10 +380,8 @@ class CodexJsonlTailMonitor:
                 cursor.offset = 0
                 cursor.partial = b""
                 cursor.signature = signature
-                try:
+                with suppress(OSError):
                     cursor.meta = self._read_meta(path) or cursor.meta
-                except OSError:
-                    pass
             if stat.st_size <= cursor.offset:
                 return
             with path.open("rb") as stream:
@@ -553,7 +551,10 @@ class CodexJsonlTailMonitor:
                 session_id=meta.session_id,
                 timestamp=timestamp,
                 data=AgentEventData(
-                    source="codex", project_name=meta.project_name, model=meta.model, agent_id=meta.agent_id
+                    source="codex",
+                    project_name=meta.project_name,
+                    model=meta.model,
+                    agent_id=meta.agent_id,
                 ),
             )
         return PromptEvent(
@@ -603,7 +604,11 @@ class CodexJsonlTailMonitor:
             session_id=meta.session_id,
             timestamp=timestamp,
             data=AgentEventData(
-                source="codex", project_name=meta.project_name, model=meta.model, agent_id=meta.agent_id, agent_type=meta.agent_type
+                source="codex",
+                project_name=meta.project_name,
+                model=meta.model,
+                agent_id=meta.agent_id,
+                agent_type=meta.agent_type,
             ),
         )
 

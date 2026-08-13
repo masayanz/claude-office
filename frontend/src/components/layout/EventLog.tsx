@@ -84,13 +84,21 @@ export function EventLog() {
                       ›
                     </span>
                   )}
-                </div>
+              </div>
                 {/* Line 2: Details/Summary */}
                 <div
                   className="text-slate-300 truncate text-[11px]"
-                  title={event.summary}
+                  title={
+                    event.type === "user_prompt_submit" &&
+                    event.detail?.source === "codex"
+                      ? t("agentStatus.status.thinking")
+                      : event.summary
+                  }
                 >
-                  {event.summary}
+                  {event.type === "user_prompt_submit" &&
+                  event.detail?.source === "codex"
+                    ? t("agentStatus.status.thinking")
+                    : event.summary}
                 </div>
               </div>
             ))

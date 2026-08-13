@@ -27,9 +27,9 @@ from app.api.routes import (
     websockets,
 )
 from app.config import get_settings
-from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.codex_hybrid import get_codex_hybrid_coordinator
 from app.core.codex_jsonl_tail import get_codex_jsonl_tail_monitor
+from app.core.event_processor import EventProcessor, get_event_processor
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema

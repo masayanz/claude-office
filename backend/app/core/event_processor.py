@@ -605,6 +605,7 @@ class EventProcessor:
                     )
                 else:
                     sm.boss_state = BossState(snapshot.boss_state)
+                    sm.boss_last_tool_name = snapshot.last_tool_name
 
             for restored_agent in snapshot.agents:
                 stop_sequence = self._agent_stop_sequences.get(
@@ -811,6 +812,15 @@ class EventProcessor:
             # Refresh idle-eviction watermark (ARC-015) under the same lock so
             # ``evict_idle_sessions`` sees a consistent timestamp for this slot.
             sm.last_event_at = datetime.now(UTC)
+
+        # Codex hooks can begin at UserPromptSubmit/PreToolUse when the
+        # SessionStart hook was missed. Establish the Main identity before the
+        # first transition so it is visible even with zero subagents.
+        if event.data.source == "codex" and sm.boss_name is None:
+            sm.boss_name = main_agent_name_for_source("codex")
+            sm.boss_source = "codex"
+            sm.boss_model = event.data.model
+            sm.boss_agent_type = "main"
 
         sm.transition(event)
 

@@ -13,6 +13,10 @@ from app.models.events import (
     AgentEvent,
     AgentEventData,
     EventType,
+    LifecycleEvent,
+    LifecycleEventData,
+    PromptEvent,
+    PromptEventData,
     SessionEvent,
     SessionEventData,
     ToolEvent,
@@ -50,6 +54,30 @@ def _tool_event(event_type: EventType, tool_name: str, agent_id: str | None = No
     )
 
 
+def _prompt() -> PromptEvent:
+    return PromptEvent(
+        event_type=EventType.USER_PROMPT_SUBMIT,
+        session_id="codex-session",
+        data=PromptEventData(source="codex", model="gpt-5.6-sol"),
+    )
+
+
+def _lifecycle(event_type: EventType) -> LifecycleEvent:
+    return LifecycleEvent(
+        event_type=event_type,  # type: ignore[arg-type]
+        session_id="codex-session",
+        data=LifecycleEventData(source="codex"),
+    )
+
+
+def _session_end() -> SessionEvent:
+    return SessionEvent(
+        event_type=EventType.SESSION_END,
+        session_id="codex-session",
+        data=SessionEventData(source="codex"),
+    )
+
+
 def test_codex_session_sets_main_identity_and_model() -> None:
     sm = StateMachine()
     sm.transition(_session_start(source="codex", model="gpt-5.6-sol"))
@@ -59,6 +87,65 @@ def test_codex_session_sets_main_identity_and_model() -> None:
     assert boss.source == "codex"
     assert boss.model == "gpt-5.6-sol"
     assert boss.agent_type == "main"
+    assert boss.state == BossState.IDLE
+
+
+def test_codex_main_is_visible_and_moves_without_subagents() -> None:
+    sm = StateMachine()
+    sm.transition(_session_start(source="codex", model="gpt-5.6-sol"))
+    assert sm.to_game_state("codex-session").boss.name == "Codex Main"
+
+    sm.transition(_prompt())
+    assert sm.boss_state == BossState.THINKING
+    assert sm.turn_active is True
+
+    sm.transition(_tool_event(EventType.PRE_TOOL_USE, "Bash"))
+    assert sm.boss_state == BossState.WORKING
+    assert sm.boss_last_tool_name == "Bash"
+
+    sm.transition(_tool_event(EventType.POST_TOOL_USE, "Bash"))
+    assert sm.boss_state == BossState.THINKING
+
+    sm.transition(_lifecycle(EventType.STOP))
+    assert sm.boss_state == BossState.COMPLETED
+    assert sm.turn_active is False
+
+    sm.transition(_session_end())
+    assert sm.boss_state == BossState.IDLE
+    assert sm.boss_name == "Codex Main"
+
+
+def test_codex_main_reviewing_during_agent_wait_and_subagent_activity() -> None:
+    sm = StateMachine()
+    sm.transition(_session_start(source="codex"))
+    sm.transition(_prompt())
+    sm.transition(_tool_event(EventType.PRE_TOOL_USE, "AgentWait"))
+    assert sm.boss_state == BossState.REVIEWING
+
+    sm.transition(_tool_event(EventType.POST_TOOL_USE, "AgentWait"))
+    assert sm.boss_state == BossState.REVIEWING
+
+    sm.transition(_subagent_start("agent-a"))
+    assert sm.boss_state == BossState.REVIEWING
+    assert sm.agents["agent-a"].state == AgentState.ARRIVING
+
+    sm.transition(
+        AgentEvent(
+            event_type=EventType.SUBAGENT_STOP,
+            session_id="codex-session",
+            data=AgentEventData(agent_id="agent-a", source="codex"),
+        )
+    )
+    assert sm.boss_state == BossState.THINKING
+
+
+def test_codex_main_error_is_explicit() -> None:
+    sm = StateMachine()
+    sm.transition(_session_start(source="codex"))
+    sm.transition(_prompt())
+    sm.transition(_lifecycle(EventType.ERROR))
+    assert sm.boss_state == BossState.ERROR
+    assert sm.turn_active is False
 
 
 def test_non_codex_session_keeps_legacy_empty_identity() -> None:
@@ -159,11 +246,11 @@ def test_main_agent_wait_uses_reviewing_state() -> None:
     sm.transition(_tool_event(EventType.PRE_TOOL_USE, "AgentWait"))
 
     assert sm.boss_state == BossState.REVIEWING
-    assert sm.boss_bubble is not None
-    assert sm.boss_bubble.text == "Waiting for agents..."
+    assert sm.boss_bubble is None
+    assert sm.boss_last_tool_name == "AgentWait"
 
     sm.transition(_tool_event(EventType.POST_TOOL_USE, "AgentWait"))
-    assert sm.boss_state == BossState.IDLE
+    assert sm.boss_state == BossState.REVIEWING
 
 
 def test_subagent_agent_wait_round_trips_to_working() -> None:

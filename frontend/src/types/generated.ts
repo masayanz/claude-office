@@ -67,6 +67,7 @@ export type FloorId = string | null;
 export type RoomId = string | null;
 export type Source1 = string | null;
 export type Model1 = string | null;
+export type TurnId = string | null;
 export type Restored = boolean;
 export type AgentName = string | null;
 export type AgentType = string | null;
@@ -108,6 +109,7 @@ export type FloorId1 = string | null;
 export type RoomId1 = string | null;
 export type Source2 = string | null;
 export type Model2 = string | null;
+export type TurnId1 = string | null;
 export type Restored1 = boolean;
 export type BackgroundTaskId = string | null;
 export type BackgroundTaskOutputFile = string | null;
@@ -121,19 +123,25 @@ export type BackgroundTaskSummary = string | null;
  */
 export type BossState =
   | "idle"
+  | "thinking"
+  | "preparing"
   | "phone_ringing"
   | "on_phone"
   | "receiving"
   | "working"
   | "delegating"
   | "waiting_permission"
+  | "waiting"
   | "reviewing"
-  | "completing";
+  | "completing"
+  | "completed"
+  | "error";
 export type Currenttask1 = string | null;
 export type Name1 = string | null;
 export type Source3 = string | null;
 export type Model3 = string | null;
 export type Agenttype1 = string | null;
+export type Lasttoolname = string | null;
 export type Path = string;
 /**
  * Git file status codes.
@@ -239,6 +247,7 @@ export type FloorId2 = string | null;
 export type RoomId2 = string | null;
 export type Source4 = string | null;
 export type Model4 = string | null;
+export type TurnId2 = string | null;
 export type Restored2 = boolean;
 export type TeamName2 = string | null;
 export type TeammateName2 = string | null;
@@ -264,6 +273,7 @@ export type FloorId3 = string | null;
 export type RoomId3 = string | null;
 export type Source5 = string | null;
 export type Model5 = string | null;
+export type TurnId3 = string | null;
 export type Restored3 = boolean;
 export type Filepath = string;
 export type Editcount = number;
@@ -375,6 +385,7 @@ export type FloorId4 = string | null;
 export type RoomId4 = string | null;
 export type Source6 = string | null;
 export type Model6 = string | null;
+export type TurnId4 = string | null;
 export type Restored4 = boolean;
 export type NotificationType1 = string | null;
 export type ErrorType1 = string | null;
@@ -414,6 +425,7 @@ export type FloorId5 = string | null;
 export type RoomId5 = string | null;
 export type Source7 = string | null;
 export type Model7 = string | null;
+export type TurnId5 = string | null;
 export type Restored5 = boolean;
 export type Prompt1 = string | null;
 export type Id3 = string;
@@ -442,6 +454,7 @@ export type FloorId6 = string | null;
 export type RoomId6 = string | null;
 export type Source8 = string | null;
 export type Model8 = string | null;
+export type TurnId6 = string | null;
 export type Restored6 = boolean;
 export type Reason2 = string | null;
 export type ProjectName7 = string | null;
@@ -464,6 +477,7 @@ export type FloorId7 = string | null;
 export type RoomId7 = string | null;
 export type Source9 = string | null;
 export type Model9 = string | null;
+export type TurnId7 = string | null;
 export type Restored7 = boolean;
 export type TaskId2 = string | null;
 export type TaskSubject1 = string | null;
@@ -487,6 +501,7 @@ export type FloorId8 = string | null;
 export type RoomId8 = string | null;
 export type Source10 = string | null;
 export type Model10 = string | null;
+export type TurnId8 = string | null;
 export type Restored8 = boolean;
 export type ToolName1 = string | null;
 export type ToolUseId2 = string | null;
@@ -575,6 +590,7 @@ export interface AgentEventData {
   room_id?: RoomId;
   source?: Source1;
   model?: Model1;
+  turn_id?: TurnId;
   restored?: Restored;
   agent_name?: AgentName;
   agent_type?: AgentType;
@@ -654,6 +670,7 @@ export interface BackgroundTaskEventData {
   room_id?: RoomId1;
   source?: Source2;
   model?: Model2;
+  turn_id?: TurnId1;
   restored?: Restored1;
   background_task_id?: BackgroundTaskId;
   background_task_output_file?: BackgroundTaskOutputFile;
@@ -675,6 +692,7 @@ export interface Boss1 {
   source?: Source3;
   model?: Model3;
   agentType?: Agenttype1;
+  lastToolName?: Lasttoolname;
   position?: Position1;
   [k: string]: unknown;
 }
@@ -792,6 +810,7 @@ export interface EventData {
   room_id?: RoomId2;
   source?: Source4;
   model?: Model4;
+  turn_id?: TurnId2;
   restored?: Restored2;
   team_name?: TeamName2;
   teammate_name?: TeammateName2;
@@ -829,6 +848,7 @@ export interface EventDataBase {
   room_id?: RoomId3;
   source?: Source5;
   model?: Model5;
+  turn_id?: TurnId3;
   restored?: Restored3;
   [k: string]: unknown;
 }
@@ -1017,6 +1037,7 @@ export interface LifecycleEventData {
   room_id?: RoomId4;
   source?: Source6;
   model?: Model6;
+  turn_id?: TurnId4;
   restored?: Restored4;
   notification_type?: NotificationType1;
   error_type?: ErrorType1;
@@ -1079,6 +1100,7 @@ export interface PromptEventData {
   room_id?: RoomId5;
   source?: Source7;
   model?: Model7;
+  turn_id?: TurnId5;
   restored?: Restored5;
   prompt?: Prompt1;
   [k: string]: unknown;
@@ -1125,6 +1147,7 @@ export interface SessionEventData {
   room_id?: RoomId6;
   source?: Source8;
   model?: Model8;
+  turn_id?: TurnId6;
   restored?: Restored6;
   reason?: Reason2;
   [k: string]: unknown;
@@ -1156,6 +1179,7 @@ export interface TaskEventData {
   room_id?: RoomId7;
   source?: Source9;
   model?: Model9;
+  turn_id?: TurnId7;
   restored?: Restored7;
   task_id?: TaskId2;
   task_subject?: TaskSubject1;
@@ -1188,6 +1212,7 @@ export interface ToolEventData {
   room_id?: RoomId8;
   source?: Source10;
   model?: Model10;
+  turn_id?: TurnId8;
   restored?: Restored8;
   tool_name?: ToolName1;
   tool_use_id?: ToolUseId2;

@@ -29,6 +29,7 @@ import type { ReplayFrame } from "@/stores/gameStore";
 import { apiFetch } from "@/utils/api";
 import {
   isCodexAgentWait,
+  isCodexSource,
   shouldEnterCodexWaitState,
 } from "@/utils/codexPresentation";
 
@@ -58,6 +59,7 @@ export function useWebSocketEvents({
   const initialQueueSyncDoneRef = useRef<string | null>(null);
   // Per-entity last bubble text — suppresses re-enqueue after display clear.
   const lastSeenBubbleTextRef = useRef<Map<string, string>>(new Map());
+  const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // ---- Typing tracker (min-duration state machine, extracted) ----
   // Created once; setTyping routes "boss"/"main" → boss store, else agent store.
@@ -86,6 +88,23 @@ export function useWebSocketEvents({
     resetSpawnIndex();
   }, []);
 
+  const clearCompletionTimer = useCallback(() => {
+    if (completionTimerRef.current !== null) {
+      clearTimeout(completionTimerRef.current);
+      completionTimerRef.current = null;
+    }
+  }, []);
+
+  const scheduleCompletionIdle = useCallback(() => {
+    if (completionTimerRef.current !== null) return;
+    completionTimerRef.current = setTimeout(() => {
+      completionTimerRef.current = null;
+      if (useGameStore.getState().boss.backendState === "completed") {
+        useGameStore.getState().updateBossBackendState("idle");
+      }
+    }, 1500);
+  }, []);
+
   // ---- Message dispatch ----
   const handleMessage = useCallback(
     (event: MessageEvent) => {
@@ -106,6 +125,45 @@ export function useWebSocketEvents({
         switch (message.type) {
           case "state_update":
             if (message.state) {
+              const isCompletedSnapshot = message.state.boss.state === "completed";
+              const localBossState = useGameStore.getState().boss.backendState;
+              const isExpiredCompletedSnapshot =
+                isCompletedSnapshot &&
+                localBossState === "idle" &&
+                completionTimerRef.current === null;
+
+              // The backend intentionally keeps ``completed`` until
+              // SessionEnd so the session remains visible. Once the local
+              // short Done animation has expired, do not rehydrate that
+              // historical terminal state on every snapshot.
+              if (isExpiredCompletedSnapshot) {
+                // Keep the locally expired presentation idle, but still
+                // hydrate names, agents, queues, and task metadata from the
+                // snapshot. Dropping the whole frame leaves a newly opened
+                // tab permanently empty for a completed turn.
+                reconcileState(
+                  {
+                    ...message.state,
+                    boss: { ...message.state.boss, state: "idle" },
+                  },
+                  {
+                    currentSessionId: currentSessionIdRef.current,
+                    processedAgents: processedAgentsRef.current,
+                    lastSeenBubbleText: lastSeenBubbleTextRef.current,
+                    initialQueueSyncDone: initialQueueSyncDoneRef,
+                  },
+                );
+                break;
+              }
+
+              if (isCompletedSnapshot) {
+                // Some transports can deliver the state snapshot without the
+                // corresponding event message. Keep the same short Done
+                // display in that path too.
+                scheduleCompletionIdle();
+              } else {
+                clearCompletionTimer();
+              }
               reconcileState(message.state, {
                 currentSessionId: currentSessionIdRef.current,
                 processedAgents: processedAgentsRef.current,
@@ -122,9 +180,31 @@ export function useWebSocketEvents({
               // Clear processed agents on session_start to allow re-detection.
               // Needed when simulation re-runs with the same session id and agent ids.
               if (message.event.type === "session_start") {
+                clearCompletionTimer();
                 processedAgentsRef.current.clear();
                 lastSeenBubbleTextRef.current.clear();
                 resetSpawnIndex();
+              }
+
+              if (
+                message.event.type === "user_prompt_submit" ||
+                message.event.type === "pre_tool_use" ||
+                message.event.type === "post_tool_use" ||
+                message.event.type === "session_end"
+              ) {
+                clearCompletionTimer();
+              }
+
+              // Stop is a turn boundary, not a session boundary. Keep a
+              // visible Done state briefly, then return only the frontend
+              // display to idle while preserving the Main/session.
+              if (
+                message.event.type === "stop" &&
+                isCodexSource(message.event.detail?.source)
+              ) {
+                clearCompletionTimer();
+                useGameStore.getState().updateBossBackendState("completed");
+                scheduleCompletionIdle();
               }
 
               // Toggle typing animation on tool-use events (min-duration enforced
@@ -221,7 +301,12 @@ export function useWebSocketEvents({
         console.error("[WS] Failed to parse message:", error);
       }
     },
-    [addEventLog, setGitStatus],
+    [
+      addEventLog,
+      clearCompletionTimer,
+      scheduleCompletionIdle,
+      setGitStatus,
+    ],
   );
 
   // ---- WebSocket transport controller (created once, opts synced each render) ----
@@ -290,8 +375,9 @@ export function useWebSocketEvents({
       abortController.abort();
       controllerRef.current?.disconnect();
       typingTrackerRef.current?.clear();
+      clearCompletionTimer();
     };
-  }, [sessionId, enabled, hydrateEventLog]);
+  }, [sessionId, enabled, hydrateEventLog, clearCompletionTimer]);
 }
 
 // ============================================================================

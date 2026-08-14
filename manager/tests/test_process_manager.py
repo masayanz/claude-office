@@ -454,16 +454,13 @@ def test_dedicated_view_uses_app_mode_and_reuses_its_process(
             return None
 
     process = Process()
-    monkeypatch.setattr(
-        process_manager.subprocess,
-        "Popen",
-        lambda command, **kwargs: (
-            commands.append(command) or popen_kwargs.append(kwargs) or process
-        ),
-    )
+    def launch(command: list[str], **kwargs: Any) -> Process:
+        commands.append(command)
+        popen_kwargs.append(kwargs)
+        return process
 
-    first = manager.open_dedicated_view((100, 200, 1600, 900))
-    second = manager.open_dedicated_view((100, 200, 1600, 900))
+    first = manager.open_dedicated_view((100, 200, 1600, 900), browser_launcher=launch)
+    second = manager.open_dedicated_view((100, 200, 1600, 900), browser_launcher=launch)
 
     assert first.succeeded is True
     assert first.browser == "Edge"
@@ -477,6 +474,75 @@ def test_dedicated_view_uses_app_mode_and_reuses_its_process(
     assert "--window-position=196,254" in commands[0]
     assert any(item.startswith("--user-data-dir=") for item in commands[0])
     assert popen_kwargs[0]["shell"] is False
+    assert not (
+        popen_kwargs[0].get("creationflags", 0)
+        & getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    )
+
+
+def test_dedicated_view_keeps_server_pids_and_lifecycle_untouched(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(
+        manager,
+        "_find_dedicated_browser",
+        lambda: ("Edge", r"C:\\Program Files\\Microsoft\\Edge\\msedge.exe"),
+    )
+    monkeypatch.setattr(process_manager, "RUNTIME_DIR", tmp_path / "runtime")
+    server_pids = {
+        "backend": SimpleNamespace(pid=1111, poll=lambda: None),
+        "frontend": SimpleNamespace(pid=2222, poll=lambda: None),
+    }
+    manager.processes.update(server_pids)
+    lifecycle_calls: list[str] = []
+    manager.start = lambda _service: lifecycle_calls.append("start")  # type: ignore[attr-defined]
+    manager.stop = lambda _service: lifecycle_calls.append("stop")  # type: ignore[attr-defined]
+    manager.restart = lambda _service: lifecycle_calls.append("restart")  # type: ignore[attr-defined]
+
+    class BrowserProcess:
+        pid = 3333
+
+        def poll(self) -> None:
+            return None
+
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: BrowserProcess()
+    )
+
+    assert result.succeeded is True
+    assert lifecycle_calls == []
+    assert manager._server_pid_snapshot() == {"backend": 1111, "frontend": 2222}
+    assert set(manager._dedicated_view_processes) == {3333}
+
+
+def test_dedicated_view_postcheck_logs_backend_pid_change(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    manager._dedicated_view_server_pids_before = {"backend": 1111, "frontend": 2222}
+    manager.processes["backend"] = SimpleNamespace(pid=4444, poll=lambda: None)
+    manager.processes["frontend"] = SimpleNamespace(pid=2222, poll=lambda: None)
+    logged: list[tuple[str, str, str]] = []
+    monkeypatch.setattr(
+        manager,
+        "_log_process_event",
+        lambda service, event, detail="": logged.append((service, event, detail)),
+    )
+
+    manager.log_dedicated_view_postcheck()
+
+    assert logged == [
+        (
+            "viewer",
+            "dedicated_server_stopped_after_open",
+            "ERROR Dedicated View起動後にBackendが停止しました "
+            "backend_pid_before=1111 frontend_pid_before=2222 "
+            "backend_pid_after=4444 frontend_pid_after=2222",
+        )
+    ]
 
 
 def test_dedicated_view_reports_unavailable_frontend_or_browser(
@@ -546,6 +612,88 @@ def test_status_marks_healthy_external_port_as_not_manager_owned(
     assert result.owned is False
     assert result.state == "external"
     assert "停止しません" in result.detail
+
+
+def test_observe_status_does_not_promote_starting_state(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    manager._states["backend"] = "starting"
+    manager.processes["backend"] = SimpleNamespace(pid=1234, poll=lambda: None)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+
+    result = manager.observe_status("backend")
+
+    assert result.state == "starting"
+    assert manager._states["backend"] == "starting"
+
+
+def test_observe_status_rehydrates_verified_persisted_process_as_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    manager._records["backend"] = ProcessRecord(
+        "backend",
+        1234,
+        r"C:\Python\python.exe",
+        (r"C:\Python\python.exe", "-m", "uvicorn"),
+        r"C:\viewer\backend",
+        "2026-08-13T00:00:00+00:00",
+        123.5,
+        "manager-test",
+        port=8123,
+        backend_instance_id="backend-instance",
+        database_identifier="database-id",
+    )
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(manager, "_record_verification", lambda _record: "match")
+
+    result = manager.observe_status("backend")
+
+    assert result.running is True
+    assert result.owned is True
+    assert result.pid == 1234
+    assert result.state == "running"
+    assert manager._states["backend"] == "stopped"
+
+
+def test_status_rehydrates_verified_persisted_process_as_running(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    manager._records["backend"] = ProcessRecord(
+        "backend",
+        1234,
+        r"C:\Python\python.exe",
+        (r"C:\Python\python.exe", "-m", "uvicorn"),
+        r"C:\viewer\backend",
+        "2026-08-13T00:00:00+00:00",
+        123.5,
+        "manager-test",
+        port=8123,
+        backend_instance_id="backend-instance",
+        database_identifier="database-id",
+    )
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(manager, "_record_matches", lambda _record: True)
+    monkeypatch.setattr(manager, "_record_verification", lambda _record: "match")
+    monkeypatch.setattr(
+        manager,
+        "_backend_identity",
+        lambda: {
+            "instance_id": "backend-instance",
+            "database_identifier": "database-id",
+        },
+    )
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+
+    result = manager.status("backend")
+
+    assert result.running is True
+    assert result.owned is True
+    assert result.pid == 1234
+    assert result.state == "running"
+    assert manager._states["backend"] == "running"
 
 
 def test_backend_health_requires_ai_office_viewer_identity(

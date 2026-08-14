@@ -16,6 +16,7 @@ import urllib.error
 import urllib.request
 import uuid
 import webbrowser
+from collections.abc import Callable
 from contextlib import suppress
 from ctypes import wintypes
 from dataclasses import dataclass, replace
@@ -230,6 +231,46 @@ class GlobalHooksRepairResult:
     stderr_summary: str = ""
 
 
+BrowserLauncher = Callable[..., subprocess.Popen[Any]]
+
+
+class DedicatedViewProcessManager:
+    """Own only browser processes created for a dedicated Viewer window.
+
+    Server processes are intentionally not accepted by this class. Keeping a
+    separate collection makes it impossible for server stop/restart/cleanup
+    code to discover a dedicated browser by accident.
+    """
+
+    def __init__(self) -> None:
+        self.processes: dict[int, subprocess.Popen[Any]] = {}
+        self.browser: str | None = None
+
+    def active_process(self) -> subprocess.Popen[Any] | None:
+        """Return one live dedicated browser after pruning exited handles."""
+        self.cleanup()
+        return next(iter(self.processes.values()), None)
+
+    def register(self, process: subprocess.Popen[Any], browser: str) -> None:
+        self.processes[process.pid] = process
+        self.browser = browser
+
+    def cleanup(self) -> list[tuple[int, int | None]]:
+        """Forget exited browser handles without terminating anything."""
+        closed: list[tuple[int, int | None]] = []
+        for pid, process in list(self.processes.items()):
+            try:
+                return_code = process.poll()
+            except (AttributeError, OSError):
+                return_code = 0
+            if return_code is not None:
+                self.processes.pop(pid, None)
+                closed.append((pid, return_code))
+        if not self.processes:
+            self.browser = None
+        return closed
+
+
 class ServiceManager:
     """Start only commands owned by this application and track their PIDs."""
 
@@ -246,9 +287,20 @@ class ServiceManager:
         # ``processes`` contains server processes only.  Dedicated browser
         # processes intentionally live in a separate collection and are never
         # included in server stop/restart/cleanup operations.
-        self._dedicated_view_processes: dict[int, subprocess.Popen[Any]] = {}
-        self._dedicated_view_browser: str | None = None
+        self.dedicated_view_process_manager = DedicatedViewProcessManager()
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+
+    def _dedicated_view_manager(self) -> DedicatedViewProcessManager:
+        manager = getattr(self, "dedicated_view_process_manager", None)
+        if manager is None:
+            manager = DedicatedViewProcessManager()
+            self.dedicated_view_process_manager = manager
+        return manager
+
+    @property
+    def _dedicated_view_processes(self) -> dict[int, subprocess.Popen[Any]]:
+        """Compatibility view of the dedicated-only process collection."""
+        return self._dedicated_view_manager().processes
 
     @staticmethod
     def _load_pid_file() -> dict[str, ProcessRecord]:
@@ -1028,6 +1080,14 @@ class ServiceManager:
                 getattr(self, "_records", {}).pop(service, None)
                 self._save_pid_file()
         if process is not None or record is not None:
+            # A freshly-created Manager starts with ``stopped`` in-memory
+            # state, but a verified persisted record means the service was
+            # already alive before this Manager instance was opened. Reflect
+            # the observed process state instead of showing a false stopped
+            # status or blocking the dedicated Viewer action.
+            if state == "stopped":
+                state = "running"
+                getattr(self, "_states", {})[service] = state
             pid = process.pid if process is not None else record.pid
             detail = "Manager管理"
             if process is None:
@@ -1051,6 +1111,66 @@ class ServiceManager:
                 False,
                 "external",
             )
+        return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
+
+    def observe_status(self, service: str) -> ServiceStatus:
+        """Read service state for a Viewer action without changing lifecycle state.
+
+        ``status()`` also reconciles persisted ownership and promotes a
+        ``starting`` state after a successful health check. The dedicated
+        Viewer path only needs a snapshot, so it must not perform those
+        lifecycle-side effects.
+        """
+        if service not in {"backend", "frontend"}:
+            raise ValueError("サービス名が不正です")
+        healthy = self._healthy(service)
+        state = getattr(self, "_states", {}).get(service, "stopped")
+        process = getattr(self, "processes", {}).get(service)
+        if process is not None:
+            try:
+                alive = process.poll() is None
+            except (AttributeError, OSError):
+                alive = False
+            if alive:
+                observed_state = "running" if state == "stopped" else state
+                return ServiceStatus(
+                    service, True, healthy, process.pid, "Manager管理", True, observed_state
+                )
+
+        record = getattr(self, "_records", {}).get(service)
+        if record is not None:
+            verification = self._record_verification(record)
+            if verification == "unknown":
+                return ServiceStatus(
+                    service,
+                    True,
+                    healthy,
+                    record.pid,
+                    "プロセスの所有確認ができないため、安全のため停止しません。",
+                    False,
+                    "unknown",
+                )
+            if verification != "match":
+                record = None
+            else:
+                observed_state = "running" if state == "stopped" else state
+                return ServiceStatus(
+                    service,
+                    True,
+                    healthy,
+                    record.pid,
+                    "前回Managerから引き継いだプロセス",
+                    True,
+                    observed_state,
+                )
+        if healthy or self._port_in_use(service):
+            detail = "外部プロセスがポートを使用中（停止対象外）"
+            if service == "backend" and not healthy:
+                detail = (
+                    "指定Backendポートは別アプリケーションが使用中です。"
+                    " AI Office Viewerとは認識せず、停止・再利用しません。"
+                )
+            return ServiceStatus(service, True, healthy, None, detail, False, "external")
         return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
 
     def _command(self, service: str) -> tuple[list[str], Path]:
@@ -1142,9 +1262,32 @@ class ServiceManager:
             f"backend_state={backend.state} backend_healthy={backend.healthy} "
             f"backend_pid={backend.pid if backend.pid is not None else '-'} "
             f"frontend_state={frontend.state} frontend_healthy={frontend.healthy} "
-            f"frontend_pid={frontend.pid if frontend.pid is not None else '-'}"
+            f"frontend_pid={frontend.pid if frontend.pid is not None else '-'} "
+            f"backend_pid_before={backend.pid if backend.pid is not None else '-'} "
+            f"frontend_pid_before={frontend.pid if frontend.pid is not None else '-'}"
         )
         self._log_process_event("viewer", "dedicated_request", detail)
+
+    def _server_pid_snapshot(self) -> dict[str, int | None]:
+        """Read tracked server PIDs without probing health or changing state."""
+        snapshot: dict[str, int | None] = {}
+        for service in ("backend", "frontend"):
+            process = getattr(self, "processes", {}).get(service)
+            pid = getattr(process, "pid", None)
+            if isinstance(pid, int) and pid > 0:
+                snapshot[service] = pid
+                continue
+            record = getattr(self, "_records", {}).get(service)
+            record_pid = getattr(record, "pid", None)
+            snapshot[service] = record_pid if isinstance(record_pid, int) else None
+        return snapshot
+
+    @staticmethod
+    def _server_pid_detail(snapshot: dict[str, int | None], suffix: str) -> str:
+        return (
+            f"backend_pid_{suffix}={snapshot.get('backend') or '-'} "
+            f"frontend_pid_{suffix}={snapshot.get('frontend') or '-'}"
+        )
 
     def _record_for_process(
         self, service: str, process: subprocess.Popen[Any], command: list[str], cwd: Path
@@ -1161,7 +1304,9 @@ class ServiceManager:
             creation_time=self._process_creation_time(process.pid),
             manager_instance_id=getattr(self, "_manager_instance_id", "legacy"),
             descendant_pids=tuple(self._windows_descendant_pids(process.pid)),
-            port=int(settings["backend_port"] if service == "backend" else settings["frontend_port"]),
+            port=int(
+                settings["backend_port"] if service == "backend" else settings["frontend_port"]
+            ),
         )
 
     def start(self, service: str) -> ServiceStatus:
@@ -1421,6 +1566,7 @@ class ServiceManager:
     def open_dedicated_view(
         self,
         screen_geometry: tuple[int, int, int, int] | None = None,
+        browser_launcher: BrowserLauncher | None = None,
     ) -> ViewerLaunchResult:
         """Open an independent Edge/Chrome ``--app`` window.
 
@@ -1429,33 +1575,47 @@ class ServiceManager:
         this method is tracked; no global Edge/Chrome process is ever stopped.
         """
         url = self._viewer_url()
+        server_pids_before = self._server_pid_snapshot()
+        self._dedicated_view_server_pids_before = server_pids_before
         if not self._healthy("frontend"):
             detail = "Viewerが起動していません。Frontendを起動してから再試行してください。"
-            self._log_process_event("viewer", "dedicated_open_failed", detail)
+            self._log_process_event(
+                "viewer",
+                "dedicated_open_failed",
+                f"{detail} {self._server_pid_detail(server_pids_before, 'before')}",
+            )
             return ViewerLaunchResult(False, "dedicated", url, detail)
 
         self.cleanup_dedicated_view()
-        dedicated_processes = getattr(self, "_dedicated_view_processes", None)
-        if dedicated_processes is None:
-            dedicated_processes = {}
-            self._dedicated_view_processes = dedicated_processes
-        process = next(iter(dedicated_processes.values()), None)
+        dedicated_manager = self._dedicated_view_manager()
+        process = dedicated_manager.active_process()
         if process is not None:
             try:
                 if process.poll() is None:
                     detail = "既存の専用画面を使用しています。"
-                    self._log_process_event("viewer", "dedicated_reused", detail)
+                    server_pids_after = self._server_pid_snapshot()
+                    pid_detail = (
+                        f"{self._server_pid_detail(server_pids_before, 'before')} "
+                        f"{self._server_pid_detail(server_pids_after, 'after')}"
+                    )
+                    self._log_process_event("viewer", "dedicated_reused", f"{detail} {pid_detail}")
+                    if server_pids_after != server_pids_before:
+                        self._log_process_event(
+                            "viewer",
+                            "dedicated_server_pid_changed",
+                            f"ERROR {pid_detail}",
+                        )
                     return ViewerLaunchResult(
                         True,
                         "dedicated",
                         url,
                         detail,
-                        getattr(self, "_dedicated_view_browser", None),
+                        dedicated_manager.browser,
                         True,
                     )
             except (AttributeError, OSError):
                 pass
-            dedicated_processes.pop(getattr(process, "pid", -1), None)
+            dedicated_manager.processes.pop(getattr(process, "pid", -1), None)
 
         discovered = self._find_dedicated_browser()
         if discovered is None:
@@ -1489,7 +1649,8 @@ class ServiceManager:
             return ViewerLaunchResult(False, "dedicated", url, detail, browser)
 
         try:
-            process = subprocess.Popen(
+            launcher = browser_launcher or subprocess.Popen
+            process = launcher(
                 command,
                 cwd=ROOT,
                 shell=False,
@@ -1515,32 +1676,53 @@ class ServiceManager:
             self._log_process_event("viewer", "dedicated_open_failed", detail)
             return ViewerLaunchResult(False, "dedicated", url, detail, browser)
 
-        dedicated_processes[process.pid] = process
-        self._dedicated_view_browser = browser_name
+        dedicated_manager.register(process, browser_name)
+        server_pids_after = self._server_pid_snapshot()
+        pid_detail = (
+            f"{self._server_pid_detail(server_pids_before, 'before')} "
+            f"{self._server_pid_detail(server_pids_after, 'after')}"
+        )
         self._log_process_event(
             "viewer",
-            "dedicated_opened",
-            f"browser={browser_name} pid={process.pid} url={url}",
+            "dedicated_view_started",
+            f"browser={browser_name} pid={process.pid} url={url} {pid_detail}",
         )
+        if server_pids_after != server_pids_before:
+            self._log_process_event(
+                "viewer",
+                "dedicated_server_pid_changed",
+                f"ERROR {pid_detail}",
+            )
         return ViewerLaunchResult(True, "dedicated", url, browser=browser_name)
+
+    def log_dedicated_view_postcheck(self) -> None:
+        """Diagnose a server PID change immediately after opening the Viewer."""
+        before = getattr(self, "_dedicated_view_server_pids_before", {})
+        after = self._server_pid_snapshot()
+        if after == before:
+            return
+        backend_changed = after.get("backend") != before.get("backend")
+        detail = (
+            "Dedicated View起動後にBackendが停止しました"
+            if backend_changed
+            else "Dedicated View起動後にサーバーPIDが変化しました"
+        )
+        pid_detail = (
+            f"{self._server_pid_detail(before, 'before')} "
+            f"{self._server_pid_detail(after, 'after')}"
+        )
+        self._log_process_event(
+            "viewer", "dedicated_server_stopped_after_open", f"ERROR {detail} {pid_detail}"
+        )
 
     def cleanup_dedicated_view(self) -> None:
         """Prune only dedicated browser handles; never touch server processes."""
-        dedicated_processes = getattr(self, "_dedicated_view_processes", None)
-        if not dedicated_processes:
-            return
-        for pid, process in list(dedicated_processes.items()):
-            try:
-                return_code = process.poll()
-            except (AttributeError, OSError):
-                return_code = 0
-            if return_code is not None:
-                dedicated_processes.pop(pid, None)
-                self._log_process_event(
-                    "viewer",
-                    "dedicated_view_closed",
-                    f"pid={pid} returncode={return_code}",
-                )
+        for pid, return_code in self._dedicated_view_manager().cleanup():
+            self._log_process_event(
+                "viewer",
+                "dedicated_view_closed",
+                f"pid={pid} returncode={return_code}",
+            )
 
     def open_office(self, app_mode: bool = False) -> ViewerLaunchResult:
         """Backward-compatible dispatcher for existing Manager callers."""

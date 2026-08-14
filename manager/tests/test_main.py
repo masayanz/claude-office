@@ -213,6 +213,29 @@ def test_dedicated_view_does_not_touch_running_servers(monkeypatch: pytest.Monke
         def restart(self, _service: str) -> None:
             lifecycle_calls.append("restart")
 
+        # Keep the regression contract explicit for every server lifecycle
+        # entry point that has existed in Manager implementations.
+        def start_backend(self) -> None:
+            lifecycle_calls.append("start_backend")
+
+        def stop_backend(self) -> None:
+            lifecycle_calls.append("stop_backend")
+
+        def restart_backend(self) -> None:
+            lifecycle_calls.append("restart_backend")
+
+        def stop_all(self) -> None:
+            lifecycle_calls.append("stop_all")
+
+        def restart_all(self) -> None:
+            lifecycle_calls.append("restart_all")
+
+        def restore(self) -> None:
+            lifecycle_calls.append("restore")
+
+        def cleanup(self) -> None:
+            lifecycle_calls.append("cleanup")
+
     window = _window(Manager())
     monkeypatch.setattr(window, "_viewer_screen_geometry", lambda: (0, 0, 100, 100))
     monkeypatch.setattr(
@@ -256,43 +279,70 @@ def test_dedicated_view_waits_for_starting_servers_without_double_start(
 
     assert lifecycle_calls == []
     assert window._pending_dedicated_view is True
-    assert messages and "起動完了後" in messages[0]
+    assert messages and "起動完了" in messages[0]
 
 
-def test_dedicated_view_starts_only_after_explicit_confirmation(
+def test_dedicated_view_never_starts_stopped_servers(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    start_calls: list[bool] = []
+    lifecycle_calls: list[str] = []
+    messages: list[str] = []
 
     class Manager:
         def status(self, service: str) -> ServiceStatus:
             return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
 
+        def start(self, _service: str) -> None:
+            lifecycle_calls.append("start")
+
+        def stop(self, _service: str) -> None:
+            lifecycle_calls.append("stop")
+
+        def restart(self, _service: str) -> None:
+            lifecycle_calls.append("restart")
+
+        def restore_codex_sessions(self) -> None:
+            lifecycle_calls.append("restore")
+
     window = _window(Manager())
     monkeypatch.setattr(
-        main.QMessageBox,
-        "question",
-        lambda *_args: main.QMessageBox.StandardButton.No,
+        main.QMessageBox, "warning", lambda _parent, _title, text: messages.append(text)
     )
-    monkeypatch.setattr(window, "_start", lambda: start_calls.append(True))
 
     main.ManagerWindow._open_app(window)
 
-    assert start_calls == []
+    assert lifecycle_calls == []
     assert window._pending_dedicated_view is False
+    assert messages and "起動しません" in messages[0]
 
+
+def test_dedicated_view_does_not_open_when_backend_is_stopped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    opened: list[bool] = []
+    messages: list[str] = []
+
+    class Manager:
+        def status(self, service: str) -> ServiceStatus:
+            if service == "backend":
+                return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
+            return ServiceStatus(service, True, True, 2000, "", True, "running")
+
+    window = _window(Manager())
+    monkeypatch.setattr(window, "_launch_dedicated_view", lambda: opened.append(True))
     monkeypatch.setattr(
         main.QMessageBox,
-        "question",
-        lambda *_args: main.QMessageBox.StandardButton.Yes,
+        "warning",
+        lambda _parent, _title, text: messages.append(text),
     )
+
     main.ManagerWindow._open_app(window)
 
-    assert start_calls == [True]
-    assert window._pending_dedicated_view is True
+    assert opened == []
+    assert messages and "Backendが停止" in messages[0]
 
 
-def test_pending_dedicated_view_requires_both_services_healthy(
+def test_pending_dedicated_view_requires_frontend_health_only(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     window = _window(object())
@@ -308,8 +358,4 @@ def test_pending_dedicated_view_requires_both_services_healthy(
 
     main.ManagerWindow._maybe_open_pending_dedicated_view(window)
 
-    assert launched == []
-
-    window._last_backend_healthy = True
-    main.ManagerWindow._maybe_open_pending_dedicated_view(window)
     assert launched == [True]

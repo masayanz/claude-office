@@ -55,6 +55,11 @@ from .process_manager import CodexRestoreStatus, GlobalHooksRepairResult, Servic
 from .resources import manager_icon_path
 from .settings import load_settings, save_settings
 
+DEDICATED_VIEW_STARTING = "DEDICATED_VIEW_STARTING"
+DEDICATED_VIEW_OPEN = "DEDICATED_VIEW_OPEN"
+DEDICATED_VIEW_CLOSED = "DEDICATED_VIEW_CLOSED"
+DEDICATED_VIEW_ERROR = "DEDICATED_VIEW_ERROR"
+
 
 def _set_windows_app_id() -> None:
     """Set a stable Windows taskbar identity without affecting other platforms."""
@@ -256,6 +261,7 @@ class ManagerWindow(QMainWindow):
         self._service_action_in_flight = False
         self._pending_dedicated_view = False
         self._dedicated_view_deadline = 0.0
+        self._dedicated_view_state = DEDICATED_VIEW_CLOSED
         self._service_buttons: list[QPushButton] = []
         self._restore_maximized = False
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="manager-api")
@@ -585,6 +591,8 @@ class ManagerWindow(QMainWindow):
             return "外部で稼働中（停止対象外）"
         if healthy:
             return "稼働中"
+        if state == "running":
+            return "稼働中（応答なし）"
         if running or (starting and service in self._start_requested):
             return "起動中…"
         if service in self._start_requested:
@@ -956,8 +964,9 @@ class ManagerWindow(QMainWindow):
             QMessageBox.warning(self, "ブラウザ起動エラー", result.detail)
 
     def _open_app(self) -> None:
-        backend = self.manager.status("backend")
-        frontend = self.manager.status("frontend")
+        observe_status = getattr(self.manager, "observe_status", self.manager.status)
+        backend = observe_status("backend")
+        frontend = observe_status("frontend")
         self._last_backend_healthy = backend.healthy
         self._last_frontend_healthy = frontend.healthy
         self._last_backend_state = backend.state
@@ -966,52 +975,52 @@ class ManagerWindow(QMainWindow):
         if callable(log_request):
             log_request(backend, frontend)
 
-        if backend.state in {"starting", "stopping"} or frontend.state in {
-            "starting",
-            "stopping",
-        }:
+        if backend.state == "starting" or frontend.state == "starting":
+            self._dedicated_view_state = DEDICATED_VIEW_STARTING
             self._pending_dedicated_view = True
             self._dedicated_view_deadline = time.monotonic() + 30
             QMessageBox.information(
                 self,
                 "専用画面を開く",
-                "AI Office Viewerを起動しています。\n"
-                "起動完了後に専用画面を開きます。",
+                "サーバーの起動完了を待っています。\n"
+                "専用画面操作ではサーバーを起動・再起動しません。",
             )
             return
 
-        # A healthy Frontend is sufficient to display the Viewer.  In
-        # particular, a temporary Backend/API failure must not turn a display
-        # action into a server lifecycle action.
+        if backend.state == "stopping" or frontend.state == "stopping":
+            self._dedicated_view_state = DEDICATED_VIEW_ERROR
+            QMessageBox.warning(
+                self,
+                "専用画面を開けません",
+                "サーバーを停止しています。完了後に専用画面を開いてください。",
+            )
+            return
+
+        if backend.state == "stopped":
+            self._dedicated_view_state = DEDICATED_VIEW_ERROR
+            QMessageBox.warning(
+                self,
+                "専用画面を開けません",
+                "AI Office ViewerのBackendが停止しています。\n"
+                "専用画面操作ではサーバーを起動しません。先に「起動」を実行してください。",
+            )
+            return
+
+        # A healthy Frontend is sufficient to display the Viewer when the
+        # Backend process is still present.  In particular, a temporary
+        # Backend/API failure must not turn a display action into a lifecycle
+        # action.
         if frontend.healthy:
             self._launch_dedicated_view()
             return
 
-        # Do not guess that an unhealthy but non-stopped service is safe to
-        # start.  The explicit Start/Restart buttons remain responsible for
-        # lifecycle changes in this case.
-        if backend.state != "stopped" or frontend.state != "stopped":
-            QMessageBox.warning(
-                self,
-                "専用画面を開けません",
-                "Frontendの稼働を確認できませんでした。\n"
-                "サーバーの起動・再起動は行っていません。",
-            )
-            return
-
-        answer = QMessageBox.question(
+        self._dedicated_view_state = DEDICATED_VIEW_ERROR
+        QMessageBox.warning(
             self,
-            "専用画面を開く",
-            "AI Office Viewerが停止しています。起動して専用画面を開きますか？",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.Yes,
+            "専用画面を開けません",
+            "AI Office Viewerが停止しています。\n"
+            "専用画面操作ではサーバーを起動しません。先に「起動」を実行してください。",
         )
-        if answer != QMessageBox.StandardButton.Yes:
-            return
-        self._pending_dedicated_view = True
-        self._dedicated_view_deadline = time.monotonic() + 30
-        if not self._service_action_in_flight:
-            self._start()
 
     def _viewer_screen_geometry(self) -> tuple[int, int, int, int] | None:
         """Use the Manager's current monitor for the dedicated app window."""
@@ -1023,11 +1032,18 @@ class ManagerWindow(QMainWindow):
         return available.x(), available.y(), available.width(), available.height()
 
     def _launch_dedicated_view(self) -> None:
+        self._dedicated_view_state = DEDICATED_VIEW_STARTING
         self._pending_dedicated_view = False
         self._dedicated_view_deadline = 0.0
         result = self.manager.open_dedicated_view(self._viewer_screen_geometry())
         if not result.succeeded:
+            self._dedicated_view_state = DEDICATED_VIEW_ERROR
             QMessageBox.warning(self, "専用画面起動エラー", result.detail)
+            return
+        self._dedicated_view_state = DEDICATED_VIEW_OPEN
+        postcheck = getattr(self.manager, "log_dedicated_view_postcheck", None)
+        if callable(postcheck):
+            QTimer.singleShot(1500, postcheck)
 
     def _maybe_open_pending_dedicated_view(self) -> None:
         if not getattr(self, "_pending_dedicated_view", False):
@@ -1035,9 +1051,8 @@ class ManagerWindow(QMainWindow):
         if self._service_action_in_flight:
             return
         if (
-            self._last_backend_healthy
-            and self._last_frontend_healthy
-            and self._last_backend_state not in {"starting", "stopping"}
+            self._last_frontend_healthy
+            and self._last_backend_state not in {"starting", "stopping", "stopped"}
             and self._last_frontend_state not in {"starting", "stopping"}
         ):
             self._launch_dedicated_view()

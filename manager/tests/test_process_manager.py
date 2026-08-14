@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 import urllib.request
 import webbrowser
 from pathlib import Path
@@ -584,6 +585,240 @@ def test_dedicated_browser_start_failure_does_not_touch_server_processes(
     assert result.succeeded is False
     assert manager.processes == {}
     assert manager._dedicated_view_processes == {}
+
+
+class _LongRunningBrowser:
+    pid = 9876
+
+    def __init__(self, returncode: int | None = None) -> None:
+        self.returncode = returncode
+
+    def poll(self) -> int | None:
+        return self.returncode
+
+    def wait(self, *_args: object, **_kwargs: object) -> None:
+        raise AssertionError("専用画面起動でbrowser.wait()を呼んではいけない")
+
+
+def _dedicated_manager(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> ServiceManager:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(
+        manager,
+        "_find_dedicated_browser",
+        lambda: ("Edge", r"C:\\Program Files\\Microsoft\\Edge\\msedge.exe"),
+    )
+    monkeypatch.setattr(process_manager, "RUNTIME_DIR", tmp_path / "runtime")
+    return manager
+
+
+def _tracked_servers(manager: ServiceManager) -> None:
+    manager.processes.update(
+        {
+            "backend": SimpleNamespace(pid=1111, poll=lambda: None),
+            "frontend": SimpleNamespace(pid=2222, poll=lambda: None),
+        }
+    )
+
+
+def test_dedicated_view_does_not_start_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    lifecycle_calls: list[str] = []
+    monkeypatch.setattr(
+        manager, "start", lambda service: lifecycle_calls.append(f"start:{service}")
+    )
+
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+
+    assert result.succeeded is True
+    assert lifecycle_calls == []
+
+
+def test_dedicated_view_does_not_stop_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    lifecycle_calls: list[str] = []
+    monkeypatch.setattr(manager, "stop", lambda service: lifecycle_calls.append(f"stop:{service}"))
+
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+
+    assert result.succeeded is True
+    assert lifecycle_calls == []
+
+
+def test_dedicated_view_does_not_restart_backend(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    lifecycle_calls: list[str] = []
+    monkeypatch.setattr(
+        manager, "restart", lambda service: lifecycle_calls.append(f"restart:{service}")
+    )
+
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+
+    assert result.succeeded is True
+    assert lifecycle_calls == []
+
+
+def test_dedicated_view_does_not_change_backend_pid(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    before = manager._server_pid_snapshot()
+
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+
+    assert result.succeeded is True
+    assert manager._server_pid_snapshot() == before == {"backend": 1111, "frontend": 2222}
+
+
+def test_dedicated_view_keeps_backend_health(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    health_calls: list[str] = []
+
+    def healthy(service: str) -> bool:
+        health_calls.append(service)
+        return True
+
+    monkeypatch.setattr(manager, "_healthy", healthy)
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+
+    assert result.succeeded is True
+    assert health_calls == ["frontend"]
+    assert manager._healthy("backend") is True
+
+
+def test_dedicated_view_browser_error_keeps_server(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    before = manager._server_pid_snapshot()
+
+    def launch(*_args: object, **_kwargs: object) -> _LongRunningBrowser:
+        raise FileNotFoundError("msedge.exe")
+
+    result = manager.open_dedicated_view(browser_launcher=launch)
+
+    assert result.succeeded is False
+    assert manager._server_pid_snapshot() == before
+    assert manager._dedicated_view_processes == {}
+
+
+def test_dedicated_view_browser_exit_keeps_server(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    before = manager._server_pid_snapshot()
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser(returncode=1)
+    )
+
+    assert result.succeeded is False
+    assert manager._server_pid_snapshot() == before
+    assert manager._dedicated_view_processes == {}
+
+
+def test_dedicated_view_long_running_browser_does_not_block(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    browser = _LongRunningBrowser()
+    elapsed = []
+    monkeypatch.setattr(process_manager, "monotonic", lambda: 100.0)
+
+    result = manager.open_dedicated_view(browser_launcher=lambda *_args, **_kwargs: browser)
+    elapsed.append(browser.returncode)
+
+    assert result.succeeded is True
+    assert elapsed == [None]
+    assert browser.poll() is None
+
+
+def test_dedicated_view_launch_does_not_use_pipe_or_server_process_group(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    captured: dict[str, Any] = {}
+
+    def launch(_command: list[str], **kwargs: Any) -> _LongRunningBrowser:
+        captured.update(kwargs)
+        return _LongRunningBrowser()
+
+    result = manager.open_dedicated_view(browser_launcher=launch)
+
+    assert result.succeeded is True
+    assert captured["shell"] is False
+    assert captured["stdin"] is subprocess.DEVNULL
+    assert captured["stdout"] is subprocess.DEVNULL
+    assert captured["stderr"] is subprocess.DEVNULL
+    assert not (
+        captured.get("creationflags", 0)
+        & getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
+    )
+
+
+def test_dedicated_view_does_not_trigger_restore_or_backfill(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    calls: list[str] = []
+    monkeypatch.setattr(manager, "restore_codex_sessions", lambda: calls.append("restore"))
+    monkeypatch.setattr(
+        manager,
+        "backfill_replay_history",
+        lambda: calls.append("backfill"),
+        raising=False,
+    )
+
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+
+    assert result.succeeded is True
+    assert calls == []
+
+
+def test_dedicated_view_heartbeat_keeps_pid_and_health(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _dedicated_manager(monkeypatch, tmp_path)
+    _tracked_servers(manager)
+    result = manager.open_dedicated_view(
+        browser_launcher=lambda *_args, **_kwargs: _LongRunningBrowser()
+    )
+    assert result.succeeded is True
+
+    samples: list[tuple[int | None, bool]] = []
+    for _ in range(20):
+        time.sleep(0.5)
+        samples.append((manager._server_pid_snapshot()["backend"], manager._healthy("backend")))
+
+    assert len(samples) == 20
+    assert {pid for pid, _healthy in samples} == {1111}
+    assert all(healthy for _pid, healthy in samples)
 
 
 def test_service_commands_do_not_use_shell_wrappers(monkeypatch: pytest.MonkeyPatch) -> None:

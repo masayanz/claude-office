@@ -51,7 +51,12 @@ from .codex_diagnostics import (
     DiagnosticState,
     build_diagnostic_report,
 )
-from .process_manager import CodexRestoreStatus, GlobalHooksRepairResult, ServiceManager
+from .process_manager import (
+    CodexRestoreStatus,
+    GlobalHooksRepairResult,
+    ServerLifecycleManager,
+    ServiceStatus,
+)
 from .resources import manager_icon_path
 from .settings import load_settings, save_settings
 
@@ -236,6 +241,7 @@ class SettingsDialog(QDialog):
 
 
 class ManagerWindow(QMainWindow):
+    _status_received = Signal(object)
     _restore_status_received = Signal(object)
     _restore_request_finished = Signal(object)
     _diagnostic_received = Signal(object)
@@ -247,7 +253,7 @@ class ManagerWindow(QMainWindow):
         self.setWindowTitle(MANAGER_NAME)
         self.setWindowIcon(icon)
         self.resize(860, 680)
-        self.manager = ServiceManager()
+        self.manager = ServerLifecycleManager()
         self._icon = icon
         self._is_quitting = False
         self._tray_notice_shown = False
@@ -256,6 +262,7 @@ class ManagerWindow(QMainWindow):
         self._last_frontend_healthy = False
         self._last_backend_state = "stopped"
         self._last_frontend_state = "stopped"
+        self._last_server_snapshot: dict[str, ServiceStatus] = {}
         self._startup_grace_until = 0.0
         self._start_requested: set[str] = set()
         self._service_action_in_flight = False
@@ -266,6 +273,7 @@ class ManagerWindow(QMainWindow):
         self._restore_maximized = False
         self._executor = ThreadPoolExecutor(max_workers=3, thread_name_prefix="manager-api")
         self._restore_status_in_flight = False
+        self._status_poll_in_flight = False
         self._restore_request_in_flight = False
         self._diagnostic_in_flight = False
         self._repair_in_flight = False
@@ -278,13 +286,14 @@ class ManagerWindow(QMainWindow):
         self._diagnostic_received.connect(self._apply_codex_diagnostic)
         self._repair_finished.connect(self._apply_repair_result)
         self._service_action_finished.connect(self._apply_manager_action)
+        self._status_received.connect(self._apply_status_snapshot)
         self._build_window()
         self._build_tray()
         self._restore_window_geometry()
 
         self._status_timer = QTimer(self)
         self._status_timer.timeout.connect(self._refresh_status)
-        self._status_timer.start(3000)
+        self._status_timer.start(1000)
         self._refresh_status()
 
     def _build_window(self) -> None:
@@ -542,8 +551,33 @@ class ManagerWindow(QMainWindow):
             )
 
     def _refresh_status(self) -> None:
-        backend = self.manager.status("backend")
-        frontend = self.manager.status("frontend")
+        if self._status_poll_in_flight:
+            return
+        self._status_poll_in_flight = True
+
+        def read_snapshot() -> object:
+            snapshot = getattr(self.manager, "snapshot", None)
+            if callable(snapshot):
+                return snapshot()
+            return {
+                "backend": self.manager.status("backend"),
+                "frontend": self.manager.status("frontend"),
+            }
+
+        future = self._executor.submit(read_snapshot)
+        future.add_done_callback(
+            lambda completed: self._status_received.emit(self._future_result(completed))
+        )
+
+    def _apply_status_snapshot(self, result: object) -> None:
+        self._status_poll_in_flight = False
+        if isinstance(result, Exception) or not isinstance(result, dict):
+            return
+        backend = result.get("backend")
+        frontend = result.get("frontend")
+        if not isinstance(backend, ServiceStatus) or not isinstance(frontend, ServiceStatus):
+            return
+        self._last_server_snapshot = {"backend": backend, "frontend": frontend}
         self._last_backend_healthy = backend.healthy
         self._last_frontend_healthy = frontend.healthy
         self._last_backend_state = backend.state
@@ -553,12 +587,14 @@ class ManagerWindow(QMainWindow):
             self._status_text(
                 "backend", backend.running, backend.healthy, in_startup_grace,
                 backend.state, backend.detail,
+                backend.readiness_ok, backend.readiness_known, backend.process_alive,
             )
         )
         self._status_labels["frontend"].setText(
             self._status_text(
                 "frontend", frontend.running, frontend.healthy, in_startup_grace,
                 frontend.state, frontend.detail,
+                frontend.readiness_ok, frontend.readiness_known, frontend.process_alive,
             )
         )
         self._maybe_open_pending_dedicated_view()
@@ -580,6 +616,9 @@ class ManagerWindow(QMainWindow):
         starting: bool = False,
         state: str = "stopped",
         detail: str = "",
+        readiness_ok: bool = False,
+        readiness_known: bool = False,
+        process_alive: bool = False,
     ) -> str:
         if state == "stopping":
             return "停止中…"
@@ -589,9 +628,11 @@ class ManagerWindow(QMainWindow):
             return detail or "処理に失敗しました。\n「ログ」を確認してください。"
         if state == "external":
             return "外部で稼働中（停止対象外）"
+        if healthy and readiness_known and not readiness_ok:
+            return "稼働中（準備未完了）"
         if healthy:
             return "稼働中"
-        if state == "running":
+        if state in {"running", "degraded"} and (process_alive or running):
             return "稼働中（応答なし）"
         if running or (starting and service in self._start_requested):
             return "起動中…"
@@ -869,6 +910,22 @@ class ManagerWindow(QMainWindow):
         if report.cli_discovery is not None and report.cli_discovery.source is not None:
             cli_source = report.cli_discovery.detail
         settings, _ = load_settings()
+        server_snapshot = self._last_server_snapshot
+
+        def server_details(service: str) -> str:
+            item = server_snapshot.get(service)
+            if item is None:
+                return "状態未取得"
+            uptime = "-" if item.uptime_seconds is None else f"{item.uptime_seconds:.0f}s"
+            return (
+                f"PID={item.pid or '-'} / process={'OK' if item.process_alive else '停止'} / "
+                f"liveness={'OK' if item.liveness_ok else 'NG'} / "
+                "readiness="
+                f"{'OK' if item.readiness_ok else ('NG' if item.readiness_known else '未確認')} / "
+                f"uptime={uptime} / last={item.last_success_at or '-'} / "
+                f"failures={item.consecutive_failures} / reason={item.state_reason or '-'}"
+            )
+
         path_status = (
             "存在確認済み（場所は非表示）"
             if report.cli.state == DiagnosticState.OK
@@ -885,6 +942,8 @@ class ManagerWindow(QMainWindow):
                 f"\nCodex Adapter\n{self._check_text(report.adapter)}",
                 f"\nBackend API\n{self._check_text(report.backend)}",
                 f"接続先: {settings['backend_host']}:{settings['backend_port']}",
+                f"\nBackend process\n{server_details('backend')}",
+                f"\nFrontend process\n{server_details('frontend')}",
                 f"\nRestored Sessions\n{status.restored_sessions}",
                 f"\nLive Events（今回起動以降）\n{status.live_event_count}",
                 f"\nJSONL Monitor\n{self._check_text(report.jsonl_monitor)}",
@@ -917,6 +976,10 @@ class ManagerWindow(QMainWindow):
         self._start_requested.update(("backend", "frontend"))
 
         def action() -> None:
+            start_all = getattr(self.manager, "start_all", None)
+            if callable(start_all):
+                start_all()
+                return
             self.manager.start("backend")
             self.manager.start("frontend")
 
@@ -926,6 +989,10 @@ class ManagerWindow(QMainWindow):
         self._start_requested.clear()
 
         def action() -> None:
+            stop_all = getattr(self.manager, "stop_all", None)
+            if callable(stop_all):
+                stop_all()
+                return
             self.manager.stop("frontend")
             self.manager.stop("backend")
 
@@ -936,8 +1003,24 @@ class ManagerWindow(QMainWindow):
         self._start_requested.update(("backend", "frontend"))
 
         def action() -> None:
+            restart_all = getattr(self.manager, "restart_all", None)
+            if callable(restart_all):
+                results = restart_all()
+                if any(
+                    status.running and status.state == "error"
+                    for status in results.values()
+                ):
+                    raise RuntimeError(
+                        "サーバーの停止完了を確認できないため、再起動を中止しました。"
+                    )
+                return
             self.manager.stop("frontend")
-            backend = self.manager.restart("backend")
+            restart_backend = getattr(self.manager, "restart_backend", None)
+            backend = (
+                restart_backend()
+                if callable(restart_backend)
+                else self.manager.restart("backend")
+            )
             if backend.state not in {"starting", "running"}:
                 raise RuntimeError(backend.detail or "Backendを再起動できませんでした。")
             frontend = self.manager.start("frontend")
@@ -951,7 +1034,12 @@ class ManagerWindow(QMainWindow):
         self._start_requested.add("backend")
 
         def action() -> None:
-            result = self.manager.restart("backend")
+            restart_backend = getattr(self.manager, "restart_backend", None)
+            result = (
+                restart_backend()
+                if callable(restart_backend)
+                else self.manager.restart("backend")
+            )
             if result.state not in {"starting", "running"}:
                 raise RuntimeError(result.detail or "Backendを再起動できませんでした。")
 
@@ -1041,9 +1129,6 @@ class ManagerWindow(QMainWindow):
             QMessageBox.warning(self, "専用画面起動エラー", result.detail)
             return
         self._dedicated_view_state = DEDICATED_VIEW_OPEN
-        postcheck = getattr(self.manager, "log_dedicated_view_postcheck", None)
-        if callable(postcheck):
-            QTimer.singleShot(1500, postcheck)
 
     def _maybe_open_pending_dedicated_view(self) -> None:
         if not getattr(self, "_pending_dedicated_view", False):
@@ -1125,6 +1210,14 @@ class ManagerWindow(QMainWindow):
         self._finalize_quit()
 
     def _stop_services_for_quit(self) -> list[str]:
+        stop_all = getattr(self.manager, "stop_all", None)
+        if callable(stop_all):
+            results = stop_all()
+            return [
+                f"{service}: {status.detail or '停止未確認'}"
+                for service, status in results.items()
+                if status.running
+            ]
         failures: list[str] = []
         for service in ("frontend", "backend"):
             try:

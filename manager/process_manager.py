@@ -44,6 +44,50 @@ LOG_DIR = RUNTIME_DIR / "logs"
 PID_PATH = RUNTIME_DIR / "processes.json"
 _WIN32_KERNEL32: Any | None = None
 
+# Lifecycle state is deliberately kept separate from the individual health
+# signals.  A short HTTP timeout must not be able to overwrite a process state
+# that was established by an explicit start/stop command.
+STATE_STOPPED = "stopped"
+STATE_STARTING = "starting"
+STATE_RUNNING = "running"
+STATE_DEGRADED = "degraded"
+STATE_STOPPING = "stopping"
+STATE_ERROR = "error"
+STATE_EXTERNAL = "external"
+STATE_UNKNOWN = "unknown"
+HEALTH_DEGRADED_AFTER = 3
+HEALTH_ERROR_AFTER = 5
+
+
+@dataclass(frozen=True, slots=True)
+class HealthSnapshot:
+    """Independent observations used to build a service status snapshot."""
+
+    service: str
+    process_alive: bool = False
+    port_listening: bool = False
+    liveness_ok: bool = False
+    readiness_ok: bool = False
+    readiness_known: bool = False
+    consecutive_liveness_failures: int = 0
+    consecutive_readiness_failures: int = 0
+    last_success_at: str | None = None
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ProcessSnapshot:
+    """Read-only process ownership information exposed to diagnostics."""
+
+    service: str
+    pid: int | None = None
+    creation_time: float | None = None
+    command: tuple[str, ...] = ()
+    cwd: str = ""
+    port: int | None = None
+    owned: bool = False
+    uptime_seconds: float | None = None
+
 
 def _win32_kernel32() -> Any:
     """Load Win32 process APIs with explicit 64-bit-safe signatures."""
@@ -92,7 +136,21 @@ class ServiceStatus:
     pid: int | None = None
     detail: str = ""
     owned: bool = False
-    state: str = "stopped"
+    state: str = STATE_STOPPED
+    process_alive: bool = False
+    port_listening: bool = False
+    liveness_ok: bool = False
+    readiness_ok: bool = False
+    readiness_known: bool = False
+    consecutive_failures: int = 0
+    last_success_at: str | None = None
+    state_reason: str = ""
+    uptime_seconds: float | None = None
+
+    @property
+    def api_connected(self) -> bool:
+        """Compatibility-friendly name for the independent liveness signal."""
+        return self.liveness_ok if self.liveness_ok or self.process_alive else self.healthy
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +268,72 @@ class ProcessRecord:
         )
 
 
+class ProcessRegistry:
+    """Single source of truth for Manager-owned server processes.
+
+    In-memory handles and the persisted identity record intentionally live in
+    one object.  A PID file is only a recovery hint: callers must still run
+    ``validate_existing_process`` before adopting a process.
+    """
+
+    def __init__(self, path: Path = PID_PATH) -> None:
+        self.path = path
+        self.processes: dict[str, subprocess.Popen[Any]] = {}
+        self.records: dict[str, ProcessRecord] = self._load()
+
+    def _load(self) -> dict[str, ProcessRecord]:
+        try:
+            payload = json.loads(self.path.read_text(encoding="utf-8"))
+        except (OSError, ValueError, TypeError, json.JSONDecodeError):
+            return {}
+        if not isinstance(payload, dict):
+            return {}
+        records: dict[str, ProcessRecord] = {}
+        for service in ("backend", "frontend"):
+            record = ProcessRecord.from_dict(service, payload.get(service))
+            if record is not None:
+                records[service] = record
+        return records
+
+    def register(self, service: str, process: subprocess.Popen[Any], record: ProcessRecord) -> None:
+        self.processes[service] = process
+        self.records[service] = record
+
+    def unregister(self, service: str) -> None:
+        self.processes.pop(service, None)
+        self.records.pop(service, None)
+
+    def record(self, service: str) -> ProcessRecord | None:
+        return self.records.get(service)
+
+    def handle(self, service: str) -> subprocess.Popen[Any] | None:
+        return self.processes.get(service)
+
+    def validate_existing_process(
+        self,
+        service: str,
+        validator: Callable[[ProcessRecord], bool],
+    ) -> bool:
+        record = self.records.get(service)
+        return record is not None and validator(record)
+
+    def save(self) -> None:
+        RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
+        data = {name: record.as_dict() for name, record in self.records.items()}
+        data["schema"] = 2
+        data["updated_at"] = datetime.now(UTC).isoformat()
+        temporary: str | None = None
+        try:
+            fd, temporary = tempfile.mkstemp(prefix="processes-", suffix=".json", dir=RUNTIME_DIR)
+            with os.fdopen(fd, "w", encoding="utf-8") as stream:
+                json.dump(data, stream, ensure_ascii=False, indent=2)
+                stream.write("\n")
+            os.replace(temporary, self.path)
+        finally:
+            if temporary and os.path.exists(temporary):
+                os.unlink(temporary)
+
+
 @dataclass
 class CodexRestoreStatus:
     """Normalized result returned by the backend Codex restore API."""
@@ -231,7 +355,7 @@ class GlobalHooksRepairResult:
     stderr_summary: str = ""
 
 
-BrowserLauncher = Callable[..., subprocess.Popen[Any]]
+BrowserProcessLauncher = Callable[..., subprocess.Popen[Any]]
 
 
 class DedicatedViewProcessManager:
@@ -271,8 +395,165 @@ class DedicatedViewProcessManager:
         return closed
 
 
-class ServiceManager:
-    """Start only commands owned by this application and track their PIDs."""
+class BrowserLauncher:
+    """Open a frontend URL without owning or inspecting server processes."""
+
+    @staticmethod
+    def open_normal(frontend_url: str) -> ViewerLaunchResult:
+        try:
+            opened = webbrowser.open(frontend_url)
+        except (OSError, webbrowser.Error) as exc:
+            return ViewerLaunchResult(
+                False,
+                "normal",
+                frontend_url,
+                f"通常ブラウザを起動できませんでした: {type(exc).__name__}",
+            )
+        if opened is False:
+            return ViewerLaunchResult(
+                False,
+                "normal",
+                frontend_url,
+                "既定のWebブラウザがURLを開けませんでした。",
+            )
+        return ViewerLaunchResult(True, "normal", frontend_url)
+
+
+class DedicatedViewLauncher:
+    """Launch only a dedicated browser window.
+
+    This class deliberately knows nothing about Backend/Frontend processes,
+    health, PID records, or lifecycle state.  The returned process handle is
+    owned by ``DedicatedViewProcessManager`` at the caller boundary.
+    """
+
+    def __init__(
+        self,
+        browser_finder: Callable[[], tuple[str, str] | None],
+        process_launcher: BrowserProcessLauncher | None = None,
+    ) -> None:
+        self._browser_finder = browser_finder
+        self._process_launcher = process_launcher or subprocess.Popen
+
+    @staticmethod
+    def _window_arguments(
+        screen_geometry: tuple[int, int, int, int] | None,
+    ) -> list[str]:
+        if screen_geometry is None:
+            return ["--start-maximized"]
+        try:
+            left, top, width, height = (int(value) for value in screen_geometry)
+        except (TypeError, ValueError):
+            return ["--start-maximized"]
+        if width <= 0 or height <= 0:
+            return ["--start-maximized"]
+        app_width = min(max(1, int(width * 0.88)), width)
+        app_height = min(max(1, int(height * 0.88)), height)
+        return [
+            f"--window-size={app_width},{app_height}",
+            f"--window-position={left + max(0, (width - app_width) // 2)},"
+            f"{top + max(0, (height - app_height) // 2)}",
+        ]
+
+    def open(
+        self,
+        frontend_url: str,
+        screen_geometry: tuple[int, int, int, int] | None = None,
+    ) -> tuple[ViewerLaunchResult, subprocess.Popen[Any] | None]:
+        discovered = self._browser_finder()
+        if discovered is None:
+            return (
+                ViewerLaunchResult(
+                    False,
+                    "dedicated",
+                    frontend_url,
+                    "対応ブラウザ（Microsoft Edge / Google Chrome）が見つかりません。",
+                ),
+                None,
+            )
+        browser_name, browser = discovered
+        command = [
+            browser,
+            f"--app={frontend_url}",
+            "--new-window",
+            "--no-first-run",
+            "--no-default-browser-check",
+            *self._window_arguments(screen_geometry),
+        ]
+        profile_dir = RUNTIME_DIR / "dedicated-view-profile" / browser_name.lower()
+        try:
+            profile_dir.mkdir(parents=True, exist_ok=True)
+            command.insert(1, f"--user-data-dir={profile_dir}")
+            process = self._process_launcher(
+                command,
+                cwd=ROOT,
+                shell=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                **ServerLifecycleManager._hidden_subprocess_kwargs(),
+            )
+        except (OSError, ValueError, subprocess.SubprocessError) as exc:
+            return (
+                ViewerLaunchResult(
+                    False,
+                    "dedicated",
+                    frontend_url,
+                    f"専用画面を起動できませんでした: {type(exc).__name__}",
+                    browser_name,
+                ),
+                None,
+            )
+        try:
+            return_code = process.poll()
+        except (AttributeError, OSError):
+            return_code = None
+        if return_code is not None and return_code != 0:
+            return (
+                ViewerLaunchResult(
+                    False,
+                    "dedicated",
+                    frontend_url,
+                    f"専用画面プロセスが起動直後に終了しました（code={return_code}）。",
+                    browser_name,
+                ),
+                None,
+            )
+        return ViewerLaunchResult(True, "dedicated", frontend_url, browser=browser_name), process
+
+
+class ProcessController:
+    """Small subprocess boundary used exclusively by the lifecycle owner."""
+
+    def __init__(self, hidden_options: Callable[..., dict[str, Any]]) -> None:
+        self._hidden_options = hidden_options
+
+    def spawn(
+        self,
+        command: list[str],
+        *,
+        cwd: Path,
+        env: dict[str, str],
+        stdout: TextIO,
+    ) -> subprocess.Popen[Any]:
+        return subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdin=subprocess.DEVNULL,
+            stdout=stdout,
+            stderr=subprocess.STDOUT,
+            **self._hidden_options(new_process_group=True),
+        )
+
+
+class ServerLifecycleManager:
+    """The sole lifecycle owner for the AI Office Viewer servers.
+
+    UI actions, diagnostics, and browser launchers may call this public facade,
+    but only this class can start, stop, restart, adopt, or unregister the
+    Backend and Frontend processes.
+    """
 
     def __init__(self) -> None:
         self.processes: dict[str, subprocess.Popen[Any]] = {}
@@ -282,13 +563,25 @@ class ServiceManager:
         self._log_streams: dict[str, TextIO] = {}
         self._records: dict[str, ProcessRecord] = self._load_pid_file()
         self._states: dict[str, str] = {"backend": "stopped", "frontend": "stopped"}
+        self._state_reasons: dict[str, str] = {
+            "backend": "manager_startup",
+            "frontend": "manager_startup",
+        }
+        self._health_snapshots: dict[str, HealthSnapshot] = {}
         self._manager_instance_id = uuid.uuid4().hex
         self._lifecycle_lock = threading.RLock()
+        self.process_controller = ProcessController(self._hidden_subprocess_kwargs)
+        self._registry = ProcessRegistry(PID_PATH)
+        # Keep these aliases for older integrations while making the registry
+        # object the canonical owner for new code.
+        self.processes = self._registry.processes
+        self._records = self._registry.records
         # ``processes`` contains server processes only.  Dedicated browser
         # processes intentionally live in a separate collection and are never
         # included in server stop/restart/cleanup operations.
         self.dedicated_view_process_manager = DedicatedViewProcessManager()
         LOG_DIR.mkdir(parents=True, exist_ok=True)
+        self.validate_existing_processes()
 
     def _dedicated_view_manager(self) -> DedicatedViewProcessManager:
         manager = getattr(self, "dedicated_view_process_manager", None)
@@ -296,6 +589,68 @@ class ServiceManager:
             manager = DedicatedViewProcessManager()
             self.dedicated_view_process_manager = manager
         return manager
+
+    def _ensure_runtime_state(self) -> None:
+        """Make test doubles and legacy callers safe with the new state model."""
+        if not hasattr(self, "processes"):
+            self.processes = {}
+        if not hasattr(self, "_records"):
+            self._records = {}
+        if not hasattr(self, "_states"):
+            self._states = {"backend": STATE_STOPPED, "frontend": STATE_STOPPED}
+        if not hasattr(self, "_state_reasons"):
+            self._state_reasons = dict.fromkeys(("backend", "frontend"), "unknown")
+        if not hasattr(self, "_health_snapshots"):
+            self._health_snapshots = {}
+        if not hasattr(self, "_lifecycle_lock"):
+            self._lifecycle_lock = threading.RLock()
+
+    def _transition(self, service: str, state: str, reason: str) -> None:
+        self._ensure_runtime_state()
+        previous = self._states.get(service, STATE_STOPPED)
+        self._states[service] = state
+        self._state_reasons[service] = reason
+        if previous != state:
+            self._log_process_event(
+                service,
+                "state_transition",
+                f"{previous} -> {state} reason={reason}",
+            )
+
+    def validate_existing_processes(self) -> dict[str, str]:
+        """Validate persisted identities at Manager startup without adoption by PID alone."""
+        self._ensure_runtime_state()
+        result: dict[str, str] = {}
+        for service, record in list(self._records.items()):
+            if self.validate_existing_process(service):
+                result[service] = "validated"
+                self._transition(service, STATE_RUNNING, "startup_reuse")
+                self._log_process_event(service, "existing_process_validated", f"pid={record.pid}")
+                continue
+            verification = self._record_verification(record)
+            result[service] = verification
+            if verification == "dead":
+                self._records.pop(service, None)
+                self._transition(service, STATE_STOPPED, "startup_stale_record")
+                self._log_process_event(
+                    service,
+                    "stale_process_record_removed",
+                    f"pid={record.pid}",
+                )
+            else:
+                # Keep an unverifiable record so a later stop cannot silently
+                # target a reused PID.  The service is surfaced as UNKNOWN and
+                # no start operation is allowed to replace it.
+                self._transition(service, STATE_UNKNOWN, f"startup_identity_{verification}")
+                self._log_process_event(service, "existing_process_unverified", f"pid={record.pid}")
+        if hasattr(self, "_registry"):
+            self._save_pid_file()
+        return result
+
+    def validate_existing_process(self, service: str) -> bool:
+        """Validate one persisted record for explicit startup recovery."""
+        record = self._records.get(service)
+        return record is not None and self._record_matches(record)
 
     @property
     def _dedicated_view_processes(self) -> dict[int, subprocess.Popen[Any]]:
@@ -752,8 +1107,10 @@ class ServiceManager:
         ]
 
     def _healthy(self, service: str) -> bool:
+        """Compatibility liveness probe; readiness is intentionally separate."""
+        url = self._health_url(service, "live")
         try:
-            with urllib.request.urlopen(self._url(service), timeout=1) as response:
+            with urllib.request.urlopen(url, timeout=1) as response:
                 body = response.read().decode("utf-8", errors="ignore")
                 if getattr(response, "status", 200) != 200:
                     return False
@@ -767,19 +1124,125 @@ class ServiceManager:
                     and payload.get("component") == "backend"
                     and isinstance(payload.get("instance_id"), str)
                     and bool(payload["instance_id"])
-                    and isinstance(payload.get("database_identifier"), str)
-                    and bool(payload["database_identifier"])
                 )
-        except (OSError, ValueError):
+        except (OSError, ValueError, urllib.error.HTTPError):
+            # Support a backend from the previous release while it is being
+            # upgraded.  New managers still prefer /health/live.
+            if url.endswith("/health/live"):
+                try:
+                    with urllib.request.urlopen(self._url("backend"), timeout=1) as response:
+                        payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+                    return bool(
+                        isinstance(payload, dict)
+                        and payload.get("status") == "ok"
+                        and payload.get("app") == "ai-office-viewer"
+                        and payload.get("component") == "backend"
+                        and payload.get("instance_id")
+                    )
+                except (OSError, ValueError, urllib.error.HTTPError):
+                    pass
             return False
+
+    def _health_url(self, service: str, signal_name: str) -> str:
+        settings = self._settings()
+        if service == "backend":
+            path = {
+                "live": "/health/live",
+                "ready": "/health/ready",
+                "identity": "/health/live",
+            }.get(signal_name, "/health/live")
+            return f"http://{settings['backend_host']}:{settings['backend_port']}{path}"
+        return f"http://{settings['frontend_host']}:{settings['frontend_port']}"
+
+    def _readiness(self, service: str) -> tuple[bool, bool, str]:
+        """Return (ok, known, detail); connection failure is not DB failure."""
+        if service == "frontend":
+            ok = self._healthy("frontend")
+            return ok, True, "HTTP応答" if ok else "Frontend HTTPへ接続できません"
+        try:
+            with urllib.request.urlopen(self._health_url(service, "ready"), timeout=1) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+                if not isinstance(payload, dict):
+                    return False, True, "readiness応答が不正です"
+                ready = payload.get("ready")
+                if isinstance(ready, bool):
+                    return ready, True, str(payload.get("detail", "DB ready"))
+                # A legacy backend has no readiness contract.  Do not turn
+                # that absence into a false database error.
+                return False, False, "readiness未提供"
+        except urllib.error.HTTPError as exc:
+            if exc.code == 503:
+                try:
+                    payload = json.loads(exc.read().decode("utf-8", errors="ignore"))
+                    detail = (
+                        payload.get("detail", "Databaseが準備未完了です")
+                        if isinstance(payload, dict)
+                        else "Databaseが準備未完了です"
+                    )
+                except (OSError, ValueError):
+                    detail = "Databaseが準備未完了です"
+                return False, True, str(detail)
+            return False, False, f"readiness HTTP {exc.code}"
+        except (OSError, ValueError):
+            return False, False, "readinessへ接続できません"
+
+    def _probe_service(self, service: str, process_alive: bool) -> HealthSnapshot:
+        liveness_ok = self._healthy(service)
+        if service == "frontend":
+            readiness_ok, readiness_known, readiness_detail = (
+                liveness_ok,
+                True,
+                "HTTP応答" if liveness_ok else "Frontend HTTPへ接続できません",
+            )
+        else:
+            readiness_ok, readiness_known, readiness_detail = self._readiness(service)
+        previous = getattr(self, "_health_snapshots", {}).get(service)
+        liveness_failures = (
+            0
+            if liveness_ok
+            else (previous.consecutive_liveness_failures + 1 if previous else 1)
+        )
+        readiness_failures = (
+            0
+            if not readiness_known or readiness_ok
+            else (previous.consecutive_readiness_failures + 1 if previous else 1)
+        )
+        snapshot = HealthSnapshot(
+            service=service,
+            process_alive=process_alive,
+            port_listening=self._port_in_use(service),
+            liveness_ok=liveness_ok,
+            readiness_ok=readiness_ok,
+            readiness_known=readiness_known,
+            consecutive_liveness_failures=liveness_failures,
+            consecutive_readiness_failures=readiness_failures,
+            last_success_at=(
+                datetime.now(UTC).isoformat()
+                if liveness_ok
+                else (previous.last_success_at if previous else None)
+            ),
+            detail=(
+                "liveness OK"
+                if liveness_ok and (readiness_ok or not readiness_known)
+                else readiness_detail
+            ),
+        )
+        self._health_snapshots[service] = snapshot
+        return snapshot
 
     def _backend_identity(self) -> dict[str, Any] | None:
         """Return the verified Viewer identity, never a generic port probe."""
         try:
-            with urllib.request.urlopen(self._url("backend"), timeout=1) as response:
+            with urllib.request.urlopen(
+                self._health_url("backend", "identity"), timeout=1
+            ) as response:
                 payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-        except (OSError, ValueError):
-            return None
+        except (OSError, ValueError, urllib.error.HTTPError):
+            try:
+                with urllib.request.urlopen(self._url("backend"), timeout=1) as response:
+                    payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+            except (OSError, ValueError, urllib.error.HTTPError):
+                return None
         if not isinstance(payload, dict):
             return None
         if (
@@ -941,14 +1404,14 @@ class ServiceManager:
 
     @staticmethod
     def _pid_exists(pid: int) -> bool:
-        return ServiceManager._pid_state(pid) == "alive"
+        return ServerLifecycleManager._pid_state(pid) == "alive"
 
     @staticmethod
     def _pid_state(pid: int) -> str:
         if pid <= 0:
             return "dead"
         if sys.platform == "win32":
-            return ServiceManager._windows_process_probe(pid).state
+            return ServerLifecycleManager._windows_process_probe(pid).state
         try:
             os.kill(pid, 0)
         except (OSError, ProcessLookupError):
@@ -995,6 +1458,15 @@ class ServiceManager:
                 or backend_identity.get("database_identifier") != record.database_identifier
             ):
                 return False
+            identity_pid = backend_identity.get("pid")
+            identity_port = backend_identity.get("port")
+            if (
+                isinstance(identity_pid, int)
+                and identity_pid != record.pid
+            ):
+                return False
+            if isinstance(identity_port, int) and identity_port != expected_port:
+                return False
         return True
 
     def _record_verification(self, record: ProcessRecord) -> str:
@@ -1024,6 +1496,13 @@ class ServiceManager:
                 return process, getattr(self, "_records", {}).get(service)
             processes.pop(service, None)
             changed = True
+            if getattr(self, "_states", {}).get(service) == STATE_STOPPING:
+                # The explicit stop path will finish the transition after it
+                # verifies the whole process tree.  A poll that sees a dead
+                # root must not race it into a second lifecycle command.
+                pass
+            else:
+                self._transition(service, STATE_STOPPED, "process_exit")
             logs = getattr(self, "_log_streams", {})
             log = logs.pop(service, None)
             if log is not None:
@@ -1035,7 +1514,7 @@ class ServiceManager:
                 return None, record
             if self._record_verification(record) == "dead":
                 getattr(self, "_records", {}).pop(service, None)
-                getattr(self, "_states", {})[service] = "stopped"
+                self._transition(service, STATE_STOPPED, "process_exit")
                 changed = True
         if changed and hasattr(self, "_manager_instance_id"):
             self._save_pid_file()
@@ -1044,60 +1523,103 @@ class ServiceManager:
     def status(self, service: str) -> ServiceStatus:
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
+        self._ensure_runtime_state()
         process, record = self._active_process(service)
-        healthy = self._healthy(service)
-        state = getattr(self, "_states", {}).get(service, "stopped")
-        if healthy and state == "starting":
-            getattr(self, "_states", {})[service] = "running"
-            state = "running"
-        persisted = getattr(self, "_records", {}).get(service)
-        if service == "backend" and healthy and persisted is not None:
-            identity = self._backend_identity()
-            if identity is not None:
-                updated = replace(
-                    persisted,
-                    port=int(self._settings()["backend_port"]),
-                    backend_instance_id=str(identity.get("instance_id")),
-                    database_identifier=str(identity.get("database_identifier")),
-                )
-                if updated != persisted:
-                    getattr(self, "_records", {})[service] = updated
-                    persisted = updated
-                    self._save_pid_file()
+        persisted = self._records.get(service)
         if persisted is not None:
             verification = self._record_verification(persisted)
             if verification == "unknown":
                 return ServiceStatus(
                     service,
                     True,
-                    healthy,
+                    False,
                     persisted.pid,
                     "プロセスの所有確認ができないため、安全のため停止しません。",
                     False,
-                    "unknown",
+                    STATE_UNKNOWN,
+                    process_alive=True,
+                    state_reason="identity_unverifiable",
                 )
             if verification == "mismatch":
-                getattr(self, "_records", {}).pop(service, None)
+                self._records.pop(service, None)
                 self._save_pid_file()
         if process is not None or record is not None:
-            # A freshly-created Manager starts with ``stopped`` in-memory
-            # state, but a verified persisted record means the service was
-            # already alive before this Manager instance was opened. Reflect
-            # the observed process state instead of showing a false stopped
-            # status or blocking the dedicated Viewer action.
-            if state == "stopped":
-                state = "running"
-                getattr(self, "_states", {})[service] = state
+            process_alive = True
+            health = self._probe_service(service, process_alive)
+            if service == "backend" and health.liveness_ok:
+                identity = self._backend_identity()
+                persisted = self._records.get(service)
+                if identity is not None and persisted is not None:
+                    updated = replace(
+                        persisted,
+                        port=int(self._settings()["backend_port"]),
+                        backend_instance_id=str(identity.get("instance_id")),
+                        database_identifier=str(identity.get("database_identifier", "")) or None,
+                    )
+                    if updated != persisted:
+                        self._records[service] = updated
+                        record = updated if record is not None else record
+                        self._save_pid_file()
+            state = self._states.get(service, STATE_STOPPED)
+            if state == STATE_STOPPED:
+                self._transition(service, STATE_RUNNING, "observed_owned_process")
+                state = STATE_RUNNING
+            if state == STATE_STARTING and health.liveness_ok:
+                self._transition(service, STATE_RUNNING, "liveness_ok")
+                state = STATE_RUNNING
+            if (
+                state == STATE_ERROR
+                and self._state_reasons.get(service) == "liveness_timeout"
+                and health.liveness_ok
+            ):
+                self._transition(service, STATE_RUNNING, "liveness_recovered")
+                state = STATE_RUNNING
+            if state not in {STATE_STARTING, STATE_STOPPING, STATE_ERROR}:
+                if health.liveness_ok and (health.readiness_ok or not health.readiness_known):
+                    self._transition(service, STATE_RUNNING, "health_ok")
+                    state = STATE_RUNNING
+                elif health.liveness_ok:
+                    self._transition(service, STATE_DEGRADED, "readiness_failed")
+                    state = STATE_DEGRADED
+                elif health.consecutive_liveness_failures >= HEALTH_ERROR_AFTER:
+                    self._transition(service, STATE_ERROR, "liveness_timeout")
+                    state = STATE_ERROR
+                elif health.consecutive_liveness_failures >= HEALTH_DEGRADED_AFTER:
+                    self._transition(service, STATE_DEGRADED, "liveness_timeout")
+                    state = STATE_DEGRADED
             pid = process.pid if process is not None else record.pid
-            detail = "Manager管理"
-            if process is None:
-                detail = "前回Managerから引き継いだプロセス"
-            elif not healthy and state == "starting":
-                detail = "起動中"
-            return ServiceStatus(service, True, healthy, pid, detail, True, state)
-        if healthy or self._port_in_use(service):
+            detail = "Manager管理" if process is not None else "前回Managerから引き継いだプロセス"
+            if state == STATE_STARTING:
+                detail = "起動中（liveness待機）"
+            elif health.liveness_ok and health.readiness_known and not health.readiness_ok:
+                detail = "稼働中（準備未完了）"
+            elif not health.liveness_ok:
+                detail = (
+                    f"稼働中（応答なし、連続失敗 {health.consecutive_liveness_failures}回）"
+                )
+            return ServiceStatus(
+                service,
+                True,
+                health.liveness_ok,
+                pid,
+                detail,
+                True,
+                state,
+                process_alive=health.process_alive,
+                port_listening=health.port_listening,
+                liveness_ok=health.liveness_ok,
+                readiness_ok=health.readiness_ok,
+                readiness_known=health.readiness_known,
+                consecutive_failures=health.consecutive_liveness_failures,
+                last_success_at=health.last_success_at,
+                state_reason=self._state_reasons.get(service, "health_observed"),
+                uptime_seconds=self._uptime_seconds(service, process, record),
+            )
+        liveness_ok = self._healthy(service)
+        port_listening = self._port_in_use(service)
+        if liveness_ok or port_listening:
             detail = "外部プロセスがポートを使用中（Managerは停止しません）"
-            if service == "backend" and not healthy:
+            if service == "backend" and not liveness_ok:
                 detail = (
                     "指定Backendポートは別アプリケーションが使用中です。"
                     " AI Office Viewerとは認識せず、停止・再利用しません。"
@@ -1105,13 +1627,66 @@ class ServiceManager:
             return ServiceStatus(
                 service,
                 True,
-                healthy,
+                liveness_ok,
                 None,
                 detail,
                 False,
-                "external",
+                STATE_EXTERNAL,
+                process_alive=False,
+                port_listening=port_listening,
+                liveness_ok=liveness_ok,
+                state_reason="port_owned_elsewhere",
             )
-        return ServiceStatus(service, False, False, None, "停止中", False, "stopped")
+        return ServiceStatus(
+            service,
+            False,
+            False,
+            None,
+            "停止中",
+            False,
+            STATE_STOPPED,
+            state_reason=self._state_reasons.get(service, "stopped"),
+        )
+
+    def snapshot(self) -> dict[str, ServiceStatus]:
+        """Return one serialized lifecycle view for all server widgets."""
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            return {service: self.status(service) for service in ("backend", "frontend")}
+
+    def process_snapshot(self, service: str) -> ProcessSnapshot:
+        if service not in {"backend", "frontend"}:
+            raise ValueError("サービス名が不正です")
+        self._ensure_runtime_state()
+        record = self._records.get(service)
+        process = self.processes.get(service)
+        pid = getattr(process, "pid", None) if process is not None else getattr(record, "pid", None)
+        return ProcessSnapshot(
+            service=service,
+            pid=pid,
+            creation_time=getattr(record, "creation_time", None),
+            command=getattr(record, "command", ()),
+            cwd=getattr(record, "cwd", ""),
+            port=getattr(record, "port", None),
+            owned=process is not None or record is not None,
+            uptime_seconds=self._uptime_seconds(service, process, record),
+        )
+
+    def _uptime_seconds(
+        self,
+        service: str,
+        process: subprocess.Popen[Any] | None,
+        record: ProcessRecord | None,
+    ) -> float | None:
+        started_at = getattr(record, "started_at", None)
+        if not started_at:
+            return None
+        try:
+            return max(
+                0.0,
+                (datetime.now(UTC) - datetime.fromisoformat(started_at)).total_seconds(),
+            )
+        except ValueError:
+            return None
 
     def observe_status(self, service: str) -> ServiceStatus:
         """Read service state for a Viewer action without changing lifecycle state.
@@ -1309,9 +1884,38 @@ class ServiceManager:
             ),
         )
 
+    # Explicit lifecycle commands.  These are the only public entry points
+    # that may mutate server process ownership.
+    def start_backend(self) -> ServiceStatus:
+        return self.start("backend")
+
+    def stop_backend(self) -> ServiceStatus:
+        return self.stop("backend")
+
+    def restart_backend(self) -> ServiceStatus:
+        return self.restart("backend")
+
+    def start_all(self) -> dict[str, ServiceStatus]:
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            return {service: self.start(service) for service in ("backend", "frontend")}
+
+    def stop_all(self) -> dict[str, ServiceStatus]:
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            # Frontend first prevents a live browser from repeatedly retrying
+            # API connections while Backend is being closed.
+            return {service: self.stop(service) for service in ("frontend", "backend")}
+
+    def restart_all(self) -> dict[str, ServiceStatus]:
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            stopped = self.stop_all()
+            if any(status.running for status in stopped.values()):
+                return stopped
+            return {service: self.start(service) for service in ("backend", "frontend")}
+
     def start(self, service: str) -> ServiceStatus:
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
+        self._ensure_runtime_state()
         with getattr(self, "_lifecycle_lock", threading.RLock()):
             current = self.status(service)
             if current.running:
@@ -1329,26 +1933,36 @@ class ServiceManager:
                     f"ws://{settings['backend_host']}:{settings['backend_port']}"
                 )
             try:
-                process = subprocess.Popen(
+                controller = getattr(self, "process_controller", None)
+                if controller is None:
+                    controller = ProcessController(self._hidden_subprocess_kwargs)
+                    self.process_controller = controller
+                process = controller.spawn(
                     command,
                     cwd=cwd,
                     env=environment,
-                    stdin=subprocess.DEVNULL,
                     stdout=log,
-                    stderr=subprocess.STDOUT,
-                    **self._hidden_subprocess_kwargs(new_process_group=True),
                 )
             except (OSError, ValueError):
                 log.close()
-                getattr(self, "_states", {})[service] = "error"
+                self._transition(service, STATE_ERROR, "startup_failed")
                 self._log_process_event(service, "start_failed")
                 raise
-            self.processes[service] = process
+            registry = getattr(self, "_registry", None)
+            if registry is not None and registry.processes is self.processes:
+                registry.register(
+                    service,
+                    process,
+                    self._record_for_process(service, process, command, cwd),
+                )
+            else:
+                self.processes[service] = process
+                getattr(self, "_records", {})[service] = self._record_for_process(
+                    service, process, command, cwd
+                )
             self._log_streams[service] = log
-            getattr(self, "_records", {})[service] = self._record_for_process(
-                service, process, command, cwd
-            )
-            getattr(self, "_states", {})[service] = "starting"
+            self._transition(service, STATE_STARTING, "start_requested")
+            self._health_snapshots.pop(service, None)
             self._save_pid_file()
             self._log_process_event(service, "started")
             return ServiceStatus(service, True, False, process.pid, "起動中", True, "starting")
@@ -1360,7 +1974,7 @@ class ServiceManager:
                 return process.poll() is None
             except (OSError, AttributeError):
                 return True
-        return bool(pid and ServiceManager._pid_state(pid) != "dead")
+        return bool(pid and ServerLifecycleManager._pid_state(pid) != "dead")
 
     def _tree_alive(
         self,
@@ -1418,15 +2032,21 @@ class ServiceManager:
         if log is not None:
             log.close()
 
-    def _forget_service(self, service: str) -> None:
-        getattr(self, "processes", {}).pop(service, None)
-        getattr(self, "_records", {}).pop(service, None)
-        getattr(self, "_states", {})[service] = "stopped"
+    def _forget_service(self, service: str, reason: str = "user_stop") -> None:
+        registry = getattr(self, "_registry", None)
+        if registry is not None and registry.processes is self.processes:
+            registry.unregister(service)
+        else:
+            getattr(self, "processes", {}).pop(service, None)
+            getattr(self, "_records", {}).pop(service, None)
+        self._transition(service, STATE_STOPPED, reason)
+        self._health_snapshots.pop(service, None)
         self._close_service_log(service)
 
     def stop(self, service: str) -> ServiceStatus:
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
+        self._ensure_runtime_state()
         with getattr(self, "_lifecycle_lock", threading.RLock()):
             process, record = self._active_process(service)
             current = self.status(service)
@@ -1434,10 +2054,13 @@ class ServiceManager:
                 # External processes are deliberately never stopped by port.
                 return current
 
+            if current.state == STATE_STOPPING:
+                return current
+
             pid = getattr(process, "pid", None) if process is not None else record.pid
             tracked_pids = set(record.descendant_pids if record is not None else ())
             self._extend_tracked_tree(pid, tracked_pids)
-            getattr(self, "_states", {})[service] = "stopping"
+            self._transition(service, STATE_STOPPING, "user_stop")
             self._log_process_event(service, "stop_requested")
             graceful_detail = ""
             if process is not None and os.name == "nt":
@@ -1459,12 +2082,9 @@ class ServiceManager:
 
             exited = self._wait_for_exit(process, pid, 8, tracked_pids)
             if process is not None and pid is None and not exited:
-                try:
+                with suppress(OSError, ValueError, AttributeError):
                     process.terminate()
-                    process.wait(timeout=5)
-                    exited = True
-                except (OSError, subprocess.SubprocessError, AttributeError):
-                    exited = False
+                exited = self._wait_for_exit(process, pid, 5, tracked_pids)
             if not exited and os.name == "nt" and isinstance(pid, int) and pid > 0:
                 # /T without /F gives the process tree a graceful termination
                 # opportunity before the last-resort force kill.
@@ -1498,26 +2118,33 @@ class ServiceManager:
                 exited = self._wait_for_exit(process, pid, 4, tracked_pids)
 
             if not exited and process is not None:
-                try:
+                with suppress(OSError, ValueError, AttributeError):
                     process.terminate()
-                    process.wait(timeout=2)
-                except (OSError, subprocess.SubprocessError, AttributeError):
+                if not self._wait_for_exit(process, pid, 2, tracked_pids):
                     with suppress(Exception):
                         process.kill()
                 exited = self._wait_for_exit(process, pid, 2, tracked_pids)
 
             if not exited:
-                getattr(self, "_states", {})[service] = "error"
+                self._transition(service, STATE_ERROR, "stop_timeout")
                 detail = "停止を確認できませんでした。プロセスは管理下に残しています。"
                 if graceful_detail:
                     detail += f" ({graceful_detail})"
                 self._save_pid_file()
                 self._log_process_event(service, "stop_failed", detail)
                 return ServiceStatus(
-                    service, True, self._healthy(service), pid, detail, True, "error"
+                    service,
+                    True,
+                    self._healthy(service),
+                    pid,
+                    detail,
+                    True,
+                    STATE_ERROR,
+                    process_alive=True,
+                    state_reason="stop_timeout",
                 )
 
-            self._forget_service(service)
+            self._forget_service(service, "user_stop")
             self._save_pid_file()
             final = self.status(service)
             if not isinstance(final, ServiceStatus):
@@ -1534,6 +2161,26 @@ class ServiceManager:
 
     def restart(self, service: str) -> ServiceStatus:
         with getattr(self, "_lifecycle_lock", threading.RLock()):
+            current = self.status(service)
+            if current.state in {STATE_STARTING, STATE_STOPPING}:
+                return ServiceStatus(
+                    service,
+                    current.running,
+                    current.healthy,
+                    current.pid,
+                    "現在の起動・停止処理が完了するまで再起動できません。",
+                    current.owned,
+                    current.state,
+                    process_alive=current.process_alive,
+                    port_listening=current.port_listening,
+                    liveness_ok=current.liveness_ok,
+                    readiness_ok=current.readiness_ok,
+                    readiness_known=current.readiness_known,
+                    consecutive_failures=current.consecutive_failures,
+                    last_success_at=current.last_success_at,
+                    state_reason="command_rejected_busy",
+                    uptime_seconds=current.uptime_seconds,
+                )
             stopped = self.stop(service)
             if stopped.running:
                 return ServiceStatus(
@@ -1543,30 +2190,33 @@ class ServiceManager:
                     stopped.pid,
                     "停止完了を確認できないため、再起動を中止しました。",
                     stopped.owned,
-                    "error",
+                    STATE_ERROR,
+                    process_alive=stopped.process_alive,
+                    port_listening=stopped.port_listening,
+                    liveness_ok=stopped.liveness_ok,
+                    readiness_ok=stopped.readiness_ok,
+                    readiness_known=stopped.readiness_known,
+                    consecutive_failures=stopped.consecutive_failures,
+                    last_success_at=stopped.last_success_at,
+                    state_reason="stop_timeout",
+                    uptime_seconds=stopped.uptime_seconds,
                 )
             return self.start(service)
 
     def open_normal_browser(self) -> ViewerLaunchResult:
         """Open the Viewer in the user's configured default web browser."""
         url = self._viewer_url()
-        try:
-            opened = webbrowser.open(url)
-        except (OSError, webbrowser.Error) as exc:
-            detail = f"通常ブラウザを起動できませんでした: {type(exc).__name__}"
-            self._log_process_event("viewer", "normal_open_failed", detail)
-            return ViewerLaunchResult(False, "normal", url, detail)
-        if opened is False:
-            detail = "既定のWebブラウザがURLを開けませんでした。"
-            self._log_process_event("viewer", "normal_open_failed", detail)
-            return ViewerLaunchResult(False, "normal", url, detail)
+        result = BrowserLauncher.open_normal(url)
+        if not result.succeeded:
+            self._log_process_event("viewer", "normal_open_failed", result.detail)
+            return result
         self._log_process_event("viewer", "normal_opened", url)
-        return ViewerLaunchResult(True, "normal", url)
+        return result
 
     def open_dedicated_view(
         self,
         screen_geometry: tuple[int, int, int, int] | None = None,
-        browser_launcher: BrowserLauncher | None = None,
+        browser_launcher: BrowserProcessLauncher | None = None,
     ) -> ViewerLaunchResult:
         """Open an independent Edge/Chrome ``--app`` window.
 
@@ -1575,14 +2225,12 @@ class ServiceManager:
         this method is tracked; no global Edge/Chrome process is ever stopped.
         """
         url = self._viewer_url()
-        server_pids_before = self._server_pid_snapshot()
-        self._dedicated_view_server_pids_before = server_pids_before
         if not self._healthy("frontend"):
             detail = "Viewerが起動していません。Frontendを起動してから再試行してください。"
             self._log_process_event(
                 "viewer",
                 "dedicated_open_failed",
-                f"{detail} {self._server_pid_detail(server_pids_before, 'before')}",
+                detail,
             )
             return ViewerLaunchResult(False, "dedicated", url, detail)
 
@@ -1593,18 +2241,7 @@ class ServiceManager:
             try:
                 if process.poll() is None:
                     detail = "既存の専用画面を使用しています。"
-                    server_pids_after = self._server_pid_snapshot()
-                    pid_detail = (
-                        f"{self._server_pid_detail(server_pids_before, 'before')} "
-                        f"{self._server_pid_detail(server_pids_after, 'after')}"
-                    )
-                    self._log_process_event("viewer", "dedicated_reused", f"{detail} {pid_detail}")
-                    if server_pids_after != server_pids_before:
-                        self._log_process_event(
-                            "viewer",
-                            "dedicated_server_pid_changed",
-                            f"ERROR {pid_detail}",
-                        )
+                    self._log_process_event("viewer", "dedicated_reused", detail)
                     return ViewerLaunchResult(
                         True,
                         "dedicated",
@@ -1617,83 +2254,29 @@ class ServiceManager:
                 pass
             dedicated_manager.processes.pop(getattr(process, "pid", -1), None)
 
-        discovered = self._find_dedicated_browser()
-        if discovered is None:
-            detail = "対応ブラウザ（Microsoft Edge / Google Chrome）が見つかりません。"
+        launcher = DedicatedViewLauncher(self._find_dedicated_browser, browser_launcher)
+        result, process = launcher.open(url, screen_geometry)
+        browser_name = result.browser
+        if not result.succeeded or process is None:
+            detail = result.detail
             self._log_process_event("viewer", "dedicated_open_failed", detail)
-            return ViewerLaunchResult(False, "dedicated", url, detail)
-        browser_name, browser = discovered
+            return result
         self._log_process_event(
-            "viewer", "dedicated_browser_selected", f"browser={browser_name} path={browser}"
+            "viewer", "dedicated_browser_selected", f"browser={browser_name or '-'}"
         )
-
-        command = [
-            browser,
-            f"--app={url}",
-            "--new-window",
-            "--no-first-run",
-            "--no-default-browser-check",
-            *self._window_arguments(screen_geometry),
-        ]
-        profile_dir = RUNTIME_DIR / "dedicated-view-profile" / browser_name.lower()
-        try:
-            profile_dir.mkdir(parents=True, exist_ok=True)
-            command.insert(1, f"--user-data-dir={profile_dir}")
-        except OSError as exc:
-            detail = f"専用画面用プロファイルを作成できませんでした: {type(exc).__name__}"
-            self._log_process_event(
-                "viewer",
-                "dedicated_profile_failed",
-                detail,
-            )
-            return ViewerLaunchResult(False, "dedicated", url, detail, browser)
-
-        try:
-            launcher = browser_launcher or subprocess.Popen
-            process = launcher(
-                command,
-                cwd=ROOT,
-                shell=False,
-                **self._hidden_subprocess_kwargs(),
-            )
-        except (OSError, subprocess.SubprocessError) as exc:
-            detail = f"専用画面を起動できませんでした: {type(exc).__name__}"
-            self._log_process_event("viewer", "dedicated_open_failed", detail)
-            return ViewerLaunchResult(False, "dedicated", url, detail, browser)
-
-        try:
-            return_code = process.poll()
-        except (AttributeError, OSError):
-            return_code = None
         self._log_process_event(
             "viewer",
             "dedicated_process_started",
-            f"browser={browser_name} pid={getattr(process, 'pid', '-')} "
-            f"returncode={return_code if return_code is not None else '-'}",
+            f"browser={browser_name or '-'} pid={getattr(process, 'pid', '-')}",
         )
-        if return_code is not None and return_code != 0:
-            detail = f"専用画面プロセスが起動直後に終了しました（code={return_code}）。"
-            self._log_process_event("viewer", "dedicated_open_failed", detail)
-            return ViewerLaunchResult(False, "dedicated", url, detail, browser)
 
-        dedicated_manager.register(process, browser_name)
-        server_pids_after = self._server_pid_snapshot()
-        pid_detail = (
-            f"{self._server_pid_detail(server_pids_before, 'before')} "
-            f"{self._server_pid_detail(server_pids_after, 'after')}"
-        )
+        dedicated_manager.register(process, browser_name or "unknown")
         self._log_process_event(
             "viewer",
             "dedicated_view_started",
-            f"browser={browser_name} pid={process.pid} url={url} {pid_detail}",
+            f"browser={browser_name} pid={process.pid} url={url}",
         )
-        if server_pids_after != server_pids_before:
-            self._log_process_event(
-                "viewer",
-                "dedicated_server_pid_changed",
-                f"ERROR {pid_detail}",
-            )
-        return ViewerLaunchResult(True, "dedicated", url, browser=browser_name)
+        return result
 
     def log_dedicated_view_postcheck(self) -> None:
         """Diagnose a server PID change immediately after opening the Viewer."""
@@ -1799,3 +2382,9 @@ class ServiceManager:
         finally:
             if temporary and os.path.exists(temporary):
                 os.unlink(temporary)
+
+
+# Backward-compatible import name for integrations written before the
+# lifecycle refactor.  The implementation and all new Manager code use the
+# explicit ServerLifecycleManager name.
+ServiceManager = ServerLifecycleManager

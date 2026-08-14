@@ -13,6 +13,28 @@ from app.models.events import EventAdapter, EventType
 client = TestClient(app)
 
 
+def test_health_live_returns_identity_without_database_access() -> None:
+    response = client.get("/health/live")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["app"] == "ai-office-viewer"
+    assert payload["component"] == "backend"
+    assert payload["instance_id"]
+    assert isinstance(payload["pid"], int)
+    assert isinstance(payload["port"], int)
+
+
+def test_health_ready_is_public_and_reports_startup_readiness() -> None:
+    response = client.get("/health/ready")
+
+    # The module-level TestClient intentionally does not run the lifespan;
+    # readiness must therefore remain false rather than pretending DB startup
+    # completed.  The endpoint is still public for Manager polling.
+    assert response.status_code == 503
+    assert "準備" in response.json()["detail"]
+
+
 def _auth_headers() -> dict[str, str]:
     """Per-launch API key header required for state-changing endpoints.
 

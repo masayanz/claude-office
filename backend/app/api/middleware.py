@@ -48,7 +48,7 @@ class LocalhostOnlyMiddleware(BaseHTTPMiddleware):
 # Paths that do NOT require an API key (health checks, interactive docs).
 # The OpenAPI schema URL is checked separately in the middleware because it is
 # served under settings.API_V1_STR (e.g. /api/v1/openapi.json), not /openapi.json.
-_NO_AUTH_PATHS = frozenset({"/health", "/docs", "/redoc"})
+_NO_AUTH_PATHS = frozenset({"/health", "/health/live", "/health/ready", "/docs", "/redoc"})
 
 
 def _is_state_changing(path: str, method: str) -> bool:

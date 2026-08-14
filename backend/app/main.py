@@ -10,12 +10,13 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from rich.logging import RichHandler
-from sqlalchemy import delete, select, update
+from sqlalchemy import delete, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.api.middleware import ApiKeyMiddleware, LocalhostOnlyMiddleware
 from app.api.routes import (
@@ -49,6 +50,7 @@ _SERVE_STATIC = os.environ.get("SERVE_STATIC", "").lower() in ("1", "true", "yes
 settings = get_settings()
 BACKEND_INSTANCE_ID = uuid.uuid4().hex
 DATABASE_IDENTIFIER = hashlib.sha256(settings.DATABASE_URL.encode("utf-8")).hexdigest()[:16]
+BACKEND_READY = False
 
 logging.basicConfig(
     level=logging.INFO,
@@ -61,6 +63,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Manage application startup and shutdown lifecycle."""
+    global BACKEND_READY
+    BACKEND_READY = False
     importlib.import_module("app.db.models")
     engine = get_engine()
     database_lock = acquire_database_process_lock(str(engine.url))
@@ -126,6 +130,11 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         )
     )
 
+    # The HTTP server is live before the expensive restore/backfill workers
+    # complete.  Readiness is the DB/service contract; liveness remains a
+    # process/event-loop/HTTP check and never touches SQLite.
+    BACKEND_READY = True
+
     yield
 
     replay_backfill_task.cancel()
@@ -143,6 +152,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await get_engine().dispose()
     if database_lock is not None:
         database_lock.release()
+    BACKEND_READY = False
 
 
 async def _run_replay_backfill() -> None:
@@ -304,8 +314,15 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-@app.get("/health")
-async def health_check() -> dict[str, str]:
+def _backend_port() -> int:
+    shared_settings, _ = load_settings()
+    try:
+        return int(shared_settings.get("backend_port", 8000))
+    except (TypeError, ValueError):
+        return 8000
+
+
+def _health_identity() -> dict[str, str | int]:
     return {
         "status": "ok",
         "app": "ai-office-viewer",
@@ -313,7 +330,35 @@ async def health_check() -> dict[str, str]:
         "instance_id": BACKEND_INSTANCE_ID,
         "version": settings.VERSION,
         "database_identifier": DATABASE_IDENTIFIER,
+        "pid": os.getpid(),
+        "port": _backend_port(),
     }
+
+
+@app.get("/health/live")
+async def health_live() -> dict[str, str | int]:
+    """Cheap liveness contract: no DB, replay, restore, or JSONL access."""
+    return _health_identity()
+
+
+@app.get("/health/ready")
+async def health_ready() -> dict[str, str | int | bool]:
+    """Readiness contract for the database and required startup services."""
+    if not BACKEND_READY:
+        raise HTTPException(status_code=503, detail="Backendの準備が完了していません")
+    try:
+        async with get_engine().connect() as connection:
+            await connection.execute(text("SELECT 1"))
+    except (SQLAlchemyError, OSError) as exc:
+        logger.warning("Backend readiness failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=503, detail="Databaseが利用できません") from exc
+    return {**_health_identity(), "ready": True, "detail": "Database ready"}
+
+
+@app.get("/health")
+async def health_check() -> dict[str, str | int]:
+    """Backward-compatible identity endpoint; equivalent to liveness."""
+    return _health_identity()
 
 
 @app.get(f"{settings.API_V1_STR}/status")

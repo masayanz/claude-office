@@ -23,7 +23,9 @@ uv sync --extra manager
 
 アプリケーションアイコンは`manager/assets/claude-office-manager.ico`に指定しています。
 
-ManagerからBackend/Frontendを起動、停止、再起動できます。Windowsでは子プロセスをコンソール非表示で起動し、stdout/stderrは`runtime/logs`へ保存します。ログ画面ではManager・Backend・Frontendを切り替えて更新できます。起動後30秒までは「起動中」としてhealth応答を待ち、失敗したサービスだけにログ確認を案内します。
+ManagerからBackend/Frontendを起動、停止、再起動できます。サーバーの所有権とライフサイクルは`ServerLifecycleManager`へ一本化され、PIDだけでなく実行ファイル、生成時刻、コマンド、ポート、Backend identityを検証します。Windowsでは子プロセスをコンソール非表示で起動し、stdout/stderrは`runtime/logs`へ保存します。ログ画面ではManager・Backend・Frontendを切り替えて更新できます。
+
+Managerの状態表示は、`process_alive`（プロセス生存）、`port_listening`（ポート待受）、`/health/live`（HTTP liveness）、`/health/ready`（DB readiness）を分離します。一時的なhealth失敗は連続失敗回数として記録し、health監視からBackendを自動再起動しません。Backendの`/health/live`はDB・Replay・Session Restore・JSONL Monitorへアクセスせず、RestoreとReplay backfillはバックグラウンドで実行されます。
 
 Viewer起動メニューは2種類に分かれています。「ブラウザで開く」は既定のWebブラウザで共有設定のFrontend URLを通常タブとして開きます。「専用画面で開く」はFrontendのhealthを確認してから、Microsoft Edgeを優先し、見つからない場合はGoogle Chromeの`--app=<URL>`で独立ウィンドウを起動します。専用画面はタブ・アドレスバー・ブックマークバーを表示せず、Managerと同じモニターの利用可能領域内に88%サイズで配置します。専用画面用のプロセスはサーバープロセスと別に追跡し、通常のEdge/Chrome全体は終了しません。Backend/Frontendが起動中の場合は二重起動せず、起動完了後に専用画面を開きます。専用画面の操作からBackend/Frontendの起動・停止・再起動・復元は行いません。停止中の場合は「起動」を実行してから、専用画面を開いてください。health失敗やブラウザ起動失敗を理由にサーバーを停止・再起動することはありません。Frontend停止時は起動確認を案内し、起動失敗理由はManagerログとダイアログに表示します。
 

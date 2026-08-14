@@ -98,6 +98,7 @@ import { LoadingScreen } from "./LoadingScreen";
 import { OfficeBackground } from "./OfficeBackground";
 import { useTranslation } from "@/hooks/useTranslation";
 import type { BubbleContent } from "@/types";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 
 // Register PixiJS components
 extend({ Container, Text, Graphics, Sprite });
@@ -176,6 +177,21 @@ function FloorSign({
   );
 }
 
+function visualActivityIcon(activity: VisualActivityState): string | undefined {
+  switch (activity.kind) {
+    case "coffee":
+      return "coffee";
+    case "whiteboard":
+      return "clipboard";
+    case "completed":
+      return "check";
+    case "error":
+      return "alert-circle";
+    default:
+      return undefined;
+  }
+}
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
@@ -250,6 +266,16 @@ export function OfficeGame(): ReactNode {
                 : null;
     return key ? { type: "thought", text: t(key), icon: "💭" } : null;
   }, [boss.backendState, boss.bubble.content, t]);
+  const bossVisualBubble =
+    !bossBubble &&
+    boss.visualActivity &&
+    boss.visualActivity.kind !== "desk_idle"
+      ? {
+          type: "thought" as const,
+          text: t(boss.visualActivity.messageKey),
+          icon: visualActivityIcon(boss.visualActivity),
+        }
+      : null;
 
   // Floor info for elevator label
   const floorId = useNavigationStore((s) => s.floorId);
@@ -552,6 +578,7 @@ export function OfficeGame(): ReactNode {
                             renderBubble={false}
                             renderLabel={false}
                             isTyping={agent.isTyping}
+                            visualActivity={agent.visualActivity}
                           />
                         </pixiContainer>
                       ))}
@@ -628,6 +655,7 @@ export function OfficeGame(): ReactNode {
                     name={boss.name}
                     source={boss.source}
                     model={boss.model}
+                    visualActivity={boss.visualActivity}
                   />
 
                   {/* Mobile Boss (when walking to/from trash can) */}
@@ -697,6 +725,11 @@ export function OfficeGame(): ReactNode {
                         model={agent.model}
                         isWaiting={agent.backendState === "waiting"}
                         agentType={agent.agentType}
+                        visualActivityLabel={
+                          agent.visualActivity?.kind !== "desk_idle"
+                            ? agent.visualActivity?.labelKey
+                            : undefined
+                        }
                       />
                     ))}
 
@@ -772,24 +805,37 @@ export function OfficeGame(): ReactNode {
                   {Array.from(agents.values())
                     .filter(
                       (agent) =>
-                        agent.bubble.content &&
+                        (agent.bubble.content ||
+                          (agent.visualActivity &&
+                            agent.visualActivity.kind !== "desk_idle")) &&
                         !isInElevatorZone(agent.currentPosition),
                     )
-                    .map((agent) => (
-                      <pixiContainer
-                        key={`bubble-${agent.id}`}
-                        x={agent.currentPosition.x}
-                        y={agent.currentPosition.y}
-                      >
-                        <AgentBubble
-                          content={agent.bubble.content!}
-                          yOffset={-80}
-                        />
-                      </pixiContainer>
-                    ))}
-                  {bossBubble && (
+                    .map((agent) => {
+                      const content =
+                        agent.bubble.content ??
+                        (agent.visualActivity
+                          ? {
+                              type: "thought" as const,
+                              text: t(agent.visualActivity.messageKey),
+                              icon: visualActivityIcon(agent.visualActivity),
+                            }
+                          : null);
+                      return content ? (
+                        <pixiContainer
+                          key={`bubble-${agent.id}`}
+                          x={agent.currentPosition.x}
+                          y={agent.currentPosition.y}
+                        >
+                          <AgentBubble content={content} yOffset={-80} />
+                        </pixiContainer>
+                      ) : null;
+                    })}
+                  {(bossBubble || bossVisualBubble) && (
                     <pixiContainer x={boss.position.x} y={boss.position.y}>
-                      <BossBubble content={bossBubble} yOffset={-80} />
+                      <BossBubble
+                        content={bossBubble ?? bossVisualBubble!}
+                        yOffset={-80}
+                      />
                     </pixiContainer>
                   )}
                 </>

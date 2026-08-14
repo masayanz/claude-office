@@ -18,8 +18,10 @@ import { isInElevatorZone } from "@/systems/queuePositions";
 import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
-import { truncateBubbleText } from "@/utils/bubbleText";
+import { bubbleTextWidth, truncateBubbleText } from "@/utils/bubbleText";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 import { codexSecondaryLabel } from "@/utils/codexPresentation";
+import { useTranslation } from "@/hooks/useTranslation";
 
 // ============================================================================
 // TYPES
@@ -38,6 +40,7 @@ export interface AgentSpriteProps {
   renderBubble?: boolean; // Whether to render bubble (default true)
   renderLabel?: boolean; // Whether to render name label (default true)
   isTyping?: boolean; // Whether agent is typing (animates arms)
+  visualActivity?: VisualActivityState | null;
 }
 
 // ============================================================================
@@ -98,10 +101,10 @@ function Bubble({ content, yOffset }: BubbleProps): ReactNode {
   const charWidth = 7.5;
   const paddingH = 30;
   const maxW = 220;
-  const rawWidth = text.length * charWidth + paddingH;
+  const rawWidth = bubbleTextWidth(text) * charWidth + paddingH;
   const bWidth = Math.min(maxW, Math.max(80, rawWidth));
   const capacity = (bWidth - paddingH) / charWidth;
-  const lines = Math.max(1, Math.ceil(text.length / capacity));
+  const lines = Math.max(1, Math.ceil(bubbleTextWidth(text) / capacity));
   const bHeight = 35 + lines * 14;
 
   // Text style at 2x for sharp rendering
@@ -180,6 +183,7 @@ function AgentSpriteComponent({
   renderBubble = true,
   renderLabel = true,
   isTyping: _isTyping = false,
+  visualActivity = null,
 }: AgentSpriteProps): ReactNode {
   const clickToFocusEnabled = usePreferencesStore((s) => s.clickToFocusEnabled);
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
@@ -214,6 +218,16 @@ function AgentSpriteComponent({
     >
       {/* Agent capsule body */}
       <pixiGraphics draw={drawCallback} />
+
+      {visualActivity?.kind === "desk_thinking" && (
+        <pixiText text="…" x={18} y={-76} style={{ fontSize: 18, fill: 0xffffff }} />
+      )}
+      {visualActivity?.kind === "error" && (
+        <pixiText text="!" x={17} y={-78} style={{ fontSize: 18, fill: 0xf87171, fontWeight: "bold" }} />
+      )}
+      {visualActivity?.kind === "completed" && (
+        <pixiText text="✦" x={15} y={-78} style={{ fontSize: 16, fill: 0xfacc15 }} />
+      )}
 
       {/* Sunglasses */}
       {sunglassesTexture && (
@@ -351,6 +365,7 @@ export interface AgentLabelProps {
   model?: string | null;
   isWaiting?: boolean;
   agentType?: string | null;
+  visualActivityLabel?: VisualActivityState["labelKey"];
 }
 
 function AgentLabelComponent({
@@ -360,7 +375,9 @@ function AgentLabelComponent({
   model = null,
   isWaiting = false,
   agentType = null,
+  visualActivityLabel,
 }: AgentLabelProps): ReactNode {
+  const { t } = useTranslation();
   const secondaryLabel = codexSecondaryLabel(
     source,
     model,
@@ -394,6 +411,20 @@ function AgentLabelComponent({
             fontFamily: "monospace",
             fontSize: 13,
             fill: 0x94a3b8,
+            stroke: { width: 3, color: 0x000000 },
+          }}
+          resolution={2}
+        />
+      )}
+      {visualActivityLabel && (
+        <pixiText
+          text={t(visualActivityLabel)}
+          anchor={0.5}
+          y={secondaryLabel ? 39 : 24}
+          style={{
+            fontFamily: "monospace",
+            fontSize: 12,
+            fill: 0xfbbf24,
             stroke: { width: 3, color: 0x000000 },
           }}
           resolution={2}

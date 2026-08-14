@@ -6,7 +6,14 @@
  */
 
 /** Maximum characters shown in a bubble before truncation. */
-const BUBBLE_MAX_CHARS = 60;
+const BUBBLE_MAX_WIDTH = 56;
+
+/** Approximate display width so Japanese glyphs do not collapse the bubble. */
+export function bubbleTextWidth(text: string): number {
+  return Array.from(text).reduce((width, character) => {
+    return width + (/\p{Script=Han}|\p{Script=Hiragana}|\p{Script=Katakana}|\p{Extended_Pictographic}/u.test(character) ? 2 : 1);
+  }, 0);
+}
 
 /**
  * Truncate bubble text to a maximum character length.
@@ -18,8 +25,15 @@ const BUBBLE_MAX_CHARS = 60;
  */
 export function truncateBubbleText(
   text: string,
-  maxLen: number = BUBBLE_MAX_CHARS,
+  maxLen: number = BUBBLE_MAX_WIDTH,
 ): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen - 3) + "...";
+  if (bubbleTextWidth(text) <= maxLen) return text;
+  const suffix = "...";
+  const suffixWidth = bubbleTextWidth(suffix);
+  let result = "";
+  for (const character of Array.from(text)) {
+    if (bubbleTextWidth(result + character) + suffixWidth > maxLen) break;
+    result += character;
+  }
+  return result + suffix;
 }

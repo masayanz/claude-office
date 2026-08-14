@@ -15,6 +15,7 @@ import type {
   EventDetail,
   GameState as BackendGameState,
 } from "@/types";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 
 /**
  * Frontend-controlled agent phases for queue choreography.
@@ -88,6 +89,8 @@ export interface AgentAnimationState {
 
   // Animation state
   isTyping: boolean; // True when agent is actively using tools
+  /** Secondary visual-only activity; never represents backend truth. */
+  visualActivity: VisualActivityState | null;
 }
 
 /**
@@ -113,6 +116,8 @@ export interface BossAnimationState {
   source: string | null;
   model: string | null;
   lastToolName: string | null;
+  /** Secondary visual-only activity; never represents backend truth. */
+  visualActivity: VisualActivityState | null;
 }
 
 /**

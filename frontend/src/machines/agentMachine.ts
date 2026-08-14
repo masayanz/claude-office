@@ -35,6 +35,7 @@ export type {
   AgentMachineContext,
   AgentMachineEvent,
   AgentMachineActions,
+  CharacterMessage,
 } from "./agentMachineCommon";
 
 // ============================================================================

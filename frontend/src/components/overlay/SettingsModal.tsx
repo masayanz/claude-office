@@ -140,6 +140,36 @@ export default function SettingsModal({
   const setToastFilterArrival = usePreferencesStore(
     (s) => s.setToastFilterArrival,
   );
+  const characterActivityLevel = usePreferencesStore(
+    (s) => s.characterActivityLevel,
+  );
+  const characterThinkingWalk = usePreferencesStore(
+    (s) => s.characterThinkingWalk,
+  );
+  const characterIdeaEffects = usePreferencesStore(
+    (s) => s.characterIdeaEffects,
+  );
+  const characterBreakActions = usePreferencesStore(
+    (s) => s.characterBreakActions,
+  );
+  const characterInteractions = usePreferencesStore(
+    (s) => s.characterInteractions,
+  );
+  const setCharacterActivityLevel = usePreferencesStore(
+    (s) => s.setCharacterActivityLevel,
+  );
+  const setCharacterThinkingWalk = usePreferencesStore(
+    (s) => s.setCharacterThinkingWalk,
+  );
+  const setCharacterIdeaEffects = usePreferencesStore(
+    (s) => s.setCharacterIdeaEffects,
+  );
+  const setCharacterBreakActions = usePreferencesStore(
+    (s) => s.setCharacterBreakActions,
+  );
+  const setCharacterInteractions = usePreferencesStore(
+    (s) => s.setCharacterInteractions,
+  );
 
   const { t } = useTranslation();
 
@@ -343,6 +373,56 @@ export default function SettingsModal({
                   </button>
                 ),
               )}
+            </div>
+          </div>
+
+          {/* Character activity */}
+          <div className="pt-4 border-t border-slate-800">
+            <label className="block text-slate-400 text-xs font-bold uppercase tracking-wider mb-3">
+              {t("settings.characterActivity")}
+            </label>
+            <p className="text-slate-500 text-xs mb-2">
+              {t("settings.characterActivityDesc")}
+            </p>
+            <div className="flex gap-2" role="radiogroup" aria-label={t("settings.characterActivity") }>
+              {(["quiet", "standard", "lively"] as const).map((level) => (
+                <button
+                  key={level}
+                  type="button"
+                  role="radio"
+                  aria-checked={characterActivityLevel === level}
+                  onClick={() => void setCharacterActivityLevel(level)}
+                  className={`flex-1 px-2 py-2 rounded-lg border text-sm font-bold transition-colors ${
+                    characterActivityLevel === level
+                      ? "bg-purple-500/20 border-purple-500 text-purple-300"
+                      : "bg-slate-800 border-slate-700 text-slate-400 hover:border-slate-600"
+                  }`}
+                >
+                  {t(`settings.characterActivityLevel.${level}`)}
+                </button>
+              ))}
+            </div>
+            <div className="mt-3 space-y-2">
+              <SettingsToggle
+                label={t("settings.characterThinkingWalk")}
+                checked={characterThinkingWalk}
+                onChange={() => void setCharacterThinkingWalk(!characterThinkingWalk)}
+              />
+              <SettingsToggle
+                label={t("settings.characterIdeaEffects")}
+                checked={characterIdeaEffects}
+                onChange={() => void setCharacterIdeaEffects(!characterIdeaEffects)}
+              />
+              <SettingsToggle
+                label={t("settings.characterBreakActions")}
+                checked={characterBreakActions}
+                onChange={() => void setCharacterBreakActions(!characterBreakActions)}
+              />
+              <SettingsToggle
+                label={t("settings.characterInteractions")}
+                checked={characterInteractions}
+                onChange={() => void setCharacterInteractions(!characterInteractions)}
+              />
             </div>
           </div>
 

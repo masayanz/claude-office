@@ -15,7 +15,8 @@ import { MarqueeText } from "./MarqueeText";
 import { ICON_MAP } from "./shared/iconMap";
 import { drawBubble, drawIconBadge } from "./shared/drawBubble";
 import { drawRightArm, drawLeftArm } from "./shared/drawArm";
-import { truncateBubbleText } from "@/utils/bubbleText";
+import { bubbleTextWidth, truncateBubbleText } from "@/utils/bubbleText";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 import { codexSecondaryLabel } from "@/utils/codexPresentation";
 import { getMainAgentName } from "@/utils/displayLabels";
 
@@ -42,6 +43,7 @@ export interface BossSpriteProps {
   name?: string | null;
   source?: string | null;
   model?: string | null;
+  visualActivity?: VisualActivityState | null;
 }
 
 // ============================================================================
@@ -129,10 +131,10 @@ function Bubble({ content, yOffset }: BubbleProps): ReactNode {
   const charWidth = 7.5;
   const paddingH = 30;
   const maxW = 220;
-  const rawWidth = text.length * charWidth + paddingH;
+  const rawWidth = bubbleTextWidth(text) * charWidth + paddingH;
   const bWidth = Math.min(maxW, Math.max(80, rawWidth));
   const capacity = (bWidth - paddingH) / charWidth;
-  const lines = Math.max(1, Math.ceil(text.length / capacity));
+  const lines = Math.max(1, Math.ceil(bubbleTextWidth(text) / capacity));
   const bHeight = 35 + lines * 14;
 
   // Text style at 2x for sharp rendering
@@ -217,6 +219,7 @@ function BossSpriteComponent({
   name = null,
   source = null,
   model = null,
+  visualActivity = null,
 }: BossSpriteProps): ReactNode {
   const secondaryLabel = codexSecondaryLabel(
     source,
@@ -307,6 +310,16 @@ function BossSpriteComponent({
             />
           )}
         </pixiContainer>
+      )}
+
+      {!isAway && visualActivity?.kind === "desk_thinking" && (
+        <pixiText text="…" x={18} y={-72} style={{ fontSize: 18, fill: 0xffffff }} />
+      )}
+      {!isAway && visualActivity?.kind === "error" && (
+        <pixiText text="!" x={17} y={-74} style={{ fontSize: 18, fill: 0xf87171, fontWeight: "bold" }} />
+      )}
+      {!isAway && visualActivity?.kind === "completed" && (
+        <pixiText text="✦" x={15} y={-74} style={{ fontSize: 16, fill: 0xfacc15 }} />
       )}
 
       {/* Desk surface - in front of boss */}

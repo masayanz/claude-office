@@ -3,6 +3,7 @@ import { getTranslation, isLocale, type TranslationKey } from "../src/i18n";
 import en from "../src/i18n/en";
 import ptBR from "../src/i18n/pt-BR";
 import es from "../src/i18n/es";
+import ja from "../src/i18n/ja";
 
 // ─── isLocale() ──────────────────────────────────────────────────────────
 
@@ -168,5 +169,28 @@ describe("getTranslation", () => {
         expect(esResult.length, `es t("${key}") is empty`).toBeGreaterThan(0);
       }
     });
+  });
+
+  it("keeps character messages localized in the Japanese UI", () => {
+    const keys = [
+      "agent.message.thinking",
+      "agent.message.working",
+      "agent.message.reviewing",
+      "agent.message.waiting",
+      "agent.message.departing",
+      "agent.message.idea",
+      "agent.message.break",
+      "agent.message.stretch",
+      "agent.message.walking",
+      "agent.message.whiteboard",
+      "agent.message.window",
+      "agent.message.coffee",
+    ] as TranslationKey[];
+    const tJa = getTranslation("ja");
+    for (const key of keys) {
+      expect(ja[key]).toBeTruthy();
+      expect(tJa(key)).toBe(ja[key]);
+      expect(tJa(key)).not.toBe(en[key]);
+    }
   });
 });

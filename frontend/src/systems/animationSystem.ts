@@ -18,6 +18,11 @@ import {
 import { calculatePath, updateAgentObstacle } from "./pathfinding";
 import { collisionManager } from "./agentCollision";
 import type { Position } from "@/types";
+import { usePreferencesStore } from "@/stores/preferencesStore";
+import {
+  visualActivityScheduler,
+  type VisualActivitySettings,
+} from "./visualActivityScheduler";
 
 // ============================================================================
 // CONSTANTS
@@ -56,6 +61,11 @@ class AnimationSystem {
   };
 
   private listener: AnimationListener | null = null;
+  private visualElapsedMs = 0;
+  private visualClockMs = 0;
+  private lastReplayIndex = -1;
+  private wasReplaying = false;
+  private lastActivitySessionId: string | null = null;
 
   /**
    * Wire the machine-layer listener. Called once from the composition root
@@ -170,6 +180,7 @@ class AnimationSystem {
     this.state.lastTickTime = now;
 
     // Update all systems
+    this.updateVisualActivities(now, deltaMs);
     this.updateAgentPositions(deltaSeconds);
     this.updateBubbleTimers();
     this.checkQueueAdvancement();
@@ -177,6 +188,120 @@ class AnimationSystem {
     // Schedule next frame
     this.state.rafId = requestAnimationFrame(this.tick);
   };
+
+  /**
+   * Advance secondary character演出. This deliberately runs less often than
+   * position interpolation and never writes backendState, phase, queues, or
+   * event-log entries.
+   */
+  private updateVisualActivities(now: number, deltaMs: number): void {
+    this.visualElapsedMs += deltaMs;
+    if (this.visualElapsedMs < 250) return;
+    this.visualElapsedMs = 0;
+
+    const store = useGameStore.getState();
+    if (
+      store.isReplaying &&
+      (!this.wasReplaying || store.currentReplayIndex < this.lastReplayIndex)
+    ) {
+      visualActivityScheduler.reset();
+      this.visualClockMs = 0;
+    }
+    this.wasReplaying = store.isReplaying;
+    this.lastReplayIndex = store.currentReplayIndex;
+    this.visualClockMs = store.isReplaying
+      ? this.visualClockMs + deltaMs * Math.max(0.1, store.replaySpeed)
+      : now;
+    if (store.sessionId !== this.lastActivitySessionId) {
+      this.lastActivitySessionId = store.sessionId;
+      visualActivityScheduler.setSessionSeed(store.sessionId);
+    }
+
+    const preferences = usePreferencesStore.getState();
+    const settings: VisualActivitySettings = {
+      level: preferences.characterActivityLevel,
+      thinkingWalk: preferences.characterThinkingWalk,
+      ideaEffects: preferences.characterIdeaEffects,
+      breakActions: preferences.characterBreakActions,
+      interactions: preferences.characterInteractions,
+    };
+    const others = Array.from(store.agents.values()).map((agent) => ({
+      id: agent.id,
+      currentPosition: agent.currentPosition,
+      targetPosition: agent.targetPosition,
+      path: agent.path,
+    }));
+
+    for (const [agentId, agent] of store.agents) {
+      const next = visualActivityScheduler.update(
+        {
+          id: agentId,
+          entityType: "agent",
+          logicalState: agent.backendState,
+          phase: agent.phase,
+          desk: agent.desk,
+          currentPosition: agent.currentPosition,
+          currentActivity: agent.visualActivity,
+          others: others.filter((other) => other.id !== agentId),
+          characterType: agent.characterType,
+          isTyping: agent.isTyping,
+        },
+        this.visualClockMs,
+        settings,
+      );
+      this.applyVisualActivity(agentId, agent.visualActivity, next, agent.phase);
+    }
+
+    const bossNext = visualActivityScheduler.update(
+      {
+        id: "boss",
+        entityType: "boss",
+        logicalState: store.boss.backendState,
+        phase: "idle",
+        desk: null,
+        currentPosition: store.boss.position,
+        currentActivity: store.boss.visualActivity,
+        others,
+        isTyping: store.boss.isTyping,
+      },
+      this.visualClockMs,
+      settings,
+    );
+    if (bossNext !== store.boss.visualActivity) {
+      store.setBossVisualActivity(bossNext);
+    }
+  }
+
+  private applyVisualActivity(
+    agentId: string,
+    previous: import("./visualActivityScheduler").VisualActivityState | null,
+    next: import("./visualActivityScheduler").VisualActivityState | null,
+    phase: AgentPhase,
+  ): void {
+    const store = useGameStore.getState();
+    const agent = store.agents.get(agentId);
+    if (!agent) return;
+
+    if (next !== previous) {
+      store.setAgentVisualActivity(agentId, next);
+    }
+
+    // A real lifecycle phase owns its path. Ambient movement is only allowed
+    // for seated agents, and a logical transition immediately releases an
+    // ambient path before the next visual action is selected.
+    if (phase !== "idle") return;
+    const previousWasWalking = previous?.movement === "walk";
+    const nextTarget = next?.movement === "walk" ? next.targetPosition : null;
+    const targetChanged =
+      Boolean(previousWasWalking) !== Boolean(nextTarget) ||
+      (nextTarget !== null &&
+        (Math.abs(agent.targetPosition.x - nextTarget.x) > 10 ||
+          Math.abs(agent.targetPosition.y - nextTarget.y) > 10));
+
+    if (!targetChanged) return;
+    if (agent.path) store.updateAgentPath(agentId, null);
+    if (nextTarget) this.setAgentPath(agentId, nextTarget);
+  }
 
   // ==========================================================================
   // POSITION UPDATES

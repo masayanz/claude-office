@@ -7,10 +7,7 @@
  */
 
 import type { Position } from "@/types";
-import {
-  getRandomWorkAcceptanceQuote,
-  getRandomWorkCompletionQuote,
-} from "@/constants/quotes";
+import type { TranslationKey } from "@/i18n";
 
 // ============================================================================
 // TYPES
@@ -93,8 +90,12 @@ export interface AgentMachineActions {
   ) => void;
   onQueueLeft: (agentId: string) => void;
   onPhaseChanged: (agentId: string, phase: string) => void;
-  onShowBossBubble: (text: string, icon?: string) => void;
-  onShowAgentBubble: (agentId: string, text: string, icon?: string) => void;
+  onShowBossBubble: (message: CharacterMessage, icon?: string) => void;
+  onShowAgentBubble: (
+    agentId: string,
+    message: CharacterMessage,
+    icon?: string,
+  ) => void;
   onClearBossBubble: () => void;
   onClearAgentBubble: (agentId: string) => void;
   onSetBossInUse: (by: "arrival" | "departure" | null) => void;
@@ -103,127 +104,14 @@ export interface AgentMachineActions {
   onAgentRemoved: (agentId: string) => void;
 }
 
-// ============================================================================
-// FAREWELL MESSAGES
-// ============================================================================
+export interface CharacterMessage {
+  key: Extract<TranslationKey, `agent.message.${string}`>;
+  params?: Record<string, string | number>;
+}
 
-const FAREWELL_MESSAGES = [
-  // Classic goodbyes
-  "Peace out! \u270c\ufe0f",
-  "Later gators! \ud83d\udc0a",
-  "Off to lunch! \ud83c\udf55",
-  "Task complete!",
-  "Bye bye! \ud83d\udc4b",
-  "See ya! \ud83d\ude0e",
-  "Mission done!",
-  "Adios! \ud83c\udf89",
-  "Catch ya later!",
-  "Gotta bounce! \ud83c\udfc0",
-  // Work done vibes
-  "Nailed it! \ud83d\udc85",
-  "Done and dusted!",
-  "That's a wrap! \ud83c\udfac",
-  "Job well done!",
-  "Crushed it! \ud83d\udcaa",
-  "Another one down!",
-  "Check that off!",
-  "Work's done here!",
-  "Mission complete!",
-  "All finished up!",
-  // Casual exits
-  "I'm outta here!",
-  "Time to jet! \u2708\ufe0f",
-  "Heading out!",
-  "Off I go!",
-  "Gotta run!",
-  "Time to split!",
-  "Making my exit!",
-  "Dipping out!",
-  "Bouncing now!",
-  "Rolling out! \ud83d\udede",
-  // Fun phrases
-  "To infinity! \ud83d\ude80",
-  "Smell ya later!",
-  "Toodaloo! \ud83d\udc4b",
-  "Ciao for now!",
-  "Hasta la vista!",
-  "Au revoir! \ud83c\uddeb\ud83c\uddf7",
-  "Sayonara! \ud83c\uddef\ud83c\uddf5",
-  "Arrivederci! \ud83c\uddee\ud83c\uddf9",
-  "Cheerio! \ud83c\uddec\ud83c\udde7",
-  "Ta-ta for now!",
-  // Food-related
-  "Snack time! \ud83c\udf7f",
-  "Coffee break! \u2615",
-  "Lunch awaits! \ud83e\udd6a",
-  "Pizza calling! \ud83c\udf55",
-  "Taco Tuesday? \ud83c\udf2e",
-  "Need caffeine! \u2615",
-  "Donut run! \ud83c\udf69",
-  "Sushi time! \ud83c\udf63",
-  "Hungry now!",
-  "Brunch o'clock!",
-  // Relaxation
-  "Nap time! \ud83d\ude34",
-  "Beach bound! \ud83c\udfd6\ufe0f",
-  "Netflix time! \ud83d\udcfa",
-  "Couch calling!",
-  "Hammock mode! \ud83c\udfd5\ufe0f",
-  "R&R time!",
-  "Vacation mode!",
-  "Chill time! \ud83e\uddca",
-  "Spa day! \ud83d\udc86",
-  "Me time!",
-  // Energetic
-  "Boom! Done! \ud83d\udca5",
-  "Drop the mic! \ud83c\udfa4",
-  "And scene! \ud83c\udfad",
-  "Exit stage left!",
-  "Finito!",
-  "That's all folks!",
-  "The end! \ud83d\udd1a",
-  "Curtain call! \ud83c\udfaa",
-  "Bam! Complete!",
-  "Kapow! Done! \ud83d\udcab",
-  // Emoji-heavy
-  "Later! \ud83d\ude4c",
-  "Byeee! \ud83d\udca8",
-  "Gone! \ud83d\udca8",
-  "Zoom zoom! \ud83c\udfce\ufe0f",
-  "Whoosh! \ud83d\udca8",
-  "Poof! \u2728",
-  "Deuces! \u270c\ufe0f",
-  "Peacing out! \u262e\ufe0f",
-  "Waving bye! \ud83d\udc4b",
-  "Off like a rocket! \ud83d\ude80",
-  // Professional-ish
-  "Until next time!",
-  "Be seeing you!",
-  "Take care now!",
-  "Have a good one!",
-  "Keep it real!",
-  "Stay classy!",
-  "Stay awesome! \u2b50",
-  "Rock on! \ud83e\udd18",
-  "Over and out!",
-  "Signing off! \ud83d\udcdd",
-  // Random fun
-  "Yeet! \ud83d\ude80",
-  "I'm ghost! \ud83d\udc7b",
-  "Vanishing act! \ud83c\udfa9",
-  "Ninja exit! \ud83e\udd77",
-  "Stealth mode! \ud83d\udd75\ufe0f",
-  "Beam me up! \ud83d\udef8",
-  "Teleporting out!",
-  "Level complete! \ud83c\udfae",
-  "Quest finished! \u2694\ufe0f",
-  "Achievement get! \ud83c\udfc6",
-];
-
+/** Compatibility helper retained for callers that only need a farewell key. */
 export function getRandomFarewell(): string {
-  return FAREWELL_MESSAGES[
-    Math.floor(Math.random() * FAREWELL_MESSAGES.length)
-  ];
+  return "agent.message.farewell";
 }
 
 // ============================================================================
@@ -298,13 +186,18 @@ export function buildSharedActions(actions: AgentMachineActions) {
 
     // Arrival conversation actions
     showArrivalBossBubble: ({ context }: { context: AgentMachineContext }) => {
-      const name = context.agentName ?? "Agent";
-      actions.onShowBossBubble(`Here's your task, ${name}!`, "clipboard");
+      actions.onShowBossBubble(
+        {
+          key: "agent.message.arrivalTask",
+          params: { name: context.agentName ?? "Agent" },
+        },
+        "clipboard",
+      );
     },
     showArrivalAgentBubble: ({ context }: { context: AgentMachineContext }) => {
       actions.onShowAgentBubble(
         context.agentId,
-        getRandomWorkAcceptanceQuote(),
+        { key: "agent.message.arrivalAccepted" },
         "thumbs-up",
       );
     },
@@ -315,8 +208,13 @@ export function buildSharedActions(actions: AgentMachineActions) {
     }: {
       context: AgentMachineContext;
     }) => {
-      const name = context.agentName ?? "Agent";
-      actions.onShowBossBubble(`Good work, ${name}. I'll take that.`, "check");
+      actions.onShowBossBubble(
+        {
+          key: "agent.message.departureHandoff",
+          params: { name: context.agentName ?? "Agent" },
+        },
+        "check",
+      );
     },
     showDepartureAgentBubble: ({
       context,
@@ -325,12 +223,14 @@ export function buildSharedActions(actions: AgentMachineActions) {
     }) => {
       actions.onShowAgentBubble(
         context.agentId,
-        getRandomWorkCompletionQuote(),
+        { key: "agent.message.departureCompleted" },
         "file-text",
       );
     },
     showFarewellBubble: ({ context }: { context: AgentMachineContext }) => {
-      actions.onShowAgentBubble(context.agentId, getRandomFarewell());
+      actions.onShowAgentBubble(context.agentId, {
+        key: "agent.message.farewell",
+      });
     },
 
     // Bubble lifecycle

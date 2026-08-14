@@ -206,11 +206,14 @@ describe("buildSharedActions", () => {
 
     expect(rec.calls[0]).toMatchObject({
       method: "onShowBossBubble",
-      args: ["Here's your task, Alice!", "clipboard"],
+      args: [
+        { key: "agent.message.arrivalTask", params: { name: "Alice" } },
+        "clipboard",
+      ],
     });
     expect(rec.calls[1]).toMatchObject({
       method: "onShowAgentBubble",
-      args: ["A", expect.any(String), "thumbs-up"],
+      args: ["A", { key: "agent.message.arrivalAccepted" }, "thumbs-up"],
     });
   });
 
@@ -224,15 +227,18 @@ describe("buildSharedActions", () => {
 
     expect(rec.calls[0]).toMatchObject({
       method: "onShowBossBubble",
-      args: ["Good work, Bob. I'll take that.", "check"],
+      args: [
+        { key: "agent.message.departureHandoff", params: { name: "Bob" } },
+        "check",
+      ],
     });
     expect(rec.calls[1]).toMatchObject({
       method: "onShowAgentBubble",
-      args: ["A", expect.any(String), "file-text"],
+      args: ["A", { key: "agent.message.departureCompleted" }, "file-text"],
     });
     expect(rec.calls[2]).toMatchObject({
       method: "onShowAgentBubble",
-      args: ["A", expect.any(String)], // farewell has no icon arg
+      args: ["A", { key: "agent.message.farewell" }], // farewell has no icon arg
     });
   });
 

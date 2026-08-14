@@ -22,6 +22,7 @@ import type {
 } from "./types";
 import { DESKS_PER_ROW } from "@/constants/positions";
 import { createEmptyBubbleState } from "./shared";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 
 export type AgentSlice = {
   agents: Map<string, AgentAnimationState>;
@@ -49,6 +50,10 @@ export type AgentSlice = {
     queueIndex: number,
   ) => void;
   setAgentTyping: (agentId: string, typing: boolean) => void;
+  setAgentVisualActivity: (
+    agentId: string,
+    activity: VisualActivityState | null,
+  ) => void;
   applyAgentMovements: (movements: AgentMovement[]) => void;
 };
 
@@ -111,6 +116,7 @@ export const createAgentSlice: StateCreator<GameStore, [], [], AgentSlice> = (
           queueType: null,
           queueIndex: -1,
           isTyping: false,
+          visualActivity: null,
         };
         newAgents.set(backendAgent.id, animState);
 
@@ -173,6 +179,9 @@ export const createAgentSlice: StateCreator<GameStore, [], [], AgentSlice> = (
       patchAgent(agentId, { queueType, queueIndex }),
 
     setAgentTyping: (agentId, isTyping) => patchAgent(agentId, { isTyping }),
+
+    setAgentVisualActivity: (agentId, visualActivity) =>
+      patchAgent(agentId, { visualActivity }),
 
     // ARC-006: apply every moving agent's position/path delta for one animation
     // tick in a single `set()` (one Map clone), instead of one write — and one

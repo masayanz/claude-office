@@ -14,6 +14,7 @@ import {
   type AgentMachineActions,
   type AgentMachineEvent,
   type AgentMachine,
+  type CharacterMessage,
 } from "./agentMachine";
 import { useGameStore, type AgentPhase } from "@/stores/gameStore";
 import type { Position } from "@/types";
@@ -28,6 +29,8 @@ import {
   type AnimationListener,
 } from "@/systems/animationSystem";
 import { QueueManager } from "./queueManager";
+import { getTranslation } from "@/i18n";
+import { usePreferencesStore } from "@/stores/preferencesStore";
 import {
   getDeskPosition,
   getReadyPosition,
@@ -559,7 +562,11 @@ class AgentMachineService implements AnimationListener {
     }
   }
 
-  private handleShowBossBubble(text: string, icon?: string): void {
+  private handleShowBossBubble(message: CharacterMessage, icon?: string): void {
+    const text = getTranslation(usePreferencesStore.getState().language)(
+      message.key,
+      message.params,
+    );
     const store = useGameStore.getState();
 
     const isCompleting = store.boss.backendState === "completing";
@@ -595,9 +602,13 @@ class AgentMachineService implements AnimationListener {
 
   private handleShowAgentBubble(
     agentId: string,
-    text: string,
+    message: CharacterMessage,
     icon?: string,
   ): void {
+    const text = getTranslation(usePreferencesStore.getState().language)(
+      message.key,
+      message.params,
+    );
     const store = useGameStore.getState();
     store.enqueueBubble(agentId, { type: "speech", text, icon });
   }

@@ -4,6 +4,9 @@ import { create } from "zustand";
 import { isLocale, type Locale } from "@/i18n";
 import { apiFetch } from "@/utils/api";
 import { getLocalTimeZone, isValidTimeZone } from "@/utils/clock";
+import type {
+  VisualActivityLevel,
+} from "@/systems/visualActivityScheduler";
 
 // ============================================================================
 // TYPES
@@ -31,6 +34,11 @@ export interface PreferencesState {
   toastFilterArrival: boolean;
   toastAutoDismissLow: number;
   toastAutoDismissInfo: number;
+  characterActivityLevel: VisualActivityLevel;
+  characterThinkingWalk: boolean;
+  characterIdeaEffects: boolean;
+  characterBreakActions: boolean;
+  characterInteractions: boolean;
 
   // Actions
   loadPreferences: () => Promise<void>;
@@ -49,6 +57,11 @@ export interface PreferencesState {
   setToastFilterArrival: (enabled: boolean) => Promise<void>;
   setToastAutoDismissLow: (ms: number) => Promise<void>;
   setToastAutoDismissInfo: (ms: number) => Promise<void>;
+  setCharacterActivityLevel: (level: VisualActivityLevel) => Promise<void>;
+  setCharacterThinkingWalk: (enabled: boolean) => Promise<void>;
+  setCharacterIdeaEffects: (enabled: boolean) => Promise<void>;
+  setCharacterBreakActions: (enabled: boolean) => Promise<void>;
+  setCharacterInteractions: (enabled: boolean) => Promise<void>;
 }
 
 // ============================================================================
@@ -70,6 +83,11 @@ const DEFAULT_TOAST_FILTER_TASK_COMPLETE = true;
 const DEFAULT_TOAST_FILTER_ARRIVAL = false;
 const DEFAULT_TOAST_AUTO_DISMISS_LOW = 5000;
 const DEFAULT_TOAST_AUTO_DISMISS_INFO = 3000;
+const DEFAULT_CHARACTER_ACTIVITY_LEVEL: VisualActivityLevel = "standard";
+const DEFAULT_CHARACTER_THINKING_WALK = true;
+const DEFAULT_CHARACTER_IDEA_EFFECTS = true;
+const DEFAULT_CHARACTER_BREAK_ACTIONS = true;
+const DEFAULT_CHARACTER_INTERACTIONS = true;
 
 // ============================================================================
 // API HELPERS
@@ -118,6 +136,11 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
   toastFilterArrival: DEFAULT_TOAST_FILTER_ARRIVAL,
   toastAutoDismissLow: DEFAULT_TOAST_AUTO_DISMISS_LOW,
   toastAutoDismissInfo: DEFAULT_TOAST_AUTO_DISMISS_INFO,
+  characterActivityLevel: DEFAULT_CHARACTER_ACTIVITY_LEVEL,
+  characterThinkingWalk: DEFAULT_CHARACTER_THINKING_WALK,
+  characterIdeaEffects: DEFAULT_CHARACTER_IDEA_EFFECTS,
+  characterBreakActions: DEFAULT_CHARACTER_BREAK_ACTIONS,
+  characterInteractions: DEFAULT_CHARACTER_INTERACTIONS,
   isLoaded: false,
 
   loadPreferences: async () => {
@@ -161,6 +184,15 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
       toastAutoDismissInfo: prefs.toastAutoDismissInfo
         ? Number(prefs.toastAutoDismissInfo)
         : DEFAULT_TOAST_AUTO_DISMISS_INFO,
+      characterActivityLevel:
+        prefs.character_activity_level === "quiet" ||
+        prefs.character_activity_level === "lively"
+          ? prefs.character_activity_level
+          : DEFAULT_CHARACTER_ACTIVITY_LEVEL,
+      characterThinkingWalk: prefs.character_thinking_walk !== "false",
+      characterIdeaEffects: prefs.character_idea_effects !== "false",
+      characterBreakActions: prefs.character_break_actions !== "false",
+      characterInteractions: prefs.character_interactions !== "false",
       isLoaded: true,
     });
   },
@@ -263,6 +295,31 @@ export const usePreferencesStore = create<PreferencesState>()((set, get) => ({
     set({ toastAutoDismissInfo: ms });
     await setPreference("toastAutoDismissInfo", String(ms));
   },
+
+  setCharacterActivityLevel: async (level) => {
+    set({ characterActivityLevel: level });
+    await setPreference("character_activity_level", level);
+  },
+
+  setCharacterThinkingWalk: async (enabled) => {
+    set({ characterThinkingWalk: enabled });
+    await setPreference("character_thinking_walk", String(enabled));
+  },
+
+  setCharacterIdeaEffects: async (enabled) => {
+    set({ characterIdeaEffects: enabled });
+    await setPreference("character_idea_effects", String(enabled));
+  },
+
+  setCharacterBreakActions: async (enabled) => {
+    set({ characterBreakActions: enabled });
+    await setPreference("character_break_actions", String(enabled));
+  },
+
+  setCharacterInteractions: async (enabled) => {
+    set({ characterInteractions: enabled });
+    await setPreference("character_interactions", String(enabled));
+  },
 }));
 
 // ============================================================================
@@ -293,3 +350,13 @@ export const selectToastAutoDismissLow = (state: PreferencesState) =>
   state.toastAutoDismissLow;
 export const selectToastAutoDismissInfo = (state: PreferencesState) =>
   state.toastAutoDismissInfo;
+export const selectCharacterActivityLevel = (state: PreferencesState) =>
+  state.characterActivityLevel;
+export const selectCharacterThinkingWalk = (state: PreferencesState) =>
+  state.characterThinkingWalk;
+export const selectCharacterIdeaEffects = (state: PreferencesState) =>
+  state.characterIdeaEffects;
+export const selectCharacterBreakActions = (state: PreferencesState) =>
+  state.characterBreakActions;
+export const selectCharacterInteractions = (state: PreferencesState) =>
+  state.characterInteractions;

@@ -10,6 +10,7 @@ import type { GameStore } from "../gameStore";
 import type { BossState } from "@/types";
 import type { BossAnimationState } from "./types";
 import { initialBossState } from "./shared";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 
 export type BossSlice = {
   boss: BossAnimationState;
@@ -22,6 +23,7 @@ export type BossSlice = {
     source: string | null;
     model: string | null;
   }) => void;
+  setBossVisualActivity: (activity: VisualActivityState | null) => void;
 };
 
 export const initialBossSliceState = {
@@ -62,4 +64,7 @@ export const createBossSlice: StateCreator<GameStore, [], [], BossSlice> = (
         model: identity.model,
       },
     })),
+
+  setBossVisualActivity: (visualActivity) =>
+    set((state) => ({ boss: { ...state.boss, visualActivity } })),
 });

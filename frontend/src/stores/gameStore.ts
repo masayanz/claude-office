@@ -36,6 +36,7 @@ export type {
   ReplayFrame,
   AgentMovement,
 } from "./slices/types";
+import type { VisualActivityState } from "@/systems/visualActivityScheduler";
 import type {
   AgentPhase,
   PathState,
@@ -100,6 +101,10 @@ export interface GameStore {
     queueIndex: number,
   ) => void;
   setAgentTyping: (agentId: string, typing: boolean) => void;
+  setAgentVisualActivity: (
+    agentId: string,
+    activity: VisualActivityState | null,
+  ) => void;
   applyAgentMovements: (movements: AgentMovement[]) => void;
 
   // ========== Queue State ==========
@@ -150,6 +155,7 @@ export interface GameStore {
   updateBossTask: (task: string | null) => void;
   setBossInUse: (by: "arrival" | "departure" | null) => void;
   setBossTyping: (typing: boolean) => void;
+  setBossVisualActivity: (activity: VisualActivityState | null) => void;
   updateBossIdentity: (identity: {
     name: string | null;
     source: string | null;
@@ -508,6 +514,7 @@ export const useGameStore = create<GameStore>()(
               (backendState.departureQueue ?? []).indexOf(backendAgent.id),
             ),
             isTyping: backendAgent.state === "working",
+            visualActivity: null,
           });
         }
         const safeWhiteboard = backendState.whiteboardData ?? state.whiteboardData;
@@ -526,6 +533,7 @@ export const useGameStore = create<GameStore>()(
             model: backendState.boss.model ?? null,
             lastToolName: backendState.boss.lastToolName ?? null,
             isTyping: backendState.boss.state === "working",
+            visualActivity: null,
           },
           sessionId: backendState.sessionId,
           deskCount: backendState.office.deskCount,

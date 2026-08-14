@@ -24,4 +24,5 @@ export const initialBossState: BossAnimationState = {
   source: null,
   model: null,
   lastToolName: null,
+  visualActivity: null,
 };

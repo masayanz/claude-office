@@ -65,6 +65,9 @@ testpaths = [
     "tests",
 ]
 timeout = 5
+markers = [
+    "performance: long-running performance verification",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = [

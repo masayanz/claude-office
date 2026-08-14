@@ -108,6 +108,7 @@ export interface EventDetail {
   prompt?: string;
   source?: string;
   model?: string;
+  turnId?: string;
   agentType?: string;
 }
 

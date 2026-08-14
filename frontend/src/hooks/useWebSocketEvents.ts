@@ -24,6 +24,14 @@ import { TypingTracker } from "@/systems/typingTracker";
 import { reconcileState } from "@/systems/stateReconciler";
 import { shouldShowToast } from "@/systems/toastFilter";
 import { WebSocketController } from "@/systems/webSocketController";
+import {
+  acceptCodexEvent,
+  beginCodexTurn,
+  createCodexTurnState,
+  isStaleCodexBossSnapshot,
+  resetCodexTurnState,
+  stopCodexTurn,
+} from "@/systems/codexTurnState";
 import type { EventType, WebSocketMessage } from "@/types";
 import type { ReplayFrame } from "@/stores/gameStore";
 import { apiFetch } from "@/utils/api";
@@ -60,6 +68,7 @@ export function useWebSocketEvents({
   // Per-entity last bubble text — suppresses re-enqueue after display clear.
   const lastSeenBubbleTextRef = useRef<Map<string, string>>(new Map());
   const completionTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const codexTurnRef = useRef(createCodexTurnState());
 
   // ---- Typing tracker (min-duration state machine, extracted) ----
   // Created once; setTyping routes "boss"/"main" → boss store, else agent store.
@@ -86,6 +95,7 @@ export function useWebSocketEvents({
     processedAgentsRef.current.clear();
     lastSeenBubbleTextRef.current.clear();
     resetSpawnIndex();
+    resetCodexTurnState(codexTurnRef.current);
   }, []);
 
   const clearCompletionTimer = useCallback(() => {
@@ -101,6 +111,9 @@ export function useWebSocketEvents({
       completionTimerRef.current = null;
       if (useGameStore.getState().boss.backendState === "completed") {
         useGameStore.getState().updateBossBackendState("idle");
+        useGameStore.getState().setBossTyping(false);
+        useGameStore.getState().setBossVisualActivity(null);
+        useGameStore.getState().clearBubbles("boss");
       }
     }, 1500);
   }, []);
@@ -125,6 +138,39 @@ export function useWebSocketEvents({
         switch (message.type) {
           case "state_update":
             if (message.state) {
+              const isStaleCodexSnapshot =
+                isCodexSource(message.state.boss.source) &&
+                isStaleCodexBossSnapshot(
+                  codexTurnRef.current,
+                  message.state.boss.state,
+                );
+              if (isStaleCodexSnapshot) {
+                const localBossState = useGameStore.getState().boss.backendState;
+                const preservedBossState =
+                  localBossState === "completed" ? "completed" : "idle";
+                reconcileState(
+                  {
+                    ...message.state,
+                    boss: {
+                      ...message.state.boss,
+                      state: preservedBossState,
+                      bubble: null,
+                    },
+                  },
+                  {
+                    currentSessionId: currentSessionIdRef.current,
+                    processedAgents: processedAgentsRef.current,
+                    lastSeenBubbleText: lastSeenBubbleTextRef.current,
+                    initialQueueSyncDone: initialQueueSyncDoneRef,
+                  },
+                );
+                useGameStore.getState().setBossTyping(false);
+                useGameStore.getState().setBossVisualActivity(null);
+                useGameStore.getState().clearBubbles("boss");
+                lastSeenBubbleTextRef.current.delete("boss");
+                break;
+              }
+
               const isCompletedSnapshot = message.state.boss.state === "completed";
               const localBossState = useGameStore.getState().boss.backendState;
               const isExpiredCompletedSnapshot =
@@ -153,6 +199,12 @@ export function useWebSocketEvents({
                     initialQueueSyncDone: initialQueueSyncDoneRef,
                   },
                 );
+                if (isCodexSource(message.state.boss.source)) {
+                  useGameStore.getState().setBossTyping(false);
+                  useGameStore.getState().setBossVisualActivity(null);
+                  useGameStore.getState().clearBubbles("boss");
+                  lastSeenBubbleTextRef.current.delete("boss");
+                }
                 break;
               }
 
@@ -170,11 +222,27 @@ export function useWebSocketEvents({
                 lastSeenBubbleText: lastSeenBubbleTextRef.current,
                 initialQueueSyncDone: initialQueueSyncDoneRef,
               });
+              if (isCompletedSnapshot && isCodexSource(message.state.boss.source)) {
+                useGameStore.getState().setBossTyping(false);
+                useGameStore.getState().setBossVisualActivity(null);
+                useGameStore.getState().clearBubbles("boss");
+                lastSeenBubbleTextRef.current.delete("boss");
+              }
             }
             break;
 
           case "event":
             if (message.event) {
+              const eventSource = message.event.detail?.source;
+              const isCodexEvent = isCodexSource(eventSource);
+              const eventTurnId = message.event.detail?.turnId ?? null;
+              const acceptsCodexEvent =
+                !isCodexEvent ||
+                acceptCodexEvent(
+                  codexTurnRef.current,
+                  message.event.type,
+                  eventTurnId,
+                );
               addEventLog(message.event);
 
               // Clear processed agents on session_start to allow re-detection.
@@ -184,15 +252,34 @@ export function useWebSocketEvents({
                 processedAgentsRef.current.clear();
                 lastSeenBubbleTextRef.current.clear();
                 resetSpawnIndex();
+                resetCodexTurnState(codexTurnRef.current);
               }
 
               if (
+                message.event.type === "user_prompt_submit" &&
+                isCodexEvent &&
+                acceptsCodexEvent
+              ) {
+                beginCodexTurn(codexTurnRef.current, eventTurnId);
+                clearCompletionTimer();
+                useGameStore.getState().updateBossBackendState("thinking");
+                useGameStore.getState().setBossTyping(false);
+                useGameStore.getState().setBossVisualActivity(null);
+                useGameStore.getState().clearBubbles("boss");
+                lastSeenBubbleTextRef.current.delete("boss");
+              }
+
+              const isTurnLifecycleEvent =
                 message.event.type === "user_prompt_submit" ||
                 message.event.type === "pre_tool_use" ||
                 message.event.type === "post_tool_use" ||
-                message.event.type === "session_end"
-              ) {
+                message.event.type === "session_end";
+              if (isTurnLifecycleEvent && acceptsCodexEvent) {
                 clearCompletionTimer();
+              }
+
+              if (message.event.type === "session_end") {
+                resetCodexTurnState(codexTurnRef.current);
               }
 
               // Stop is a turn boundary, not a session boundary. Keep a
@@ -200,9 +287,16 @@ export function useWebSocketEvents({
               // display to idle while preserving the Main/session.
               if (
                 message.event.type === "stop" &&
-                isCodexSource(message.event.detail?.source)
+                isCodexEvent &&
+                acceptsCodexEvent
               ) {
+                stopCodexTurn(codexTurnRef.current, eventTurnId);
                 clearCompletionTimer();
+                typingTrackerRef.current?.stopImmediately("boss");
+                useGameStore.getState().setBossTyping(false);
+                useGameStore.getState().setBossVisualActivity(null);
+                useGameStore.getState().clearBubbles("boss");
+                lastSeenBubbleTextRef.current.delete("boss");
                 useGameStore.getState().updateBossBackendState("completed");
                 scheduleCompletionIdle();
               }
@@ -210,8 +304,9 @@ export function useWebSocketEvents({
               // Toggle typing animation on tool-use events (min-duration enforced
               // by TypingTracker).
               if (
-                message.event.type === "pre_tool_use" ||
-                message.event.type === "post_tool_use"
+                acceptsCodexEvent &&
+                (message.event.type === "pre_tool_use" ||
+                  message.event.type === "post_tool_use")
               ) {
                 const agentId = message.event.agentId;
                 const typingKey = agentId || "boss";
@@ -248,12 +343,15 @@ export function useWebSocketEvents({
               // Attention toasts — wire event processing into attention store.
               // `shouldShowToast` (pure) owns the type + preference gate.
               if (
+                acceptsCodexEvent &&
                 shouldShowToast(
                   message.event.type as EventType,
                   usePreferencesStore.getState(),
                 )
               ) {
                 useAttentionStore.getState().processEvent({
+                  sessionId: currentSessionIdRef.current,
+                  eventId: message.event.id,
                   type: message.event.type as EventType,
                   agentId: message.event.agentId ?? null,
                   agentName: message.event.detail?.agentName ?? null,
@@ -261,6 +359,7 @@ export function useWebSocketEvents({
                     message.event.detail?.taskDescription ?? null,
                   errorType: message.event.detail?.errorType ?? null,
                   message: message.event.detail?.message ?? null,
+                  turnId: eventTurnId,
                 });
               }
             }
@@ -288,6 +387,8 @@ export function useWebSocketEvents({
 
           case "error":
             useAttentionStore.getState().processEvent({
+              sessionId: currentSessionIdRef.current,
+              eventId: `transport:${message.timestamp}`,
               type: "error",
               agentId: null,
               agentName: null,

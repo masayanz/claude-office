@@ -48,6 +48,7 @@ class EventRecord(Base):
     __tablename__ = "events"
     __table_args__ = (
         Index("ix_events_session_replay_order", "session_id", "timestamp", "id"),
+        Index("ix_events_session_id_id", "session_id", "id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
@@ -126,6 +127,19 @@ class ReplayMigration(Base):
     completed_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(UTC)
     )
+
+
+class SessionCheckpoint(Base):
+    """Content-free StateMachine checkpoint for fast Live restoration."""
+
+    __tablename__ = "session_checkpoints"
+
+    session_id: Mapped[str] = mapped_column(String, ForeignKey("sessions.id"), primary_key=True)
+    last_event_id: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC)
+    )
+    state: Mapped[dict[str, Any]] = mapped_column(JSON)
 
 
 class TaskRecord(Base):

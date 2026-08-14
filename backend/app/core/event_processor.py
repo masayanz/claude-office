@@ -61,6 +61,7 @@ from app.db.models import (
     EventRecord,
     ReplayEventRecord,
     ReplaySessionTombstone,
+    SessionCheckpoint,
     SessionRecord,
 )
 from app.models.agents import AgentState, BossState, ElevatorState
@@ -109,6 +110,7 @@ _HISTORY_DETAIL_FIELDS = (
     ("agent_type", "agentType"),
     ("source", "source"),
     ("model", "model"),
+    ("turn_id", "turnId"),
     ("prompt", "prompt"),
     ("restored", "restored"),
 )
@@ -228,6 +230,7 @@ class EventProcessor:
         self._overflow_session_event_lock = asyncio.Lock()
         self._live_sequence = 0
         self._session_last_live_sequence: dict[str, int] = {}
+        self._events_since_checkpoint: dict[str, int] = {}
         self._agent_stop_sequences: dict[tuple[str, str], int] = {}
         self._agent_post_sequences: dict[tuple[str, str, str], int] = {}
         self._transcript_poller_initialized = False
@@ -793,7 +796,7 @@ class EventProcessor:
                 resolved_floor_id = assignment.floor_id
                 resolved_room_id = assignment.room_id
 
-        await self._persist_event(event, resolved_floor_id, resolved_room_id)
+        event_id = await self._persist_event(event, resolved_floor_id, resolved_room_id)
 
         # Replay from DB *before* acquiring the lock: the restore is async I/O
         # that can take hundreds of ms for a long session, and holding the lock
@@ -926,6 +929,8 @@ class EventProcessor:
         enricher = self._post_broadcast_enrichers.get(event.event_type)
         if enricher is not None:
             await enricher(sm, event, agent_id)
+
+        await self._maybe_persist_checkpoint(event.session_id, event_id, sm)
 
         # ------------------------------------------------------------------
         # Cross-session overview broadcast (Command Center). Scheduled LAST so
@@ -1069,6 +1074,47 @@ class EventProcessor:
                     )
             await db.commit()
 
+    async def _maybe_persist_checkpoint(
+        self, session_id: str, event_id: int, sm: StateMachine
+    ) -> None:
+        """Persist a bounded, content-free checkpoint every 1000 events."""
+        count = self._events_since_checkpoint.get(session_id, 0) + 1
+        self._events_since_checkpoint[session_id] = count
+        if count < 1_000:
+            return
+        self._events_since_checkpoint[session_id] = 0
+        await self._write_checkpoint(session_id, event_id, sm)
+
+    async def _write_checkpoint(self, session_id: str, event_id: int, sm: StateMachine) -> None:
+        """Write one checkpoint in a short independent transaction."""
+        try:
+            payload = sm.to_checkpoint(session_id)
+            async with AsyncSessionLocal() as db:
+                statement = sqlite_insert(SessionCheckpoint).values(
+                    session_id=session_id,
+                    last_event_id=event_id,
+                    created_at=datetime.now(UTC),
+                    state=payload,
+                )
+                statement = statement.on_conflict_do_update(
+                    index_elements=["session_id"],
+                    set_={
+                        "last_event_id": event_id,
+                        "created_at": datetime.now(UTC),
+                        "state": payload,
+                    },
+                )
+                await db.execute(statement)
+                await db.commit()
+        except Exception:
+            # A checkpoint is an optimization. A failed write must never drop
+            # the live event or make a healthy session unavailable.
+            logger.warning(
+                "Session checkpoint save failed session=%s error=%s",
+                session_id,
+                "checkpoint_write_failed",
+            )
+
     async def _build_restored_state_machine(self, session_id: str) -> StateMachine | None:
         """Reconstruct a StateMachine from persisted DB events.
 
@@ -1082,19 +1128,41 @@ class EventProcessor:
             session_id: The session to restore.
         """
         async with AsyncSessionLocal() as db:
+            checkpoint = await db.get(SessionCheckpoint, session_id)
+            checkpoint_machine = (
+                StateMachine.from_checkpoint(checkpoint.state) if checkpoint is not None else None
+            )
+            checkpoint_sequence = (
+                checkpoint.last_event_id if checkpoint_machine is not None else 0
+            )
             result = await db.execute(
                 select(EventRecord)
                 .where(EventRecord.session_id == session_id)
-                .order_by(EventRecord.timestamp.asc())
+                .where(EventRecord.id > checkpoint_sequence)
+                .order_by(EventRecord.id.asc())
             )
-            events = result.scalars().all()
+            events = list(result.scalars().all())
+            # End the read transaction before CPU-bound event application and
+            # transcript enrichment. This releases SQLite read locks while a
+            # large fallback restore is being analyzed.
+            db.expunge_all()
+            await db.rollback()
 
-            if not events:
+            if not events and checkpoint_machine is None:
                 return None
 
-            logger.info(f"Restoring session {session_id} from {len(events)} events in DB")
+            if checkpoint_machine is not None:
+                sm = checkpoint_machine
+                logger.info(
+                    "Restoring session %s from checkpoint event=%d tail=%d",
+                    session_id,
+                    checkpoint_sequence,
+                    len(events),
+                )
+            else:
+                sm = StateMachine()
+                logger.info("Restoring session %s from %d events in DB", session_id, len(events))
 
-            sm = StateMachine()
             skipped_count = 0
             for rec in events:
                 try:
@@ -1124,9 +1192,10 @@ class EventProcessor:
                         "agentId": agent_id,
                         "summary": self._get_event_summary(evt),
                         "timestamp": evt.timestamp.isoformat(),
-                        "detail": (
-                            {"source": "codex", "restored": True} if evt.data.restored else {}
-                        ),
+                        "detail": {
+                            **_build_history_detail(evt),
+                            **({"restored": True} if evt.data.restored else {}),
+                        },
                     }
                     sm.history.append(history_entry)
 
@@ -1215,6 +1284,9 @@ class EventProcessor:
             sm.todos = await load_tasks(session_id)
             logger.debug(f"Restored {len(sm.todos)} tasks for session {session_id}")
 
+            if events:
+                await self._write_checkpoint(session_id, int(events[-1].id), sm)
+
             return sm
 
     async def _restore_session(self, session_id: str) -> None:
@@ -1234,7 +1306,7 @@ class EventProcessor:
         event: AnyEvent,
         floor_id: str | None = None,
         room_id: str | None = None,
-    ) -> None:
+    ) -> int:
         """Save event to database and manage session records.
 
         Uses ``INSERT ... ON CONFLICT DO UPDATE`` for atomic upsert that
@@ -1346,6 +1418,12 @@ class EventProcessor:
                         ReplayEventRecord.session_id == event.session_id
                     )
                 )
+                await db.execute(
+                    delete(SessionCheckpoint).where(
+                        SessionCheckpoint.session_id == event.session_id
+                    )
+                )
+                self._events_since_checkpoint[event.session_id] = 0
                 session_rec.status = "active"
                 session_rec.updated_at = datetime.now(UTC)
                 # SESSION_START always reflects the freshest metadata.
@@ -1402,6 +1480,7 @@ class EventProcessor:
                         type(replay_error).__name__,
                     )
             await db.commit()
+            return int(event_rec.id)
 
     # ------------------------------------------------------------------
     # State update helpers

@@ -1,8 +1,10 @@
 import asyncio
 import contextlib
+import hashlib
 import importlib
 import logging
 import os
+import uuid
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
@@ -35,6 +37,7 @@ from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema
 from app.db.models import EventRecord, ReplayEventRecord, SessionRecord
+from app.db.process_lock import acquire_database_process_lock
 from app.db.replay_backfill import backfill_replay_history
 from app.services.app_settings import load_settings
 from app.services.git_service import git_service
@@ -44,6 +47,8 @@ STATIC_DIR = Path(__file__).parent.parent / "static"
 _SERVE_STATIC = os.environ.get("SERVE_STATIC", "").lower() in ("1", "true", "yes")
 
 settings = get_settings()
+BACKEND_INSTANCE_ID = uuid.uuid4().hex
+DATABASE_IDENTIFIER = hashlib.sha256(settings.DATABASE_URL.encode("utf-8")).hexdigest()[:16]
 
 logging.basicConfig(
     level=logging.INFO,
@@ -58,6 +63,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Manage application startup and shutdown lifecycle."""
     importlib.import_module("app.db.models")
     engine = get_engine()
+    database_lock = acquire_database_process_lock(str(engine.url))
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await migrate_schema(conn)
@@ -135,6 +141,8 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
         await idle_evictor
     await git_service.stop()
     await get_engine().dispose()
+    if database_lock is not None:
+        database_lock.release()
 
 
 async def _run_replay_backfill() -> None:
@@ -298,7 +306,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 @app.get("/health")
 async def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "app": "ai-office-viewer",
+        "component": "backend",
+        "instance_id": BACKEND_INSTANCE_ID,
+        "version": settings.VERSION,
+        "database_identifier": DATABASE_IDENTIFIER,
+    }
 
 
 @app.get(f"{settings.API_V1_STR}/status")

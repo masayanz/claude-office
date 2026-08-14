@@ -113,6 +113,7 @@ def safe_event_payload(event: AnyEvent, source_event_id: int | None = None) -> d
     model = _safe_text(getattr(data, "model", None), 120)
     tool_name = _safe_text(getattr(data, "tool_name", None), 80)
     tool_use_id = _safe_text(getattr(data, "tool_use_id", None), 160)
+    turn_id = _safe_text(getattr(data, "turn_id", None), 160)
     error_type = _safe_text(getattr(data, "error_type", None), 80)
     safe_data: dict[str, Any] = {
         "source": source,
@@ -130,6 +131,8 @@ def safe_event_payload(event: AnyEvent, source_event_id: int | None = None) -> d
         safe_data["toolName"] = tool_name
     if tool_use_id:
         safe_data["toolUseId"] = tool_use_id
+    if turn_id:
+        safe_data["turnId"] = turn_id
     if getattr(data, "restored", False) is True:
         safe_data["restored"] = True
     return {

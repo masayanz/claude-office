@@ -548,6 +548,47 @@ def test_status_marks_healthy_external_port_as_not_manager_owned(
     assert "停止しません" in result.detail
 
 
+def test_backend_health_requires_ai_office_viewer_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda _url, timeout: _Response(
+            {
+                "status": "ok",
+                "app": "ai-office-viewer",
+                "component": "backend",
+                "instance_id": "backend-instance",
+                "database_identifier": "db-identifier",
+            }
+        ),
+    )
+    assert manager._healthy("backend") is True
+
+    monkeypatch.setattr(
+        urllib.request,
+        "urlopen",
+        lambda _url, timeout: _Response({"status": "ok", "app": "yomica"}),
+    )
+    assert manager._healthy("backend") is False
+
+
+def test_identity_mismatch_never_adopts_a_busy_backend_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: False)
+    monkeypatch.setattr(manager, "_port_in_use", lambda _service: True)
+
+    result = manager.status("backend")
+
+    assert result.state == "external"
+    assert result.owned is False
+    assert "別アプリケーション" in result.detail
+
+
 def test_restart_does_not_start_after_stop_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = _manager(monkeypatch)
     failed = ServiceStatus("backend", True, False, 4321, "停止未確認", True, "error")
@@ -580,6 +621,9 @@ def test_pid_file_contains_identity_metadata(monkeypatch: pytest.MonkeyPatch) ->
             "2026-08-13T00:00:00+00:00",
             123.5,
             "manager-test",
+            port=8001,
+            backend_instance_id="backend-instance",
+            database_identifier="database-id",
         )
     }
     path = Path(__file__).resolve().parents[2] / "runtime" / ".manager-test-processes.json"
@@ -592,6 +636,9 @@ def test_pid_file_contains_identity_metadata(monkeypatch: pytest.MonkeyPatch) ->
         assert payload["backend"]["executable"].endswith("python.exe")
         assert payload["backend"]["cwd"].endswith("backend")
         assert payload["backend"]["creation_time"] == 123.5
+        assert payload["backend"]["port"] == 8001
+        assert payload["backend"]["backend_instance_id"] == "backend-instance"
+        assert payload["backend"]["database_identifier"] == "database-id"
     finally:
         path.unlink(missing_ok=True)
 

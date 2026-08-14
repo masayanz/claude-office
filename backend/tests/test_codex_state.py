@@ -46,27 +46,39 @@ def _subagent_start(agent_id: str, *, source: str = "codex") -> AgentEvent:
     )
 
 
-def _tool_event(event_type: EventType, tool_name: str, agent_id: str | None = None) -> ToolEvent:
+def _tool_event(
+    event_type: EventType,
+    tool_name: str,
+    agent_id: str | None = None,
+    turn_id: str | None = None,
+) -> ToolEvent:
     return ToolEvent(
         event_type=event_type,  # type: ignore[arg-type]
         session_id="codex-session",
-        data=ToolEventData(source="codex", tool_name=tool_name, agent_id=agent_id),
+        data=ToolEventData(
+            source="codex",
+            tool_name=tool_name,
+            agent_id=agent_id,
+            turn_id=turn_id,
+        ),
     )
 
 
-def _prompt() -> PromptEvent:
+def _prompt(turn_id: str | None = None) -> PromptEvent:
     return PromptEvent(
         event_type=EventType.USER_PROMPT_SUBMIT,
         session_id="codex-session",
-        data=PromptEventData(source="codex", model="gpt-5.6-sol"),
+        data=PromptEventData(
+            source="codex", model="gpt-5.6-sol", turn_id=turn_id
+        ),
     )
 
 
-def _lifecycle(event_type: EventType) -> LifecycleEvent:
+def _lifecycle(event_type: EventType, turn_id: str | None = None) -> LifecycleEvent:
     return LifecycleEvent(
         event_type=event_type,  # type: ignore[arg-type]
         session_id="codex-session",
-        data=LifecycleEventData(source="codex"),
+        data=LifecycleEventData(source="codex", turn_id=turn_id),
     )
 
 
@@ -137,6 +149,30 @@ def test_codex_main_reviewing_during_agent_wait_and_subagent_activity() -> None:
         )
     )
     assert sm.boss_state == BossState.THINKING
+
+
+def test_codex_stop_blocks_delayed_same_turn_events_until_next_prompt() -> None:
+    sm = StateMachine()
+    sm.transition(_session_start(source="codex"))
+    sm.transition(_prompt("turn-1"))
+    sm.transition(_tool_event(EventType.PRE_TOOL_USE, "Bash", turn_id="turn-1"))
+    sm.transition(_lifecycle(EventType.STOP, turn_id="turn-1"))
+
+    assert sm.boss_state == BossState.COMPLETED
+    assert sm.turn_active is False
+    assert sm.turn_stopped is True
+    assert sm.stopped_turn_id == "turn-1"
+
+    # Hybrid delivery can replay these after Stop. They must not revive Main.
+    sm.transition(_tool_event(EventType.POST_TOOL_USE, "Bash", turn_id="turn-1"))
+    sm.transition(_tool_event(EventType.PRE_TOOL_USE, "AgentWait", turn_id="turn-1"))
+    assert sm.boss_state == BossState.COMPLETED
+    assert sm.turn_active is False
+
+    sm.transition(_prompt("turn-2"))
+    assert sm.boss_state == BossState.THINKING
+    assert sm.turn_stopped is False
+    assert sm.active_turn_id == "turn-2"
 
 
 def test_codex_main_error_is_explicit() -> None:
@@ -282,6 +318,7 @@ def test_codex_metadata_is_available_in_frontend_history_detail() -> None:
             model="gpt-5.6-sol",
             agent_type="default",
             tool_name="AgentWait",
+            turn_id="turn-1",
         ),
     )
 
@@ -290,6 +327,7 @@ def test_codex_metadata_is_available_in_frontend_history_detail() -> None:
         "agentType": "default",
         "source": "codex",
         "model": "gpt-5.6-sol",
+        "turnId": "turn-1",
     }
 
 

@@ -5,6 +5,10 @@ import os
 # Disable AI summary service in tests to avoid network timeouts
 # when CLAUDE_CODE_OAUTH_TOKEN is present in .env but expired.
 os.environ["SUMMARY_ENABLED"] = "False"
+# Never let a test process import the production SQLite path. The in-memory
+# engine below is still overridden explicitly, but this guard also protects
+# import-time code and app lifespan tests from the live database.
+os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///:memory:"
 
 import asyncio
 import tempfile
@@ -22,16 +26,13 @@ from app.db.database import Base, get_db, override_engine
 # Ensure settings are cached with SUMMARY_ENABLED=False
 get_settings.cache_clear()
 _ = get_settings()
-
-
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(autouse=True)
 def setup_test_database() -> Iterator[None]:
-    """Set up an in-memory SQLite database for all tests.
+    """Set up a fresh in-memory SQLite database for every test.
 
-    This fixture runs automatically for all tests and ensures that
-    test sessions don't pollute the production database.
+    Per-test isolation prevents order-dependent Replay backfill counts while
+    the environment guard above prevents import-time access to production.
     """
-    # Create in-memory SQLite engine for tests
     test_engine = create_async_engine(
         "sqlite+aiosqlite:///:memory:",
         echo=False,

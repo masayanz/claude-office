@@ -13,6 +13,7 @@ export type UrgencyLevel = "critical" | "high" | "low" | "info";
 
 export interface AttentionToast {
   id: string;
+  notificationKey: string;
   agentId: string | null;
   agentName: string | null;
   eventType: EventType;
@@ -43,6 +44,9 @@ interface AttentionState {
   // Actions
   processEvent: (event: {
     type: EventType;
+    sessionId?: string | null;
+    eventId?: string | null;
+    turnId?: string | null;
     agentId?: string | null;
     agentName?: string | null;
     taskDescription?: string | null;
@@ -66,7 +70,7 @@ interface AttentionState {
 // CONSTANTS
 // ============================================================================
 
-const MAX_VISIBLE_TOASTS = 5;
+export const MAX_VISIBLE_TOASTS = 3;
 
 /** Map event types to urgency scores and auto-dismiss timing. */
 function scoreEvent(eventType: EventType): {
@@ -77,10 +81,11 @@ function scoreEvent(eventType: EventType): {
   const prefs = usePreferencesStore.getState();
   switch (eventType) {
     case "permission_request":
-      return { urgency: 90, level: "critical", autoDismissMs: null };
+      return { urgency: 90, level: "critical", autoDismissMs: 8000 };
     case "error":
+      return { urgency: 70, level: "high", autoDismissMs: 8000 };
     case "stop":
-      return { urgency: 70, level: "high", autoDismissMs: null };
+      return { urgency: 0, level: "info", autoDismissMs: 0 };
     case "task_completed":
       return {
         urgency: 30,
@@ -115,11 +120,20 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
 
   processEvent: (event) => {
     const { urgency, level, autoDismissMs } = scoreEvent(event.type);
-    // Skip very low urgency events that aren't in our explicit list
+    // Stop is an internal lifecycle boundary and is intentionally shown only
+    // in the Event Log/Main state, not as a persistent attention card.
     if (urgency <= 5) return;
 
+    const notificationKey = [
+      event.sessionId ?? "global",
+      event.type,
+      event.agentId ?? "main",
+      event.eventId ?? event.turnId ?? event.message ?? "event",
+    ].join(":");
+
     const toast: AttentionToast = {
-      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      id: `toast:${notificationKey}`,
+      notificationKey,
       agentId: event.agentId ?? null,
       agentName: event.agentName ?? null,
       eventType: event.type,
@@ -134,6 +148,13 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
     };
 
     set((state) => {
+      if (
+        state.toastQueue.some(
+          (existing) => existing.notificationKey === notificationKey,
+        )
+      ) {
+        return state;
+      }
       const queue = [...state.toastQueue, toast];
       // Sort by urgency descending
       queue.sort((a, b) => b.urgency - a.urgency);
@@ -141,14 +162,14 @@ export const useAttentionStore = create<AttentionState>()((set, get) => ({
       if (queue.filter((t) => !t.dismissed).length > MAX_VISIBLE_TOASTS) {
         const activeSorted = queue
           .filter((t) => !t.dismissed)
-          .sort((a, b) => a.urgency - b.urgency);
+          .sort((a, b) => a.createdAt - b.createdAt);
         const toastId = activeSorted[0]?.id;
         const finalQueue = queue.map((t) =>
           t.id === toastId ? { ...t, dismissed: true } : t,
         );
-        return { toastQueue: finalQueue };
+        return { toastQueue: finalQueue.slice(-100) };
       }
-      return { toastQueue: queue };
+      return { toastQueue: queue.slice(-100) };
     });
   },
 

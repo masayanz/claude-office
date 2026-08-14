@@ -6,6 +6,8 @@ from datetime import UTC, datetime
 from enum import Enum, auto
 from typing import Any, cast
 
+from pydantic import ValidationError
+
 from app.core.path_utils import compress_path, compress_paths_in_text, truncate_long_words
 from app.core.quotes import get_random_job_completion_quote
 from app.core.summary_service import get_summary_service
@@ -251,6 +253,9 @@ def _handle_session_start(sm: "StateMachine", event: AnyEvent) -> None:
     sm.phase = OfficePhase.STARTING
     sm.boss_state = BossState.IDLE
     sm.turn_active = False
+    sm.active_turn_id = None
+    sm.stopped_turn_id = None
+    sm.turn_stopped = False
     sm.boss_last_tool_name = None
     sm.boss_name = main_agent_name_for_source(event.data.source)
     sm.boss_source = event.data.source
@@ -342,6 +347,9 @@ def _handle_pre_tool_use(sm: "StateMachine", event: AnyEvent) -> None:
 def _handle_user_prompt_submit(sm: "StateMachine", event: AnyEvent) -> None:
     """Handle USER_PROMPT_SUBMIT: boss receives a new user prompt."""
     assert isinstance(event, PromptEvent)
+    sm.active_turn_id = event.data.turn_id
+    sm.stopped_turn_id = None
+    sm.turn_stopped = False
     if event.data.source == "codex":
         sm.boss_state = BossState.THINKING
         sm.phase = OfficePhase.WORKING
@@ -479,7 +487,8 @@ def _handle_subagent_stop(sm: "StateMachine", event: AnyEvent) -> None:
             sm.handin_queue.append(agent_id)
 
         if event.data.source == "codex":
-            sm.boss_state = BossState.THINKING if sm.turn_active else BossState.IDLE
+            if not sm.turn_stopped:
+                sm.boss_state = BossState.THINKING if sm.turn_active else BossState.IDLE
         else:
             sm.boss_state = BossState.IDLE
 
@@ -512,18 +521,26 @@ def _handle_stop(sm: "StateMachine", event: AnyEvent) -> None:
         BossState.COMPLETED if event.data.source == "codex" else BossState.COMPLETING
     )
     sm.turn_active = False
+    sm.stopped_turn_id = event.data.turn_id or sm.active_turn_id
+    sm.turn_stopped = True
 
-    speech_text = (
-        event.data.speech_content.boss_phone
-        if event.data.speech_content and event.data.speech_content.boss_phone
-        else get_random_job_completion_quote()
-    )
-    sm.boss_bubble = BubbleContent(
-        type=BubbleType.SPEECH,
-        text=speech_text,
-        icon="📞",
-        persistent=True,
-    )
+    if event.data.source == "codex":
+        # Codex completion is rendered by the frontend from the localized
+        # completed state. A persistent backend bubble would mask the normal
+        # completed -> idle bubble and can survive a delayed state snapshot.
+        sm.boss_bubble = None
+    else:
+        speech_text = (
+            event.data.speech_content.boss_phone
+            if event.data.speech_content and event.data.speech_content.boss_phone
+            else get_random_job_completion_quote()
+        )
+        sm.boss_bubble = BubbleContent(
+            type=BubbleType.SPEECH,
+            text=speech_text,
+            icon="📞",
+            persistent=True,
+        )
 
     sm.whiteboard.add_news_item("session", "Job completed! Great work everyone!")
 
@@ -534,6 +551,9 @@ def _handle_session_end(sm: "StateMachine", event: AnyEvent) -> None:
     sm.boss_state = BossState.IDLE
     sm.boss_current_task = None
     sm.turn_active = False
+    sm.active_turn_id = None
+    sm.stopped_turn_id = None
+    sm.turn_stopped = False
 
 
 def _handle_error(sm: "StateMachine", event: AnyEvent) -> None:
@@ -708,6 +728,12 @@ class StateMachine:
     # idle *between* tool calls as "still working" instead of flickering the
     # terminal into the "done" zone and back every tool cycle.
     turn_active: bool = False
+    # Codex turn boundary metadata. ``turn_stopped`` remains useful when a
+    # producer omits turn_id (which older hooks do); an explicit ID makes the
+    # same guard safe across delayed hybrid deliveries.
+    active_turn_id: str | None = None
+    stopped_turn_id: str | None = None
+    turn_stopped: bool = False
     last_user_prompt: str | None = None
     background_tasks: list[BackgroundTask] = field(default_factory=_empty_background_tasks)
     conversation: list[ConversationEntry] = field(default_factory=_empty_conversation)
@@ -738,6 +764,32 @@ class StateMachine:
     # Core methods
     # ---------------------------------------------------------------------------
 
+    def _ignore_late_codex_event(self, event: AnyEvent) -> bool:
+        """Return whether an event belongs to a Codex turn already stopped.
+
+        Hook and JSONL delivery can be delayed relative to the Stop event.
+        Events without an ID are conservatively ignored until the next prompt;
+        an explicit different turn ID may start the next turn even if its
+        prompt event was not observed by this process.
+        """
+        if not self.turn_stopped or event.data.source != "codex":
+            return False
+        if event.event_type in {
+            EventType.SESSION_START,
+            EventType.SESSION_END,
+            EventType.USER_PROMPT_SUBMIT,
+        }:
+            return False
+
+        event_turn_id = getattr(event.data, "turn_id", None)
+        if event_turn_id and self.stopped_turn_id and event_turn_id != self.stopped_turn_id:
+            self.active_turn_id = event_turn_id
+            self.stopped_turn_id = None
+            self.turn_stopped = False
+            self.turn_active = True
+            return False
+        return True
+
     def initialize_main(self, source: str | None = None, model: str | None = None) -> None:
         """Seed the Main character before the first lifecycle event.
 
@@ -750,6 +802,102 @@ class StateMachine:
         self.boss_source = source
         self.boss_model = model
         self.boss_agent_type = "main"
+
+    def to_checkpoint(self, session_id: str) -> dict[str, Any]:
+        """Serialize only non-content state needed for a fast Live restore.
+
+        Prompt, command, tool input/output, conversation, history, task text,
+        bubbles, news headlines, and transcript-derived text are deliberately
+        omitted.  The checkpoint is a state accelerator, never a second event
+        or conversation store.
+        """
+        state = self.to_game_state(session_id).model_dump(mode="json", by_alias=True)
+        boss = state.get("boss") or {}
+        boss["currentTask"] = None
+        boss["bubble"] = None
+        for agent in state.get("agents", []):
+            agent["currentTask"] = None
+            agent["bubble"] = None
+        state["history"] = []
+        state["conversation"] = []
+        state["todos"] = []
+        whiteboard = state.get("whiteboardData") or {}
+        whiteboard["kanbanTasks"] = []
+        whiteboard["newsItems"] = []
+        whiteboard["fileEdits"] = {}
+        whiteboard["backgroundTasks"] = []
+        state["whiteboardData"] = whiteboard
+        return {
+            "version": 1,
+            "state": state,
+            "phase": self.phase.name,
+            "turnActive": self.turn_active,
+            "activeTurnId": self.active_turn_id,
+            "stoppedTurnId": self.stopped_turn_id,
+            "turnStopped": self.turn_stopped,
+            "codexAgentNumbers": self.codex_agent_numbers,
+            "restoredAgentIds": sorted(self.restored_agent_ids),
+        }
+
+    @classmethod
+    def from_checkpoint(cls, payload: object) -> "StateMachine | None":
+        """Hydrate a machine from a validated, content-free checkpoint."""
+        if not isinstance(payload, dict) or payload.get("version") != 1:
+            return None
+        raw_state = payload.get("state")
+        if not isinstance(raw_state, dict):
+            return None
+        try:
+            state = GameState.model_validate(raw_state)
+            machine = cls()
+            machine.phase = OfficePhase[str(payload.get("phase", "IDLE"))]
+            machine.boss_state = state.boss.state
+            machine.boss_current_task = None
+            machine.boss_bubble = None
+            machine.boss_name = state.boss.name
+            machine.boss_source = state.boss.source
+            machine.boss_model = state.boss.model
+            machine.boss_agent_type = state.boss.agent_type
+            machine.boss_last_tool_name = state.boss.last_tool_name
+            machine.elevator_state = state.office.elevator_state
+            machine.agents = {
+                agent.id: agent.model_copy(update={"current_task": None, "bubble": None})
+                for agent in state.agents
+            }
+            machine.arrival_queue = list(state.arrival_queue)
+            machine.handin_queue = list(state.departure_queue)
+            machine.floor_id = state.floor_id
+            machine.room_id = state.room_id
+            machine.tool_uses_since_compaction = state.office.tool_uses_since_compaction
+            machine.print_report = state.office.print_report
+            machine.whiteboard = WhiteboardTracker(
+                tool_usage=dict(state.whiteboard_data.tool_usage),
+                task_completed_count=state.whiteboard_data.task_completed_count,
+                bug_fixed_count=state.whiteboard_data.bug_fixed_count,
+                coffee_break_count=state.whiteboard_data.coffee_break_count,
+                code_written_count=state.whiteboard_data.code_written_count,
+                recent_error_count=state.whiteboard_data.recent_error_count,
+                recent_success_count=state.whiteboard_data.recent_success_count,
+                consecutive_successes=state.whiteboard_data.consecutive_successes,
+                last_incident_time=state.whiteboard_data.last_incident_time,
+                coffee_cups=state.whiteboard_data.coffee_cups,
+            )
+            machine.turn_active = bool(payload.get("turnActive", False))
+            machine.active_turn_id = payload.get("activeTurnId")
+            machine.stopped_turn_id = payload.get("stoppedTurnId")
+            machine.turn_stopped = bool(payload.get("turnStopped", False))
+            numbers = payload.get("codexAgentNumbers", {})
+            if isinstance(numbers, dict):
+                machine.codex_agent_numbers = {
+                    str(key): int(value) for key, value in numbers.items() if isinstance(value, int)
+                }
+            restored = payload.get("restoredAgentIds", [])
+            if isinstance(restored, list):
+                machine.restored_agent_ids = {str(value) for value in restored}
+            return machine
+        except (KeyError, TypeError, ValueError, ValidationError):
+            logger.warning("Ignoring invalid StateMachine checkpoint")
+            return None
 
     def append_capped(
         self,
@@ -892,6 +1040,20 @@ class StateMachine:
         callers that need full rollback should wrap this in a higher-level
         transaction.
         """
+        # A late SUBAGENT_STOP may still finish the child animation, but it
+        # must not revive the Main state after Stop.
+        if (
+            self._ignore_late_codex_event(event)
+            and event.event_type != EventType.SUBAGENT_STOP
+        ):
+            logger.debug(
+                "Ignoring late Codex event after Stop: session=%s type=%s turn=%s",
+                event.session_id,
+                event.event_type,
+                getattr(event.data, "turn_id", None),
+            )
+            return
+
         # Invariant: token reads inside update_from_event are tail-bounded
         # (_TOKEN_READ_SIZE = 20_000, see token_tracker.py); offloading them to
         # a thread would break replay token accounting, which relies on this

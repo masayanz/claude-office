@@ -416,6 +416,13 @@ const en = {
   "tour.next": "Next",
 
   // Attention System
+  "attention.toast.event": "Notification",
+  "attention.toast.title.permissionRequest": "Permission request",
+  "attention.toast.title.error": "Error",
+  "attention.toast.title.taskCompleted": "Task completed",
+  "attention.toast.title.agentArrived": "Agent started",
+  "attention.toast.title.backgroundTask": "Background task",
+  "attention.toast.dismiss": "Dismiss notification",
   "attention.toast.permissionRequest": "{agentName} needs permission",
   "attention.toast.error": "{agentName} encountered an error",
   "attention.toast.taskCompleted": "{agentName} completed a task",
@@ -474,7 +481,7 @@ const en = {
   "settings.toastFilters": "Toast Notifications",
   "settings.toastAutoDismiss": "Auto-dismiss Timing",
   "settings.filterPermission": "Permission requests",
-  "settings.filterError": "Errors and stops",
+  "settings.filterError": "Errors",
   "settings.filterTaskComplete": "Task completions",
   "settings.filterArrival": "Agent arrivals",
   "replay.live": "Live",

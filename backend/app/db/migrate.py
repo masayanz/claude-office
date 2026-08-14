@@ -56,6 +56,19 @@ async def migrate_schema(conn: AsyncConnection) -> None:
     await conn.execute(
         text(
             """
+            CREATE TABLE IF NOT EXISTS session_checkpoints (
+                session_id VARCHAR PRIMARY KEY,
+                last_event_id INTEGER NOT NULL,
+                created_at DATETIME NOT NULL,
+                state JSON NOT NULL,
+                FOREIGN KEY(session_id) REFERENCES sessions(id)
+            )
+            """
+        )
+    )
+    await conn.execute(
+        text(
+            """
             CREATE TABLE IF NOT EXISTS replay_session_tombstones (
                 session_id VARCHAR PRIMARY KEY,
                 deleted_at DATETIME NOT NULL
@@ -75,6 +88,7 @@ async def migrate_schema(conn: AsyncConnection) -> None:
     )
     for index_sql in (
         "CREATE INDEX IF NOT EXISTS ix_events_session_id ON events(session_id)",
+        "CREATE INDEX IF NOT EXISTS ix_events_session_id_id ON events(session_id, id)",
         "CREATE INDEX IF NOT EXISTS ix_events_session_timestamp "
         "ON events(session_id, timestamp)",
         "CREATE INDEX IF NOT EXISTS ix_events_session_replay_order "
@@ -86,6 +100,8 @@ async def migrate_schema(conn: AsyncConnection) -> None:
         "CREATE INDEX IF NOT EXISTS ix_replay_events_timestamp ON replay_events(timestamp)",
         "CREATE INDEX IF NOT EXISTS ix_replay_events_session_replay_order "
         "ON replay_events(session_id, timestamp, source_event_id, id)",
+        "CREATE INDEX IF NOT EXISTS ix_session_checkpoints_last_event_id "
+        "ON session_checkpoints(last_event_id)",
     ):
         await conn.execute(text(index_sql))
 

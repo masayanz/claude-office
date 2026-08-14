@@ -20,7 +20,6 @@ import type { PreferencesState } from "@/stores/preferencesStore";
 const ATTENTION_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
   "permission_request",
   "error",
-  "stop",
   "task_completed",
   "subagent_start",
   "background_task_notification",
@@ -29,8 +28,8 @@ const ATTENTION_EVENT_TYPES: ReadonlySet<EventType> = new Set<EventType>([
 /**
  * Map each attention event type to the preference that can suppress it.
  *
- * Note the deliberate sharing: `stop` reuses the error-pref toggle and
- * `subagent_start` / `background_task_notification` both reuse the arrival
+ * Note the deliberate sharing: `subagent_start` /
+ * `background_task_notification` both reuse the arrival
  * toggle. Mirrors the original inline `filterMap` exactly.
  */
 function filterEnabled(eventType: EventType, prefs: PreferencesState): boolean {
@@ -38,7 +37,6 @@ function filterEnabled(eventType: EventType, prefs: PreferencesState): boolean {
     case "permission_request":
       return prefs.toastFilterPermission;
     case "error":
-    case "stop":
       return prefs.toastFilterError;
     case "task_completed":
       return prefs.toastFilterTaskComplete;

@@ -181,6 +181,11 @@ class TestApiKeyMiddleware:
             client = TestClient(app)
             resp = client.get("/health")
             assert resp.status_code == 200
+            payload = resp.json()
+            assert payload["app"] == "ai-office-viewer"
+            assert payload["component"] == "backend"
+            assert payload["instance_id"]
+            assert payload["database_identifier"]
         finally:
             settings.CLAUDE_OFFICE_API_KEY = original_key
 

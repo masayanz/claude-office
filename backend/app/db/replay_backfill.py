@@ -8,6 +8,7 @@ the allow-listed projection produced by :mod:`app.core.replay`.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import UTC, datetime
 from typing import Any
@@ -29,7 +30,7 @@ from app.services.app_settings import load_settings
 
 logger = logging.getLogger(__name__)
 
-_BACKFILL_BATCH_SIZE = 250
+_BACKFILL_BATCH_SIZE = 1_000
 _BACKFILL_KEY = "legacy_events_v1"
 
 
@@ -153,6 +154,9 @@ async def backfill_replay_history(
                 inserted += await _insert_batch(db, pending)
                 pending.clear()
             await db.commit()
+            # Give live event ingestion and the event loop a scheduling point
+            # between bounded write transactions.
+            await asyncio.sleep(0)
 
         if session_ids is None:
             marker_insert = sqlite_insert(ReplayMigration).values(

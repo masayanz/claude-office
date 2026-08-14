@@ -62,20 +62,8 @@ describe("shouldShowToast", () => {
   });
 
   describe("stop", () => {
-    // `stop` shares the error pref with `error` — this is the original
-    // `filterMap` mapping, preserved exactly.
-    it("shares toastFilterError with error (true ⇒ shown)", () => {
-      expect(shouldShowToast("stop", prefsAll(true))).toBe(true);
-    });
-    it("shares toastFilterError with error (false ⇒ suppressed)", () => {
-      const prefs = prefsAll(true);
-      prefs.toastFilterError = false;
-      expect(shouldShowToast("stop", prefs)).toBe(false);
-    });
-    it("is NOT affected by toastFilterPermission", () => {
-      const prefs = prefsAll(true);
-      prefs.toastFilterPermission = false; // unrelated toggle
-      expect(shouldShowToast("stop", prefs)).toBe(true);
+    it("is kept out of the attention toast pipeline", () => {
+      expect(shouldShowToast("stop", prefsAll(true))).toBe(false);
     });
   });
 
@@ -134,9 +122,10 @@ describe("shouldShowToast", () => {
         toastFilterTaskComplete: undefined,
         toastFilterArrival: undefined,
       } as unknown as PreferencesState;
-      // Every attention type should pass the `!== false` gate under undefined.
+      // Every attention type should pass the `!== false` gate under undefined,
+      // except Stop, which is intentionally Event Log-only.
       expect(shouldShowToast("error", prefs)).toBe(true);
-      expect(shouldShowToast("stop", prefs)).toBe(true);
+      expect(shouldShowToast("stop", prefs)).toBe(false);
       expect(shouldShowToast("permission_request", prefs)).toBe(true);
       expect(shouldShowToast("task_completed", prefs)).toBe(true);
       expect(shouldShowToast("subagent_start", prefs)).toBe(true);

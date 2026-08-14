@@ -153,3 +153,5 @@ def test_jsonl_task_started_emits_main_prompt_event_without_subagents() -> None:
     ]
     assert received[0].data.source == "codex"
     assert received[0].data.agent_id is None
+    assert received[0].data.turn_id == "turn-1"
+    assert received[1].data.turn_id == "turn-1"

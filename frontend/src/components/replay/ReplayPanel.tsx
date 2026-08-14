@@ -6,7 +6,12 @@ import { useTranslation } from "@/hooks/useTranslation";
 import { useGameStore } from "@/stores/gameStore";
 import { useAppSettingsStore } from "@/stores/appSettingsStore";
 import { useReplay, formatReplaySeconds, formatReplaySessionDate, type ReplaySessionSummary } from "@/hooks/useReplay";
-import { ReplayController, formatReplayDuration, type ReplayControllerSnapshot } from "@/systems/replayController";
+import {
+  ReplayController,
+  formatReplayDuration,
+  replayIdleState,
+  type ReplayControllerSnapshot,
+} from "@/systems/replayController";
 
 interface ReplayPanelProps {
   onReturnLive: () => void;
@@ -39,18 +44,28 @@ export function ReplayPanel({ onReturnLive }: ReplayPanelProps): ReactNode {
     currentIndex: -1,
     isPlaying: false,
     speed: 1,
+    presentation: "event",
   });
   const [controller] = useState(
     () =>
       new ReplayController({
         compressIdle: replaySettings?.replay_compress_idle ?? true,
         onChange: setSnapshot,
-        onFrame: (frame, index) => {
+        onFrame: (frame, index, presentation) => {
           const store = useGameStore.getState();
-          if (frame) store.applyReplayState(frame.state);
+          if (frame) {
+            store.applyReplayState(
+              presentation === "idle" ? replayIdleState(frame.state) : frame.state,
+            );
+          }
           else store.resetForReplay();
           store.setReplayIndex(index);
-          store.setReplayClockTime(frame ? new Date(frame.event.timestamp) : null);
+          if (frame && presentation === "idle") {
+            const idleAt = Date.parse(frame.event.timestamp) + 1_500;
+            store.setReplayClockTime(new Date(idleAt));
+          } else {
+            store.setReplayClockTime(frame ? new Date(frame.event.timestamp) : null);
+          }
         },
       }),
   );

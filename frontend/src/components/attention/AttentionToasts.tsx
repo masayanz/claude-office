@@ -1,8 +1,21 @@
 "use client";
 
-import { useEffect, useCallback, type ReactNode } from "react";
+import {
+  useEffect,
+  useCallback,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useAttentionStore, type UrgencyLevel } from "@/stores/attentionStore";
+import {
+  useAttentionStore,
+  type UrgencyLevel,
+  MAX_VISIBLE_TOASTS,
+} from "@/stores/attentionStore";
+import { useTranslation } from "@/hooks/useTranslation";
+import type { TranslationKey } from "@/i18n";
+import type { EventType } from "@/types";
 
 const URGENCY_COLORS: Record<UrgencyLevel, string> = {
   critical: "border-red-500 bg-red-950/90 text-red-400",
@@ -18,12 +31,57 @@ const URGENCY_ICONS: Record<UrgencyLevel, string> = {
   info: "\uD83D\uDD35",
 };
 
+const TOAST_TITLE_KEYS: Partial<Record<EventType, TranslationKey>> = {
+  permission_request: "attention.toast.title.permissionRequest",
+  error: "attention.toast.title.error",
+  task_completed: "attention.toast.title.taskCompleted",
+  subagent_start: "attention.toast.title.agentArrived",
+  background_task_notification: "attention.toast.title.backgroundTask",
+};
+
 export default function AttentionToasts(): ReactNode {
+  const { t } = useTranslation();
+  const [desktopRightOffset, setDesktopRightOffset] = useState<number | null>(
+    null,
+  );
   const toasts = useAttentionStore(
     useShallow((s) => s.toastQueue.filter((t) => !t.dismissed)),
   );
   const dismissToast = useAttentionStore((s) => s.dismissToast);
   const openFocusPopup = useAttentionStore((s) => s.openFocusPopup);
+
+  useEffect(() => {
+    const updatePosition = () => {
+      const sidebar = document.querySelector<HTMLElement>(
+        "[data-agent-status-sidebar]",
+      );
+      if (window.innerWidth < 768 || !sidebar) {
+        setDesktopRightOffset(null);
+        return;
+      }
+
+      const sidebarRect = sidebar.getBoundingClientRect();
+      setDesktopRightOffset(
+        Math.max(12, window.innerWidth - sidebarRect.left + 12),
+      );
+    };
+
+    updatePosition();
+    window.addEventListener("resize", updatePosition);
+    const sidebar = document.querySelector<HTMLElement>(
+      "[data-agent-status-sidebar]",
+    );
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updatePosition);
+    if (sidebar && resizeObserver) resizeObserver.observe(sidebar);
+
+    return () => {
+      window.removeEventListener("resize", updatePosition);
+      resizeObserver?.disconnect();
+    };
+  }, []);
 
   const handleToastClick = useCallback(
     (toast: (typeof toasts)[number]) => {
@@ -38,11 +96,22 @@ export default function AttentionToasts(): ReactNode {
   if (toasts.length === 0) return null;
 
   return (
-    <div className="fixed top-16 right-4 z-50 flex flex-col gap-2 w-80 pointer-events-none">
-      {toasts.slice(0, 5).map((toast) => (
+    <div
+      className="fixed top-20 right-3 md:right-[21rem] z-40 flex max-h-[min(16rem,calc(100vh-6rem))] w-72 flex-col gap-2 overflow-hidden pointer-events-none"
+      style={
+        desktopRightOffset === null
+          ? undefined
+          : { right: `${desktopRightOffset}px` }
+      }
+    >
+      {toasts.slice(0, MAX_VISIBLE_TOASTS).map((toast) => (
         <ToastItem
           key={toast.id}
           toast={toast}
+          headline={
+            toast.agentName ??
+            t(TOAST_TITLE_KEYS[toast.eventType] ?? "attention.toast.event")
+          }
           onClick={() => handleToastClick(toast)}
           onDismiss={() => dismissToast(toast.id)}
         />
@@ -53,29 +122,37 @@ export default function AttentionToasts(): ReactNode {
 
 function ToastItem({
   toast,
+  headline,
   onClick,
   onDismiss,
 }: {
   toast: {
     id: string;
     urgencyLevel: UrgencyLevel;
-    agentName: string | null;
-    title: string;
     description: string;
     autoDismissMs: number | null;
   };
+  headline: string;
   onClick: () => void;
   onDismiss: () => void;
 }): ReactNode {
+  const { t } = useTranslation();
   const colorClass = URGENCY_COLORS[toast.urgencyLevel];
   const icon = URGENCY_ICONS[toast.urgencyLevel];
-  const headline = toast.agentName ?? toast.title;
+  const onDismissRef = useRef(onDismiss);
+
+  useEffect(() => {
+    onDismissRef.current = onDismiss;
+  }, [onDismiss]);
 
   useEffect(() => {
     if (toast.autoDismissMs === null) return;
-    const timer = setTimeout(onDismiss, toast.autoDismissMs);
+    const timer = setTimeout(
+      () => onDismissRef.current(),
+      toast.autoDismissMs,
+    );
     return () => clearTimeout(timer);
-  }, [toast.autoDismissMs, toast.id, onDismiss]);
+  }, [toast.autoDismissMs, toast.id]);
 
   return (
     <div
@@ -96,7 +173,7 @@ function ToastItem({
           onDismiss();
         }}
         className="text-xs opacity-50 hover:opacity-100 shrink-0"
-        aria-label="Dismiss"
+        aria-label={t("attention.toast.dismiss")}
       >
         {"\u2715"}
       </button>

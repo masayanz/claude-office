@@ -304,6 +304,7 @@ export default function V2TestPage(): React.ReactNode {
   const loadAppSettings = useAppSettingsStore((s) => s.loadAppSettings);
   const appLanguage = useAppSettingsStore((s) => s.settings?.language);
   const companyName = useAppSettingsStore((s) => s.settings?.company_name);
+  const clearAllToasts = useAttentionStore((s) => s.clearAllToasts);
 
   // Navigation store
   const view = useNavigationStore((s) => s.view);
@@ -357,6 +358,10 @@ export default function V2TestPage(): React.ReactNode {
       useNavigationStore.getState().goToSingle();
     }
   }, [isReplayMode, view]);
+
+  useEffect(() => {
+    if (isReplayMode) clearAllToasts();
+  }, [clearAllToasts, isReplayMode]);
 
   const loadTourSeen = useTourStore((s) => s.loadTourSeen);
   useEffect(() => {
@@ -825,7 +830,7 @@ export default function V2TestPage(): React.ReactNode {
           Attention System
       ---------------------------------------------------------------- */}
       <CommandBar />
-      <AttentionToasts />
+      {!isReplayMode && <AttentionToasts />}
       <AgentPopup />
 
       {/* ----------------------------------------------------------------

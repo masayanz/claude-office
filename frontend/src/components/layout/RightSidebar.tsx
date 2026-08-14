@@ -63,6 +63,7 @@ export function RightSidebar(): React.ReactNode {
 
   return (
     <aside
+      data-agent-status-sidebar
       className={`relative flex flex-col gap-2 flex-shrink-0 overflow-hidden ${
         isDragging ? "select-none" : ""
       }`}

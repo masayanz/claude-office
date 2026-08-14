@@ -1,6 +1,10 @@
 import type { ReplayFrame } from "@/stores/gameStore";
+import type { GameState as BackendGameState } from "@/types";
 
 export const REPLAY_SPEEDS = [0.5, 1, 2, 4, 8] as const;
+export const REPLAY_COMPLETED_DISPLAY_MS = 1_500;
+
+export type ReplayPresentation = "event" | "idle";
 
 export interface ReplayControllerSnapshot {
   positionMs: number;
@@ -8,11 +12,16 @@ export interface ReplayControllerSnapshot {
   currentIndex: number;
   isPlaying: boolean;
   speed: number;
+  presentation: ReplayPresentation;
 }
 
 export interface ReplayControllerOptions {
   compressIdle?: boolean;
-  onFrame: (frame: ReplayFrame | null, index: number) => void;
+  onFrame?: (
+    frame: ReplayFrame | null,
+    index: number,
+    presentation: ReplayPresentation,
+  ) => void;
   onChange?: (snapshot: ReplayControllerSnapshot) => void;
 }
 
@@ -30,6 +39,7 @@ interface ScheduledFrame {
  */
 export class ReplayController {
   private frames: ScheduledFrame[] = [];
+  private presentation: ReplayPresentation = "event";
   private positionMs = 0;
   private durationMs = 0;
   private currentIndex = -1;
@@ -62,17 +72,22 @@ export class ReplayController {
       this.frames.push({ frame: frames[index], atMs: elapsed });
     }
     this.durationMs = elapsed;
+    this.rebuildDuration();
     this.positionMs = 0;
     this.currentIndex = -1;
+    this.presentation = "event";
     this.emit();
-    this.options.onFrame(null, -1);
+    this.options.onFrame?.(null, -1, "event");
   }
 
   /** Append a prefetched chunk without resetting the playback clock. */
   appendFrames(frames: ReplayFrame[]): void {
     if (frames.length === 0) return;
+    const position = this.positionMs;
+    const wasPlaying = this.playing;
+    this.pause();
     const compressIdle = this.options.compressIdle ?? true;
-    let elapsed = this.durationMs;
+    let elapsed = this.frames.at(-1)?.atMs ?? 0;
     let previousTimestamp = this.frames.length > 0
       ? Date.parse(this.frames[this.frames.length - 1].frame.event.timestamp)
       : Number.NaN;
@@ -88,6 +103,12 @@ export class ReplayController {
       previousTimestamp = currentTimestamp;
     }
     this.durationMs = elapsed;
+    this.rebuildDuration();
+    this.positionMs = Math.min(position, this.durationMs);
+    this.currentIndex = this.findIndex(this.positionMs);
+    this.presentation = this.presentationFor(this.positionMs, this.currentIndex);
+    this.emitPresentedFrame();
+    if (wasPlaying) this.play();
     this.emit();
   }
 
@@ -131,17 +152,16 @@ export class ReplayController {
     this.pause();
     this.positionMs = 0;
     this.currentIndex = -1;
-    this.options.onFrame(null, -1);
+    this.presentation = "event";
+    this.options.onFrame?.(null, -1, "event");
     this.emit();
   }
 
   seek(positionMs: number): void {
     this.positionMs = Math.min(Math.max(0, positionMs), this.durationMs);
     this.currentIndex = this.findIndex(this.positionMs);
-    this.options.onFrame(
-      this.currentIndex >= 0 ? this.frames[this.currentIndex].frame : null,
-      this.currentIndex,
-    );
+    this.presentation = this.presentationFor(this.positionMs, this.currentIndex);
+    this.emitPresentedFrame();
     this.emit();
   }
 
@@ -155,7 +175,8 @@ export class ReplayController {
     if (next >= 0) {
       this.positionMs = this.frames[next].atMs;
       this.currentIndex = next;
-      this.options.onFrame(this.frames[next].frame, next);
+      this.presentation = "event";
+      this.emitPresentedFrame();
       this.emit();
     }
   }
@@ -172,6 +193,7 @@ export class ReplayController {
       currentIndex: this.currentIndex,
       isPlaying: this.playing,
       speed: this.speed,
+      presentation: this.presentation,
     };
   }
 
@@ -202,12 +224,11 @@ export class ReplayController {
       this.lastTick = now;
       this.positionMs += delta * this.speed;
       const nextIndex = this.findIndex(this.positionMs);
-      if (nextIndex !== this.currentIndex) {
+      const nextPresentation = this.presentationFor(this.positionMs, nextIndex);
+      if (nextIndex !== this.currentIndex || nextPresentation !== this.presentation) {
         this.currentIndex = nextIndex;
-        this.options.onFrame(
-          nextIndex >= 0 ? this.frames[nextIndex].frame : null,
-          nextIndex,
-        );
+        this.presentation = nextPresentation;
+        this.emitPresentedFrame();
       }
       if (this.positionMs >= this.durationMs) {
         this.positionMs = this.durationMs;
@@ -223,6 +244,51 @@ export class ReplayController {
   private emit(): void {
     this.options.onChange?.(this.getSnapshot());
   }
+
+  private rebuildDuration(): void {
+    const last = this.frames.at(-1);
+    if (!last) {
+      this.durationMs = 0;
+      return;
+    }
+    this.durationMs = last.atMs;
+    if (last.frame.event.type === "stop") {
+      this.durationMs += REPLAY_COMPLETED_DISPLAY_MS;
+    }
+  }
+
+  private presentationFor(positionMs: number, index: number): ReplayPresentation {
+    if (index < 0) return "event";
+    const current = this.frames[index];
+    if (current.frame.event.type !== "stop") return "event";
+    const next = this.frames[index + 1];
+    const idleAt = current.atMs + REPLAY_COMPLETED_DISPLAY_MS;
+    if (positionMs < idleAt) return "event";
+    if (next && next.atMs < idleAt) return "event";
+    return "idle";
+  }
+
+  private emitPresentedFrame(): void {
+    const frame = this.currentIndex >= 0 ? this.frames[this.currentIndex].frame : null;
+    this.options.onFrame?.(frame, this.currentIndex, this.presentation);
+  }
+}
+
+/**
+ * Return the safe state shown after a Replay Stop's completed presentation.
+ * This is intentionally derived in the presentation layer; no synthetic event
+ * is written to the Replay database.
+ */
+export function replayIdleState(state: BackendGameState): BackendGameState {
+  return {
+    ...state,
+    boss: {
+      ...state.boss,
+      state: "idle",
+      currentTask: null,
+      lastToolName: null,
+    },
+  };
 }
 
 export function formatReplayDuration(milliseconds: number): string {

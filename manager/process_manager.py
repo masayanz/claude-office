@@ -18,7 +18,7 @@ import uuid
 import webbrowser
 from contextlib import suppress
 from ctypes import wintypes
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from shutil import which
@@ -126,6 +126,9 @@ class ProcessRecord:
     creation_time: float | None
     manager_instance_id: str
     descendant_pids: tuple[int, ...] = ()
+    port: int | None = None
+    backend_instance_id: str | None = None
+    database_identifier: str | None = None
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -138,6 +141,9 @@ class ProcessRecord:
             "creation_time": self.creation_time,
             "manager_instance_id": self.manager_instance_id,
             "descendant_pids": list(self.descendant_pids),
+            "port": self.port,
+            "backend_instance_id": self.backend_instance_id,
+            "database_identifier": self.database_identifier,
             "schema": 2,
         }
 
@@ -153,6 +159,9 @@ class ProcessRecord:
         creation_time = value.get("creation_time")
         instance_id = value.get("manager_instance_id")
         descendant_pids = value.get("descendant_pids", [])
+        port = value.get("port")
+        backend_instance_id = value.get("backend_instance_id")
+        database_identifier = value.get("database_identifier")
         if (
             not isinstance(pid, int)
             or isinstance(pid, bool)
@@ -168,6 +177,15 @@ class ProcessRecord:
             or not all(
                 isinstance(item, int) and not isinstance(item, bool) and item > 0
                 for item in descendant_pids
+            )
+            or (port is not None and (not isinstance(port, int) or isinstance(port, bool)))
+            or (
+                backend_instance_id is not None
+                and (not isinstance(backend_instance_id, str) or not backend_instance_id)
+            )
+            or (
+                database_identifier is not None
+                and (not isinstance(database_identifier, str) or not database_identifier)
             )
         ):
             return None
@@ -185,6 +203,9 @@ class ProcessRecord:
             creation_time=float(creation_time) if creation_time is not None else None,
             manager_instance_id=instance_id,
             descendant_pids=tuple(descendant_pids),
+            port=port,
+            backend_instance_id=backend_instance_id,
+            database_identifier=database_identifier,
         )
 
 
@@ -682,9 +703,40 @@ class ServiceManager:
         try:
             with urllib.request.urlopen(self._url(service), timeout=1) as response:
                 body = response.read().decode("utf-8", errors="ignore")
-                return response.status == 200 and (service != "backend" or '"ok"' in body)
+                if getattr(response, "status", 200) != 200:
+                    return False
+                if service != "backend":
+                    return True
+                payload = json.loads(body)
+                return (
+                    isinstance(payload, dict)
+                    and payload.get("status") == "ok"
+                    and payload.get("app") == "ai-office-viewer"
+                    and payload.get("component") == "backend"
+                    and isinstance(payload.get("instance_id"), str)
+                    and bool(payload["instance_id"])
+                    and isinstance(payload.get("database_identifier"), str)
+                    and bool(payload["database_identifier"])
+                )
         except (OSError, ValueError):
             return False
+
+    def _backend_identity(self) -> dict[str, Any] | None:
+        """Return the verified Viewer identity, never a generic port probe."""
+        try:
+            with urllib.request.urlopen(self._url("backend"), timeout=1) as response:
+                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
+        except (OSError, ValueError):
+            return None
+        if not isinstance(payload, dict):
+            return None
+        if (
+            payload.get("status") != "ok"
+            or payload.get("app") != "ai-office-viewer"
+            or payload.get("component") != "backend"
+        ):
+            return None
+        return payload
 
     def viewer_ready(self) -> bool:
         """Return whether the configured Frontend responds before opening UI."""
@@ -866,7 +918,32 @@ class ServiceManager:
             return False
         if record.creation_time is None or identity[1] is None:
             return False
-        return abs(identity[1] - record.creation_time) < 2.0
+        if abs(identity[1] - record.creation_time) >= 2.0:
+            return False
+
+        settings = self._settings()
+        expected_port = int(
+            settings["backend_port"] if record.service == "backend" else settings["frontend_port"]
+        )
+        if record.port != expected_port:
+            return False
+
+        # A persisted Backend record is adoptable only after the running
+        # process proves both its Viewer identity and database identity. A
+        # matching PID/executable alone can otherwise adopt an unrelated
+        # Python process left behind by a previous Manager run.
+        if record.service == "backend":
+            if not record.backend_instance_id or not record.database_identifier:
+                return False
+            backend_identity = self._backend_identity()
+            if backend_identity is None:
+                return False
+            if (
+                backend_identity.get("instance_id") != record.backend_instance_id
+                or backend_identity.get("database_identifier") != record.database_identifier
+            ):
+                return False
+        return True
 
     def _record_verification(self, record: ProcessRecord) -> str:
         probe = self._windows_process_probe(record.pid)
@@ -922,6 +999,19 @@ class ServiceManager:
             getattr(self, "_states", {})[service] = "running"
             state = "running"
         persisted = getattr(self, "_records", {}).get(service)
+        if service == "backend" and healthy and persisted is not None:
+            identity = self._backend_identity()
+            if identity is not None:
+                updated = replace(
+                    persisted,
+                    port=int(self._settings()["backend_port"]),
+                    backend_instance_id=str(identity.get("instance_id")),
+                    database_identifier=str(identity.get("database_identifier")),
+                )
+                if updated != persisted:
+                    getattr(self, "_records", {})[service] = updated
+                    persisted = updated
+                    self._save_pid_file()
         if persisted is not None:
             verification = self._record_verification(persisted)
             if verification == "unknown":
@@ -946,12 +1036,18 @@ class ServiceManager:
                 detail = "起動中"
             return ServiceStatus(service, True, healthy, pid, detail, True, state)
         if healthy or self._port_in_use(service):
+            detail = "外部プロセスがポートを使用中（Managerは停止しません）"
+            if service == "backend" and not healthy:
+                detail = (
+                    "指定Backendポートは別アプリケーションが使用中です。"
+                    " AI Office Viewerとは認識せず、停止・再利用しません。"
+                )
             return ServiceStatus(
                 service,
                 True,
                 healthy,
                 None,
-                "外部プロセスがポートを使用中（Managerは停止しません）",
+                detail,
                 False,
                 "external",
             )
@@ -1054,6 +1150,7 @@ class ServiceManager:
         self, service: str, process: subprocess.Popen[Any], command: list[str], cwd: Path
     ) -> ProcessRecord:
         executable = Path(command[0]).resolve()
+        settings = self._settings()
         return ProcessRecord(
             service=service,
             pid=process.pid,
@@ -1064,6 +1161,7 @@ class ServiceManager:
             creation_time=self._process_creation_time(process.pid),
             manager_instance_id=getattr(self, "_manager_instance_id", "legacy"),
             descendant_pids=tuple(self._windows_descendant_pids(process.pid)),
+            port=int(settings["backend_port"] if service == "backend" else settings["frontend_port"]),
         )
 
     def start(self, service: str) -> ServiceStatus:

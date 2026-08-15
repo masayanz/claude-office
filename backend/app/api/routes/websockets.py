@@ -9,6 +9,7 @@ captured by the session-id route (which would treat "overview" as a session
 id, accept, find no state, and silently idle).
 """
 
+import asyncio
 import logging
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
@@ -89,7 +90,18 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
 
     await get_manager().connect(websocket, session_id)
 
-    current_state = await get_event_processor().get_current_state(session_id)
+    # Do not make the WebSocket handshake wait for a legacy full restore.  The
+    # EventProcessor sends the cached/background-restored snapshot later.
+    state_started = asyncio.get_running_loop().time()
+    current_state = await get_event_processor().get_current_state(
+        session_id, restore_if_missing=False
+    )
+    logger.info(
+        "websocket_initial_state_build session=%s duration_ms=%.1f cached=%s",
+        session_id[:8],
+        (asyncio.get_running_loop().time() - state_started) * 1000,
+        current_state is not None,
+    )
     if current_state:
         await get_manager().send_personal_message(
             {
@@ -104,7 +116,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str) -> None:
     if project_root:
         git_service.configure(session_id=session_id, project_root=project_root)
 
-    git_status = git_service.get_status(session_id=session_id)
+    git_status = await asyncio.to_thread(git_service.get_status, session_id=session_id)
     if git_status:
         await get_manager().send_personal_message(
             {

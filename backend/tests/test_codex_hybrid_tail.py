@@ -3,6 +3,10 @@
 import asyncio
 import json
 from datetime import UTC, datetime
+from pathlib import Path
+from uuid import uuid4
+
+import pytest
 
 from app.core.codex_hybrid import HybridCoordinator
 from app.core.codex_jsonl_tail import (
@@ -155,3 +159,28 @@ def test_jsonl_task_started_emits_main_prompt_event_without_subagents() -> None:
     assert received[0].data.agent_id is None
     assert received[0].data.turn_id == "turn-1"
     assert received[1].data.turn_id == "turn-1"
+
+
+@pytest.mark.asyncio
+async def test_jsonl_cursor_io_is_offloaded_from_event_loop(monkeypatch) -> None:
+    monitor = CodexJsonlTailMonitor()
+    path = Path.cwd() / f".jsonl-offload-test-{uuid4().hex}.jsonl"
+    try:
+        path.write_text('{"type":"turn_context","payload":{}}\n', encoding="utf-8")
+        cursor = type(
+            "Cursor",
+            (),
+            {"path": path, "offset": 0, "partial": b"", "signature": None, "meta": None},
+        )()
+        calls: list[str] = []
+
+        async def fake_to_thread(function, *args, **kwargs):
+            calls.append(function.__name__)
+            return function(*args, **kwargs)
+
+        monkeypatch.setattr(asyncio, "to_thread", fake_to_thread)
+
+        assert await monitor._read_cursor(cursor) == 1
+        assert calls == ["_read_cursor_sync"]
+    finally:
+        path.unlink(missing_ok=True)

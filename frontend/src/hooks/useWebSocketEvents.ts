@@ -452,7 +452,7 @@ export function useWebSocketEvents({
     // replay endpoint while retaining any live events that arrive meanwhile.
     const abortController = new AbortController();
     void apiFetch(
-      `/api/v1/sessions/${encodeURIComponent(sessionId)}/replay`,
+      `/api/v1/sessions/${encodeURIComponent(sessionId)}/replay?limit=2000&include_state=false`,
       { signal: abortController.signal },
     )
       .then((response) => (response.ok ? response.json() : null))

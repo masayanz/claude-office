@@ -228,6 +228,12 @@ class EventProcessor:
         self._sessions_lock = asyncio.Lock()
         self._session_event_locks: dict[str, asyncio.Lock] = {}
         self._overflow_session_event_lock = asyncio.Lock()
+        # One restore task per session prevents two browser tabs (or a browser
+        # plus the first live hook event) from rebuilding the same session in
+        # parallel.  Viewer connections schedule this task in the background;
+        # event ingestion awaits it only when it needs the state machine.
+        self._restore_tasks: dict[str, asyncio.Task[None]] = {}
+        self._restore_tasks_lock = asyncio.Lock()
         self._live_sequence = 0
         self._session_last_live_sequence: dict[str, int] = {}
         self._events_since_checkpoint: dict[str, int] = {}
@@ -365,6 +371,11 @@ class EventProcessor:
         Args:
             session_id: Identifier for the session to purge.
         """
+        async with self._restore_tasks_lock:
+            restore_task = self._restore_tasks.pop(session_id, None)
+        if restore_task is not None and not restore_task.done():
+            restore_task.cancel()
+
         async with self._sessions_lock:
             sm = self.sessions.get(session_id)
             if sm and sm.room_id:
@@ -388,6 +399,13 @@ class EventProcessor:
 
     async def clear_all_sessions(self) -> None:
         """Clear all in-memory session state."""
+        async with self._restore_tasks_lock:
+            restore_tasks = list(self._restore_tasks.values())
+            self._restore_tasks.clear()
+        for restore_task in restore_tasks:
+            if not restore_task.done():
+                restore_task.cancel()
+
         async with self._sessions_lock:
             self.sessions.clear()
             self._session_last_live_sequence.clear()
@@ -426,10 +444,21 @@ class EventProcessor:
                 }
         return len(stale)
 
-    async def get_current_state(self, session_id: str) -> GameState | None:
-        """Retrieve current game state for a session, restoring from DB if needed."""
+    async def get_current_state(
+        self, session_id: str, *, restore_if_missing: bool = True
+    ) -> GameState | None:
+        """Retrieve current state without making Viewer handshakes do a replay.
+
+        The compatibility default still restores for internal callers.  The
+        WebSocket route passes ``restore_if_missing=False`` and schedules the
+        restore separately, so a first browser connection is acknowledged
+        immediately even when a legacy session has a very large event tail.
+        """
         if session_id not in self.sessions:
-            await self._restore_session(session_id)
+            if restore_if_missing:
+                await self._restore_session(session_id)
+            else:
+                await self.schedule_restore(session_id)
 
         sm = self.sessions.get(session_id)
         if sm:
@@ -796,21 +825,17 @@ class EventProcessor:
                 resolved_floor_id = assignment.floor_id
                 resolved_room_id = assignment.room_id
 
-        event_id = await self._persist_event(event, resolved_floor_id, resolved_room_id)
-
-        # Replay from DB *before* acquiring the lock: the restore is async I/O
-        # that can take hundreds of ms for a long session, and holding the lock
-        # across it stalls the debounced overview broadcast and /ws/overview
-        # connects. Only the dict insertion below needs the lock.
-        restored: StateMachine | None = None
+        # Restore before persisting the current event.  Otherwise the current
+        # event would be read back by the restore and applied a second time.
+        # The restore task is single-flight and yields during large CPU tails.
         if event.session_id not in self.sessions:
-            restored = await self._build_restored_state_machine(event.session_id)
+            await self._restore_session(event.session_id)
+
+        event_id = await self._persist_event(event, resolved_floor_id, resolved_room_id)
 
         async with self._sessions_lock:
             if event.session_id not in self.sessions:
-                self.sessions[event.session_id] = (
-                    restored if restored is not None else StateMachine()
-                )
+                self.sessions[event.session_id] = StateMachine()
 
             # Capture the StateMachine reference while still holding the lock so a
             # concurrent clear_all_sessions()/remove_session() can't drop the key
@@ -971,16 +996,25 @@ class EventProcessor:
             logger.exception(f"Error broadcasting overview state: {e}")
 
     async def shutdown(self) -> None:
-        """Cancel a pending debounced overview broadcast on app shutdown.
+        """Cancel background processor tasks on app shutdown.
 
-        Without this the flush task is left pending at loop close and asyncio
-        logs "Task was destroyed but it is pending!".
+        Without this the flush or restore tasks can be left pending at loop
+        close and asyncio logs "Task was destroyed but it is pending!".
         """
         task = self._overview_flush_task
         if task is not None and not task.done():
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):
                 await task
+
+        async with self._restore_tasks_lock:
+            restore_tasks = list(self._restore_tasks.values())
+            self._restore_tasks.clear()
+        for restore_task in restore_tasks:
+            if not restore_task.done():
+                restore_task.cancel()
+        if restore_tasks:
+            await asyncio.gather(*restore_tasks, return_exceptions=True)
 
     async def build_overview_snapshot(self) -> OverviewState:
         """Build a cross-session overview under ``_sessions_lock``.
@@ -1164,7 +1198,7 @@ class EventProcessor:
                 logger.info("Restoring session %s from %d events in DB", session_id, len(events))
 
             skipped_count = 0
-            for rec in events:
+            for index, rec in enumerate(events, start=1):
                 try:
                     try:
                         evt = EventAdapter.validate_python(
@@ -1275,6 +1309,12 @@ class EventProcessor:
                     )
                     continue
 
+                # StateMachine.transition is intentionally synchronous. Yield
+                # periodically so a legacy 180k-event tail cannot monopolize
+                # the uvicorn event loop and starve /health/live.
+                if index % 128 == 0:
+                    await asyncio.sleep(0)
+
             if skipped_count > 0:
                 logger.warning(f"Skipped {skipped_count} malformed events during restoration")
 
@@ -1289,17 +1329,62 @@ class EventProcessor:
 
             return sm
 
-    async def _restore_session(self, session_id: str) -> None:
-        """Reconstruct and insert a session's StateMachine, if it has events.
+    async def _restore_and_cache(self, session_id: str) -> None:
+        """Build one session and publish its snapshot to existing viewers."""
+        started = asyncio.get_running_loop().time()
+        outcome = "failed"
+        try:
+            sm = await self._build_restored_state_machine(session_id)
+            if sm is not None:
+                async with self._sessions_lock:
+                    cached = self.sessions.setdefault(session_id, sm)
+                # A Viewer that connected before the background restore finishes
+                # receives the snapshot through the ordinary broadcast path.
+                await broadcast_state(session_id, cached)
+                outcome = "restored"
+            else:
+                outcome = "empty"
+        except asyncio.CancelledError:
+            outcome = "cancelled"
+            raise
+        except Exception:
+            logger.exception("Session restore failed session=%s", session_id)
+        finally:
+            logger.info(
+                "session_restore session=%s duration_ms=%.1f outcome=%s",
+                session_id[:8],
+                (asyncio.get_running_loop().time() - started) * 1000,
+                outcome,
+            )
+            async with self._restore_tasks_lock:
+                current = self._restore_tasks.get(session_id)
+                if current is asyncio.current_task():
+                    self._restore_tasks.pop(session_id, None)
 
-        Builds the machine (async DB I/O) without holding the lock, then inserts
-        it under ``_sessions_lock`` so the registry stays consistent with
-        readers such as ``build_overview``.
-        """
-        sm = await self._build_restored_state_machine(session_id)
-        if sm is not None:
-            async with self._sessions_lock:
-                self.sessions[session_id] = sm
+    async def _restore_task(self, session_id: str) -> asyncio.Task[None]:
+        """Return or create the single in-flight restore task for a session."""
+        async with self._restore_tasks_lock:
+            existing = self._restore_tasks.get(session_id)
+            if existing is not None and not existing.done():
+                return existing
+            task = asyncio.create_task(
+                self._restore_and_cache(session_id),
+                name=f"restore-session-{session_id[:8]}",
+            )
+            self._restore_tasks[session_id] = task
+            return task
+
+    async def schedule_restore(self, session_id: str) -> None:
+        """Schedule a restore without waiting for replay CPU or disk work."""
+        if session_id not in self.sessions:
+            await self._restore_task(session_id)
+
+    async def _restore_session(self, session_id: str) -> None:
+        """Await the single restore needed by event ingestion or internal APIs."""
+        if session_id in self.sessions:
+            return
+        task = await self._restore_task(session_id)
+        await asyncio.shield(task)
 
     async def _persist_event(
         self,

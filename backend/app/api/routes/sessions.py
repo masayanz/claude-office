@@ -418,35 +418,49 @@ async def get_session_replay(
     db: Annotated[AsyncSession, Depends(get_db)],
     offset: int = Query(0, ge=0, description="Skip the first N replay entries"),
     limit: int | None = Query(None, ge=1, description="Return at most N entries (capped at 2000)"),
+    include_state: bool = Query(
+        True,
+        description="Rebuild state snapshots; disable for lightweight live event hydration",
+    ),
 ) -> list[ReplayEntry]:
     """Get events and resulting states for session replay, with optional pagination.
 
     Replays events through the state machine to reconstruct the state
     after each event, enabling frontend replay functionality.
 
-    Pagination (ARC-015) applies to the *returned entries* only. State
-    reconstruction always replays from event 0 — when ``offset > 0`` the
-    StateMachine still transitions through the full prefix so the state
-    snapshot at entry N reflects every prior event. Defaults (offset=0,
-    limit=None) preserve today's full-response behaviour, so the frontend
-    needs no change.
+    Pagination (ARC-015) applies to the *returned entries* only when state
+    snapshots are requested.  ``include_state=false`` is a bounded, tail-only
+    mode for the live Viewer event log; it never scans or transitions the full
+    session history.
     """
-    # Fetch ALL events — no SQL .offset()/.limit() here, because the
-    # StateMachine must see the full prefix to reconstruct state correctly.
+    effective_limit = min(limit, 2000) if limit is not None else None
     stmt = (
         select(EventRecord)
         .where(EventRecord.session_id == session_id)
         .order_by(EventRecord.timestamp.asc())
     )
-    result = await db.execute(stmt)
-    events = result.scalars().all()
+
+    if not include_state:
+        # The live Viewer only hydrates its event log; its current state comes
+        # from WebSocket state_update. Keep this path bounded even when a
+        # session contains hundreds of thousands of events.
+        tail_limit = effective_limit or 2_000
+        result = await db.execute(
+            stmt.order_by(None)
+            .order_by(EventRecord.timestamp.desc(), EventRecord.id.desc())
+            .limit(tail_limit)
+        )
+        events = list(reversed(result.scalars().all()))
+    else:
+        # Fetch ALL events — no SQL .offset()/.limit() here, because the
+        # StateMachine must see the full prefix to reconstruct state correctly.
+        result = await db.execute(stmt)
+        events = result.scalars().all()
 
     from pydantic import ValidationError
 
     from app.core.state_machine import StateMachine
     from app.models.events import EventAdapter, EventType
-
-    effective_limit = min(limit, 2000) if limit is not None else None
 
     sm = StateMachine()
     replay_data: list[ReplayEntry] = []
@@ -482,16 +496,21 @@ async def get_session_replay(
                 session_id,
             )
             continue
-        # Full-prefix reconstruction: every valid event transitions the SM,
-        # even those before ``offset``. Only the append is gated below.
-        sm.transition(evt)
+        # Full-prefix reconstruction is needed only for stateful replay.
+        if include_state:
+            sm.transition(evt)
+            # The full replay endpoint is used by legacy/API clients too. Do
+            # not let a very large historical session monopolize the event
+            # loop while preserving its full-prefix state semantics.
+            if valid_idx % 128 == 0:
+                await asyncio.sleep(0)
 
-        if valid_idx < offset:
+        if include_state and valid_idx < offset:
             valid_idx += 1
             continue
         valid_idx += 1
 
-        state = sm.to_game_state(session_id)
+        state = sm.to_game_state(session_id) if include_state else None
 
         ts_utc = (
             rec.timestamp.astimezone(UTC)
@@ -511,11 +530,11 @@ async def get_session_replay(
                     "summary": get_event_processor().get_event_summary(evt),
                     "timestamp": ts_utc.strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
                 },
-                "state": state.model_dump(mode="json", by_alias=True),
+                "state": state.model_dump(mode="json", by_alias=True) if state else {},
             }
         )
 
-        if effective_limit is not None and len(replay_data) >= effective_limit:
+        if include_state and effective_limit is not None and len(replay_data) >= effective_limit:
             break
 
     return replay_data

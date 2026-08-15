@@ -17,6 +17,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import monotonic
 from typing import Any
 
 from app.core.codex_hybrid import HybridCoordinator
@@ -161,6 +162,10 @@ class CodexJsonlTailMonitor:
         self._last_event_at: datetime | None = None
         self._last_scan_at: datetime | None = None
         self._last_error_at: datetime | None = None
+        self._last_cycle_duration_ms = 0.0
+        self._max_cycle_duration_ms = 0.0
+        self._last_cycle_files_checked = 0
+        self._last_cycle_lines_processed = 0
 
     @staticmethod
     def _codex_home() -> Path:
@@ -205,16 +210,24 @@ class CodexJsonlTailMonitor:
             "parse_errors": self._parse_errors,
             "file_access_failures": self._file_access_failures,
             "last_error_at": self._last_error_at.isoformat() if self._last_error_at else None,
+            "last_cycle_duration_ms": round(self._last_cycle_duration_ms, 1),
+            "max_cycle_duration_ms": round(self._max_cycle_duration_ms, 1),
+            "last_cycle_files_checked": self._last_cycle_files_checked,
+            "last_cycle_lines_processed": self._last_cycle_lines_processed,
             "max_sessions": self.max_sessions,
         }
 
     async def _run(self) -> None:
         while True:
-            started = datetime.now(UTC)
-            self._last_scan_at = started
+            started_at = monotonic()
+            self._last_scan_at = datetime.now(UTC)
+            files_checked = 0
+            lines_processed = 0
             try:
-                await self._discover()
-                await self._read_all()
+                # Directory enumeration, stat/open, and JSON parsing are all
+                # synchronous APIs. Keep them off the uvicorn event loop.
+                await asyncio.to_thread(self._discover_sync)
+                files_checked, lines_processed = await self._read_all()
                 self._prune()
             except asyncio.CancelledError:
                 raise
@@ -222,11 +235,23 @@ class CodexJsonlTailMonitor:
                 self._file_access_failures += 1
                 self._last_error_at = datetime.now(UTC)
                 logger.warning("Codex JSONL monitor cycle failed: %s", type(exc).__name__)
+            self._last_cycle_files_checked = files_checked
+            self._last_cycle_lines_processed = lines_processed
+            self._last_cycle_duration_ms = (monotonic() - started_at) * 1000
+            self._max_cycle_duration_ms = max(
+                self._max_cycle_duration_ms, self._last_cycle_duration_ms
+            )
+            logger.info(
+                "jsonl_poll cycle duration_ms=%.1f files_checked=%d lines_processed=%d",
+                self._last_cycle_duration_ms,
+                files_checked,
+                lines_processed,
+            )
             if self._coordinator is not None:
                 self._coordinator.update_tail_status(self.status())
             await asyncio.sleep(self.poll_interval)
 
-    async def _discover(self) -> None:
+    def _discover_sync(self) -> None:
         home = self._codex_home()
         session_root = home / "sessions"
         now = datetime.now(UTC)
@@ -367,11 +392,27 @@ class CodexJsonlTailMonitor:
             )
         return None
 
-    async def _read_all(self) -> None:
+    async def _read_all(self) -> tuple[int, int]:
+        files_checked = 0
+        lines_processed = 0
         for cursor in list(self._cursors.values()):
-            await self._read_cursor(cursor)
+            files_checked += 1
+            lines_processed += await self._read_cursor(cursor)
+        return files_checked, lines_processed
 
-    async def _read_cursor(self, cursor: _Cursor) -> None:
+    async def _read_cursor(self, cursor: _Cursor) -> int:
+        result = await asyncio.to_thread(self._read_cursor_sync, cursor)
+        if result is None:
+            return 0
+        records, parse_errors = result
+        self._parse_errors += parse_errors
+        for record in records:
+            await self._handle_record(cursor, record)
+        return len(records)
+
+    def _read_cursor_sync(
+        self, cursor: _Cursor
+    ) -> tuple[list[dict[str, Any]], int] | None:
         path = cursor.path
         try:
             stat = path.stat()
@@ -390,16 +431,14 @@ class CodexJsonlTailMonitor:
             cursor.offset += len(data)
         except OSError:
             self._file_access_failures += 1
-            if not path.exists():
+            if not path.is_file():
                 self._cursors.pop(path, None)
-            return
+            return None
         reader = JsonlTailReader()
         reader.partial = cursor.partial
         records = reader.feed(data)
         cursor.partial = reader.partial
-        self._parse_errors += reader.parse_errors
-        for record in records:
-            await self._handle_record(cursor, record)
+        return records, reader.parse_errors
 
     async def _handle_record(self, cursor: _Cursor, record: dict[str, Any]) -> None:
         meta = cursor.meta

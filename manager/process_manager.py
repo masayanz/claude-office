@@ -1194,6 +1194,15 @@ class ServerLifecycleManager:
                 True,
                 "HTTP応答" if liveness_ok else "Frontend HTTPへ接続できません",
             )
+        elif not liveness_ok:
+            # Readiness is a dependency signal, not a second liveness probe.
+            # When the HTTP server does not answer, avoid issuing another
+            # one-second request that only adds load and delays state reporting.
+            readiness_ok, readiness_known, readiness_detail = (
+                False,
+                False,
+                "livenessへ接続できないためreadiness未確認",
+            )
         else:
             readiness_ok, readiness_known, readiness_detail = self._readiness(service)
         previous = getattr(self, "_health_snapshots", {}).get(service)

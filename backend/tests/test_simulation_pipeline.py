@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.config import get_settings
@@ -829,3 +830,23 @@ class TestReplayPagination:
         sid = self._seed(3)
         resp = client.get(f"/api/v1/sessions/{sid}/replay?offset=-1")
         assert resp.status_code == 422
+
+    def test_live_replay_hydration_is_bounded_and_does_not_rebuild_state(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Viewer hydration must not run StateMachine.transition on the loop."""
+        sid = self._seed(8)
+        from app.core.state_machine import StateMachine
+
+        def fail_transition(*_args: Any, **_kwargs: Any) -> None:
+            raise AssertionError("lightweight live hydration rebuilt state")
+
+        monkeypatch.setattr(StateMachine, "transition", fail_transition)
+        response = client.get(
+            f"/api/v1/sessions/{sid}/replay?limit=3&include_state=false"
+        )
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert len(payload) == 3
+        assert all(frame["state"] == {} for frame in payload)

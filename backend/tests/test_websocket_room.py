@@ -1,9 +1,11 @@
 # backend/tests/test_websocket_room.py
 """Tests for room-level WebSocket connection management."""
 
+import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
+from starlette.websockets import WebSocketState
 
 from app.api.websocket import ConnectionManager
 
@@ -43,6 +45,24 @@ class TestRoomConnections:
         mgr = ConnectionManager()
         # Should not raise
         await mgr.broadcast_room({"type": "test"}, "room-with-no-subs")
+
+    @pytest.mark.asyncio
+    async def test_slow_room_client_is_timed_out_and_pruned(self, monkeypatch) -> None:
+        import app.core.connection_manager as connection_manager
+
+        monkeypatch.setattr(connection_manager, "_WEBSOCKET_SEND_TIMEOUT", 0.01)
+        mgr = ConnectionManager()
+        ws = AsyncMock()
+        ws.client_state = WebSocketState.CONNECTED
+
+        async def slow_send(_message) -> None:
+            await asyncio.sleep(1)
+
+        ws.send_json.side_effect = slow_send
+        await mgr.connect_room(ws, "room-1")
+        await mgr.broadcast_room({"type": "test"}, "room-1")
+
+        assert "room-1" not in mgr.room_connections
 
 
 class TestOverviewConnections:

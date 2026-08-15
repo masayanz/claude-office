@@ -1,5 +1,7 @@
 import logging
+import re
 from collections.abc import AsyncIterator
+from time import perf_counter
 from typing import Any
 
 from sqlalchemy import event
@@ -38,6 +40,56 @@ def _set_sqlite_pragma(dbapi_connection: Any, _connection_record: Any) -> None: 
     cursor.execute("PRAGMA journal_mode=WAL")
     cursor.execute("PRAGMA busy_timeout=5000")
     cursor.close()
+
+
+def _sql_operation(statement: str) -> str:
+    """Return a short parameter-free operation label for diagnostics."""
+    tokens = re.sub(r"\s+", " ", statement).strip().split(" ")
+    if not tokens:
+        return "unknown"
+    verb = tokens[0].lower()
+    for marker in ("from", "into", "update", "join"):
+        if marker in tokens[1:]:
+            index = tokens.index(marker)
+            if index + 1 < len(tokens):
+                return f"{verb} {tokens[index + 1].strip('\\\"`[]')}"[:80]
+    return verb
+
+
+@event.listens_for(_engine.sync_engine, "before_cursor_execute")
+def _slow_query_start(
+    connection: Any,
+    _cursor: Any,
+    statement: str,
+    _parameters: Any,
+    _context: Any,
+    _executemany: bool,
+) -> None:
+    connection.info.setdefault("_slow_query_starts", []).append(
+        (perf_counter(), _sql_operation(statement))
+    )
+
+
+@event.listens_for(_engine.sync_engine, "after_cursor_execute")
+def _slow_query_end(
+    connection: Any,
+    _cursor: Any,
+    _statement: str,
+    _parameters: Any,
+    _context: Any,
+    _executemany: bool,
+) -> None:
+    starts = connection.info.get("_slow_query_starts")
+    if not starts:
+        return
+    started, operation = starts.pop()
+    duration_ms = (perf_counter() - started) * 1000
+    if duration_ms >= 500:
+        logger.warning(
+            "sqlite_slow_query operation=%s duration_ms=%.1f",
+            operation,
+            duration_ms,
+        )
 
 
 _session_factory: async_sessionmaker[AsyncSession] = async_sessionmaker(

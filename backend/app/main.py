@@ -5,10 +5,11 @@ import importlib
 import logging
 import os
 import uuid
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from rich.logging import RichHandler
 from sqlalchemy import delete, select, text, update
 from sqlalchemy.exc import SQLAlchemyError
+from starlette.responses import Response
 
 from app.api.middleware import ApiKeyMiddleware, LocalhostOnlyMiddleware
 from app.api.routes import (
@@ -34,6 +36,7 @@ from app.config import get_settings
 from app.core.codex_hybrid import get_codex_hybrid_coordinator
 from app.core.codex_jsonl_tail import get_codex_jsonl_tail_monitor
 from app.core.event_processor import EventProcessor, get_event_processor
+from app.core.runtime_diagnostics import event_loop_diagnostics
 from app.core.summary_service import get_summary_service
 from app.db.database import Base, get_engine
 from app.db.migrate import migrate_schema
@@ -65,6 +68,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     """Manage application startup and shutdown lifecycle."""
     global BACKEND_READY
     BACKEND_READY = False
+    event_loop_diagnostics.start()
     importlib.import_module("app.db.models")
     engine = get_engine()
     database_lock = acquire_database_process_lock(str(engine.url))
@@ -152,6 +156,7 @@ async def lifespan(_app: FastAPI) -> AsyncGenerator[None]:
     await get_engine().dispose()
     if database_lock is not None:
         database_lock.release()
+    await event_loop_diagnostics.stop()
     BACKEND_READY = False
 
 
@@ -300,6 +305,27 @@ app.include_router(sessions.router, prefix=f"{settings.API_V1_STR}")
 app.include_router(websockets.router)
 
 
+@app.middleware("http")
+async def request_timing_middleware(
+    request: Request, call_next: Callable[[Request], Awaitable[Response]]
+) -> Response:
+    """Log route duration without query strings, headers, or request bodies."""
+    started = perf_counter()
+    status_code = 500
+    try:
+        response = await call_next(request)
+        status_code = response.status_code
+        return response
+    finally:
+        logger.info(
+            "request_timing method=%s path=%s status=%d duration_ms=%.1f",
+            request.method,
+            request.url.path,
+            status_code,
+            (perf_counter() - started) * 1000,
+        )
+
+
 @app.exception_handler(Exception)
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """Catch-all for unhandled route exceptions.
@@ -314,12 +340,21 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
-def _backend_port() -> int:
+def _read_backend_port() -> int:
     shared_settings, _ = load_settings()
     try:
         return int(shared_settings.get("backend_port", 8000))
     except (TypeError, ValueError):
         return 8000
+
+
+# The port is startup identity, not a live dependency. Cache it so the
+# liveness handler never reads the settings file on the request path.
+BACKEND_PORT = _read_backend_port()
+
+
+def _backend_port() -> int:
+    return BACKEND_PORT
 
 
 def _health_identity() -> dict[str, str | int]:
@@ -353,6 +388,12 @@ async def health_ready() -> dict[str, str | int | bool]:
         logger.warning("Backend readiness failed: %s", type(exc).__name__)
         raise HTTPException(status_code=503, detail="Databaseが利用できません") from exc
     return {**_health_identity(), "ready": True, "detail": "Database ready"}
+
+
+@app.get("/health/diagnostics")
+async def health_diagnostics() -> dict[str, object]:
+    """Return in-memory event-loop diagnostics without touching SQLite."""
+    return {**_health_identity(), "event_loop": event_loop_diagnostics.status()}
 
 
 @app.get("/health")

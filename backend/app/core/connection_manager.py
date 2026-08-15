@@ -19,6 +19,7 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 
 logger = logging.getLogger(__name__)
+_WEBSOCKET_SEND_TIMEOUT = 1.0
 
 
 class ConnectionManager:
@@ -55,15 +56,19 @@ class ConnectionManager:
             helper stays agnostic of whether connections are grouped by
             session, room, or stored in a flat list (QA-015).
         """
-        failed: list[WebSocket] = []
-        for connection in connections:
+        async def send(connection: WebSocket) -> WebSocket | None:
             try:
                 if connection.client_state == WebSocketState.CONNECTED:
-                    await connection.send_json(message)
+                    await asyncio.wait_for(
+                        connection.send_json(message), timeout=_WEBSOCKET_SEND_TIMEOUT
+                    )
             except Exception as e:
-                logger.warning("Failed to send to WebSocket (%s): %s", label, e)
-                failed.append(connection)
-        return failed
+                logger.warning("Failed to send to WebSocket (%s): %s", label, type(e).__name__)
+                return connection
+            return None
+
+        results = await asyncio.gather(*(send(connection) for connection in connections))
+        return [connection for connection in results if connection is not None]
 
     # ------------------------------------------------------------------
     # Session-level operations
@@ -109,9 +114,11 @@ class ConnectionManager:
         """Send a message to a specific WebSocket connection."""
         try:
             if websocket.client_state == WebSocketState.CONNECTED:
-                await websocket.send_json(message)
+                await asyncio.wait_for(
+                    websocket.send_json(message), timeout=_WEBSOCKET_SEND_TIMEOUT
+                )
         except Exception as e:
-            logger.warning("Failed to send personal message: %s", e)
+            logger.warning("Failed to send personal message: %s", type(e).__name__)
 
     async def broadcast_all(self, message: dict[str, Any]) -> None:
         """Broadcast a message to ALL connected clients across all sessions."""

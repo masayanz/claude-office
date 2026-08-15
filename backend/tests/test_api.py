@@ -5,6 +5,7 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
+import app.main as main_module
 from app.config import get_settings
 from app.core.event_processor import event_processor
 from app.main import app
@@ -23,6 +24,21 @@ def test_health_live_returns_identity_without_database_access() -> None:
     assert payload["instance_id"]
     assert isinstance(payload["pid"], int)
     assert isinstance(payload["port"], int)
+
+
+def test_health_live_does_not_read_database_or_settings(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Liveness must remain usable while DB/settings dependencies are broken."""
+
+    def fail(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("health/live touched a dependency")
+
+    monkeypatch.setattr(main_module, "get_engine", fail)
+    monkeypatch.setattr(main_module, "load_settings", fail)
+
+    response = client.get("/health/live")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "ok"
 
 
 def test_health_ready_is_public_and_reports_startup_readiness() -> None:

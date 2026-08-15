@@ -115,6 +115,21 @@ async def test_restore_applies_only_events_after_checkpoint() -> None:
 
 
 @pytest.mark.asyncio
+async def test_viewer_state_lookup_schedules_restore_without_waiting() -> None:
+    """Viewer handshakes do not await a large restore task."""
+    processor = EventProcessor()
+    scheduled: list[str] = []
+
+    async def schedule(session_id: str) -> None:
+        scheduled.append(session_id)
+
+    processor.schedule_restore = schedule  # type: ignore[method-assign]
+
+    assert await processor.get_current_state("viewer-large", restore_if_missing=False) is None
+    assert scheduled == ["viewer-large"]
+
+
+@pytest.mark.asyncio
 @pytest.mark.performance
 @pytest.mark.timeout(120)
 async def test_restore_200k_events_uses_checkpoint_tail() -> None:

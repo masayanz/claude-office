@@ -213,6 +213,28 @@ def test_missing_adapter_is_an_overall_error(tmp_path: Path) -> None:
     assert report.overall.state == DiagnosticState.ERROR
 
 
+def test_codex_diagnostic_unavailable_does_not_make_backend_an_error(tmp_path: Path) -> None:
+    report = build_diagnostic_report(
+        cli_available=True,
+        cli_version="codex 1.0",
+        hooks_inspection=_inspection(tmp_path),
+        adapter_available=True,
+        backend_status=CodexBackendStatus(
+            reachable=False,
+            live_event_count=12,
+            monitored_sessions=2,
+            detail="Codex診断APIを一時的に確認できません",
+        ),
+    )
+
+    assert report.backend.state == DiagnosticState.WARNING
+    assert report.jsonl_monitor.state == DiagnosticState.WARNING
+    assert report.live_events.state == DiagnosticState.WARNING
+    assert report.overall.state == DiagnosticState.WARNING
+    assert report.backend_status.live_event_count == 12
+    assert report.backend_status.monitored_sessions == 2
+
+
 def test_cli_discovery_prefers_environment_override_and_validates_version(tmp_path: Path) -> None:
     override = tmp_path / "custom-codex.exe"
     override.write_text("", encoding="utf-8")

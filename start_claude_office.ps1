@@ -40,7 +40,7 @@ $backendHost = [string]$appSettings.backend_host
 $backendPort = [int]$appSettings.backend_port
 $frontendHost = [string]$appSettings.frontend_host
 $frontendPort = [int]$appSettings.frontend_port
-$backendHealthUrl = "http://${backendHost}:${backendPort}/health"
+$backendHealthUrl = "http://${backendHost}:${backendPort}/health/live"
 $frontendUrl = "http://${frontendHost}:${frontendPort}"
 $apiUrl = "http://${backendHost}:${backendPort}"
 $wsUrl = "ws://${backendHost}:${backendPort}"
@@ -51,7 +51,9 @@ function Test-EndpointReady([ValidateSet("Backend", "Frontend")][string]$kind, [
         if ($response.StatusCode -ne 200) { return $false }
         if ($kind -eq "Backend") {
             $health = $response.Content | ConvertFrom-Json
-            return [string]$health.status -eq "ok"
+            return [string]$health.status -eq "ok" -and
+                [string]$health.app -eq "ai-office-viewer" -and
+                [string]$health.component -eq "backend"
         }
         # A different service can also answer on the configured port. Require the
         # AI Office Viewer page marker before calling it already running.

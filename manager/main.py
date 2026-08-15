@@ -8,6 +8,7 @@ import time
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
+from dataclasses import replace
 from datetime import UTC, datetime
 
 from PySide6.QtCore import QIODevice, QObject, QSettings, QTimer, Signal
@@ -53,7 +54,9 @@ from .codex_diagnostics import (
 )
 from .process_manager import (
     CodexRestoreStatus,
+    EmergencyStopReport,
     GlobalHooksRepairResult,
+    PortProcessInfo,
     ServerLifecycleManager,
     ServiceStatus,
 )
@@ -247,6 +250,8 @@ class ManagerWindow(QMainWindow):
     _diagnostic_received = Signal(object)
     _repair_finished = Signal(object)
     _service_action_finished = Signal(object)
+    _emergency_candidates_received = Signal(object)
+    _emergency_finished = Signal(object)
 
     def __init__(self, icon: QIcon) -> None:
         super().__init__()
@@ -266,6 +271,8 @@ class ManagerWindow(QMainWindow):
         self._startup_grace_until = 0.0
         self._start_requested: set[str] = set()
         self._service_action_in_flight = False
+        self._emergency_in_flight = False
+        self._emergency_quit_after = False
         self._pending_dedicated_view = False
         self._dedicated_view_deadline = 0.0
         self._dedicated_view_state = DEDICATED_VIEW_CLOSED
@@ -276,6 +283,7 @@ class ManagerWindow(QMainWindow):
         self._status_poll_in_flight = False
         self._restore_request_in_flight = False
         self._diagnostic_in_flight = False
+        self._next_diagnostic_at = 0.0
         self._repair_in_flight = False
         self._codex_report: CodexDiagnosticReport | None = None
         self._last_notified_codex_state: DiagnosticState | None = None
@@ -286,6 +294,8 @@ class ManagerWindow(QMainWindow):
         self._diagnostic_received.connect(self._apply_codex_diagnostic)
         self._repair_finished.connect(self._apply_repair_result)
         self._service_action_finished.connect(self._apply_manager_action)
+        self._emergency_candidates_received.connect(self._apply_emergency_candidates)
+        self._emergency_finished.connect(self._apply_emergency_result)
         self._status_received.connect(self._apply_status_snapshot)
         self._build_window()
         self._build_tray()
@@ -397,6 +407,24 @@ class ManagerWindow(QMainWindow):
         restore_actions.addWidget(board_settings_button)
         restore_actions.addStretch(1)
         layout.addLayout(restore_actions)
+        emergency_group = QGroupBox("危険操作")
+        emergency_layout = QHBoxLayout(emergency_group)
+        emergency_hint = QLabel(
+            "通常停止で解放できないポートを、確認したPIDだけ非常停止します。"
+        )
+        emergency_hint.setWordWrap(True)
+        emergency_layout.addWidget(emergency_hint, 1)
+        self._emergency_button = QPushButton("非常停止")
+        self._emergency_button.setToolTip(
+            "設定済みポートの占有PIDを再検査し、確認後に強制停止します"
+        )
+        self._emergency_button.setStyleSheet(
+            "QPushButton { background:#b91c1c; color:white; font-weight:700; "
+            "padding:8px 18px; }"
+        )
+        self._emergency_button.clicked.connect(self._open_emergency_stop)
+        emergency_layout.addWidget(self._emergency_button)
+        layout.addWidget(emergency_group)
         layout.addWidget(QLabel("× / Alt+F4: タスクトレイへ収納　　終了: トレイメニューから"))
         layout.addStretch(1)
         scroll.setWidget(central)
@@ -498,6 +526,13 @@ class ManagerWindow(QMainWindow):
         self._add_tray_action(menu, "作業履歴を再生", self._open_replay)
         self._add_tray_action(menu, "ホワイトボード設定", self._open_board_settings)
         menu.addSeparator()
+        self._add_tray_action(
+            menu,
+            "非常停止（確認あり）",
+            self._open_emergency_stop,
+            "設定済みポートの占有PIDを確認してから非常停止します",
+        )
+        menu.addSeparator()
         self._add_tray_action(menu, "設定", self._settings_dialog)
         self._add_tray_action(menu, "ログ", self._logs_dialog)
         menu.addSeparator()
@@ -588,6 +623,7 @@ class ManagerWindow(QMainWindow):
                 "backend", backend.running, backend.healthy, in_startup_grace,
                 backend.state, backend.detail,
                 backend.readiness_ok, backend.readiness_known, backend.process_alive,
+                backend.consecutive_failures,
             )
         )
         self._status_labels["frontend"].setText(
@@ -595,17 +631,35 @@ class ManagerWindow(QMainWindow):
                 "frontend", frontend.running, frontend.healthy, in_startup_grace,
                 frontend.state, frontend.detail,
                 frontend.readiness_ok, frontend.readiness_known, frontend.process_alive,
+                frontend.consecutive_failures,
             )
         )
         self._maybe_open_pending_dedicated_view()
         codex_text = self._codex_report.overall.summary if self._codex_report else "確認中"
+        backend_text = (
+            "稼働中"
+            if backend.healthy
+            else (
+                "応答遅延"
+                if backend.process_alive and backend.consecutive_failures < 3
+                else "応答なし"
+            )
+        )
         self._tray.setToolTip(
             f"{MANAGER_NAME}\n"
             f"Viewer: {'稼働中' if frontend.healthy else '停止'}\n"
-            f"Backend: {'稼働中' if backend.healthy else '停止'}\n"
+            f"Backend: {backend_text}\n"
             f"Codex: {codex_text}"
         )
-        if backend.healthy or not in_startup_grace:
+        # Codex diagnostic is telemetry, not lifecycle health.  Poll it on a
+        # slower independent cadence and never launch it merely because a
+        # liveness probe failed.
+        diagnostic_due = time.monotonic() >= getattr(self, "_next_diagnostic_at", 0.0)
+        if (
+            backend.process_alive
+            and (backend.healthy or backend.state != "stopped")
+            and diagnostic_due
+        ):
             self._poll_codex_diagnostic(full=self._codex_report is None)
 
     def _status_text(
@@ -619,12 +673,13 @@ class ManagerWindow(QMainWindow):
         readiness_ok: bool = False,
         readiness_known: bool = False,
         process_alive: bool = False,
+        consecutive_failures: int = 0,
     ) -> str:
         if state == "stopping":
             return "停止中…"
         if state == "starting" and not healthy:
             return "起動中…"
-        if state == "error":
+        if state == "error" and (not process_alive or consecutive_failures == 0):
             return detail or "処理に失敗しました。\n「ログ」を確認してください。"
         if state == "external":
             return "外部で稼働中（停止対象外）"
@@ -632,8 +687,8 @@ class ManagerWindow(QMainWindow):
             return "稼働中（準備未完了）"
         if healthy:
             return "稼働中"
-        if state in {"running", "degraded"} and (process_alive or running):
-            return "稼働中（応答なし）"
+        if state in {"running", "degraded", "error"} and (process_alive or running):
+            return "稼働中（応答遅延）" if consecutive_failures < 3 else "稼働中（応答なし）"
         if running or (starting and service in self._start_requested):
             return "起動中…"
         if service in self._start_requested:
@@ -655,6 +710,225 @@ class ManagerWindow(QMainWindow):
             )
         )
 
+    def _open_emergency_stop(self) -> None:
+        self._begin_emergency_stop(for_quit=False)
+
+    def _begin_emergency_stop(self, *, for_quit: bool) -> None:
+        if self._emergency_in_flight or self._service_action_in_flight:
+            return
+        inspect = getattr(self.manager, "inspect_configured_ports", None)
+        stop = getattr(self.manager, "emergency_stop", None)
+        if not callable(inspect) or not callable(stop):
+            QMessageBox.warning(
+                self,
+                "非常停止を利用できません",
+                "このManagerでは非常停止機能を利用できません。ログを確認してください。",
+            )
+            return
+        self._emergency_in_flight = True
+        self._emergency_quit_after = for_quit
+        button = getattr(self, "_emergency_button", None)
+        if button is not None:
+            button.setEnabled(False)
+        future = self._executor.submit(inspect)
+        future.add_done_callback(
+            lambda completed: self._emergency_candidates_received.emit(
+                self._future_result(completed)
+            )
+        )
+
+    @staticmethod
+    def _emergency_candidate_text(info: PortProcessInfo) -> str:
+        return (
+            f"port={info.port}  PID={info.pid}  "
+            f"process={info.process_name or '-'}  cwd={info.cwd_name or '-'}\n"
+            f"identity={info.identity}"
+        )
+
+    def _apply_emergency_candidates(self, result: object) -> None:
+        if isinstance(result, Exception) or not isinstance(result, dict):
+            self._emergency_in_flight = False
+            self._emergency_quit_after = False
+            button = getattr(self, "_emergency_button", None)
+            if button is not None:
+                button.setEnabled(True)
+            QMessageBox.warning(
+                self,
+                "ポート検査エラー",
+                str(result) if isinstance(result, Exception) else "ポートを検査できませんでした。",
+            )
+            return
+
+        for_quit = self._emergency_quit_after
+        dialog = QDialog(self)
+        dialog.setWindowTitle("AI Office Viewer 非常停止")
+        dialog.setWindowIcon(self._icon)
+        dialog.resize(760, 440)
+        layout = QVBoxLayout(dialog)
+        warning = QLabel(
+            "これは通常停止ではありません。選択したポートの占有プロセスを終了します。\n"
+            "AI Office Viewerと確認できないプロセスは、他のアプリケーションの可能性があります。\n"
+            "PID・プロセス名・作業フォルダ名を確認してから選択してください。"
+        )
+        warning.setWordWrap(True)
+        warning.setStyleSheet("color:#991b1b; font-weight:700")
+        layout.addWidget(warning)
+
+        checkboxes: dict[str, QCheckBox] = {}
+        candidates: dict[str, tuple[PortProcessInfo, ...]] = {}
+        for service, label in (("backend", "Backend"), ("frontend", "Frontend")):
+            values = tuple(
+                item
+                for item in result.get(service, ())
+                if isinstance(item, PortProcessInfo)
+            )
+            candidates[service] = values
+            group = QGroupBox(label)
+            group_layout = QVBoxLayout(group)
+            if values:
+                checkbox = QCheckBox(f"{label}を非常停止の対象にする")
+                # A normal emergency click starts with no service selected.  A
+                # quit fallback has already received an explicit confirmation,
+                # so it is convenient to preselect the still-listening services.
+                checkbox.setChecked(for_quit)
+                checkboxes[service] = checkbox
+                group_layout.addWidget(checkbox)
+                for info in values:
+                    detail = QLabel(self._emergency_candidate_text(info))
+                    detail.setWordWrap(True)
+                    detail.setStyleSheet(
+                        "color:#991b1b" if not info.identity_verified else "color:#166534"
+                    )
+                    group_layout.addWidget(detail)
+            else:
+                group_layout.addWidget(QLabel("設定済みポートの占有プロセスはありません。"))
+            layout.addWidget(group)
+
+        controls = QHBoxLayout()
+        recheck = QPushButton("ポートを再検査")
+        recheck.clicked.connect(lambda: dialog.done(2))
+        controls.addWidget(recheck)
+        controls.addStretch(1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Cancel)
+        force_button = buttons.addButton(
+            "非常停止を実行", QDialogButtonBox.ButtonRole.DestructiveRole
+        )
+        force_button.clicked.connect(dialog.accept)
+        buttons.rejected.connect(dialog.reject)
+        controls.addWidget(buttons)
+        layout.addLayout(controls)
+
+        code = dialog.exec()
+        if code == 2:
+            self._emergency_in_flight = False
+            self._begin_emergency_stop(for_quit=for_quit)
+            return
+        if code != QDialog.DialogCode.Accepted:
+            self._emergency_in_flight = False
+            self._emergency_quit_after = False
+            button = getattr(self, "_emergency_button", None)
+            if button is not None:
+                button.setEnabled(True)
+            return
+
+        selected = tuple(
+            service for service, checkbox in checkboxes.items() if checkbox.isChecked()
+        )
+        if not selected:
+            self._emergency_in_flight = False
+            self._emergency_quit_after = False
+            button = getattr(self, "_emergency_button", None)
+            if button is not None:
+                button.setEnabled(True)
+            QMessageBox.information(
+                self,
+                "対象が選択されていません",
+                "非常停止するBackendまたはFrontendを選択してください。",
+            )
+            return
+
+        unverified = [
+            info
+            for service in selected
+            for info in candidates[service]
+            if not info.identity_verified
+        ]
+        extra_warning = ""
+        if unverified:
+            extra_warning = (
+                "\n\nAI Office Viewerと確認できないPIDが含まれています。"
+                "他のアプリケーションを停止する可能性があります。"
+            )
+        answer = QMessageBox.warning(
+            self,
+            "非常停止の最終確認",
+            "選択したプロセスを終了します。通常停止に戻すことはできません。"
+            + extra_warning
+            + "\n\n実行する場合は「はい」、取り消す場合は「いいえ」を選択してください。",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self._emergency_in_flight = False
+            self._emergency_quit_after = False
+            button = getattr(self, "_emergency_button", None)
+            if button is not None:
+                button.setEnabled(True)
+            return
+        expected = {
+            service: tuple(info.pid for info in candidates[service])
+            for service in selected
+        }
+        self._start_emergency_action(selected, expected)
+
+    def _start_emergency_action(
+        self,
+        services: tuple[str, ...],
+        expected_pids: dict[str, tuple[int, ...]],
+    ) -> None:
+        stop = getattr(self.manager, "emergency_stop")
+        future = self._executor.submit(
+            stop,
+            services,
+            expected_pids=expected_pids,
+        )
+        future.add_done_callback(
+            lambda completed: self._emergency_finished.emit(self._future_result(completed))
+        )
+
+    def _apply_emergency_result(self, result: object) -> None:
+        for_quit = self._emergency_quit_after
+        self._emergency_in_flight = False
+        self._emergency_quit_after = False
+        button = getattr(self, "_emergency_button", None)
+        if button is not None:
+            button.setEnabled(True)
+        if isinstance(result, Exception) or not isinstance(result, EmergencyStopReport):
+            QMessageBox.warning(
+                self,
+                "非常停止エラー",
+                str(result) if isinstance(result, Exception) else "非常停止の結果を取得できませんでした。",
+            )
+            return
+
+        lines: list[str] = []
+        for service, item in result.results.items():
+            state = "解放済み" if item.succeeded else "未解放"
+            lines.append(f"{service}: {state} / {item.detail}")
+        self._refresh_status()
+        if result.succeeded and for_quit:
+            self._finalize_quit()
+            return
+        if result.succeeded:
+            QMessageBox.information(self, "非常停止完了", "\n".join(lines))
+        else:
+            QMessageBox.warning(
+                self,
+                "非常停止を確認できません",
+                "Managerは終了せず、残存プロセスの管理を継続します。\n\n"
+                + "\n".join(lines),
+            )
+
     def _apply_manager_action(self, result: object) -> None:
         self._service_action_in_flight = False
         for button in self._service_buttons:
@@ -667,6 +941,19 @@ class ManagerWindow(QMainWindow):
                     failures = [str(value)]
                 if failures:
                     self._refresh_status()
+                    if callable(getattr(self.manager, "emergency_stop", None)):
+                        answer = QMessageBox.question(
+                            self,
+                            "通常停止に失敗しました",
+                            "通常停止でサーバーの停止を確認できませんでした。\n\n"
+                            + "\n".join(failures)
+                            + "\n\n非常停止してManagerを終了しますか？",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if answer == QMessageBox.StandardButton.Yes:
+                            self._begin_emergency_stop(for_quit=True)
+                            return
                     QMessageBox.warning(
                         self,
                         "AI Office Viewerを停止できません",
@@ -676,6 +963,59 @@ class ManagerWindow(QMainWindow):
                     return
                 self._finalize_quit()
                 return
+            if label == "停止":
+                failures: list[str] = []
+                if isinstance(value, Exception):
+                    failures = [str(value)]
+                elif isinstance(value, dict):
+                    for service, status in value.items():
+                        if isinstance(status, ServiceStatus) and (
+                            status.running
+                            or status.state in {"error", "unknown", "stopping"}
+                        ):
+                            failures.append(f"{service}: {status.detail or '停止未確認'}")
+                if failures:
+                    self._refresh_status()
+                    if callable(getattr(self.manager, "emergency_stop", None)):
+                        answer = QMessageBox.question(
+                            self,
+                            "通常停止に失敗しました",
+                            "通常停止でサーバーの停止を確認できませんでした。\n\n"
+                            + "\n".join(failures)
+                            + "\n\n非常停止の確認画面を開きますか？",
+                            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                            QMessageBox.StandardButton.No,
+                        )
+                        if answer == QMessageBox.StandardButton.Yes:
+                            self._begin_emergency_stop(for_quit=False)
+                            return
+                    QMessageBox.warning(
+                        self,
+                        "AI Office Viewerを停止できません",
+                        "通常停止を確認できませんでした。\n\n" + "\n".join(failures),
+                    )
+                    return
+            if label == "起動" and isinstance(value, dict):
+                conflicts = [
+                    f"{service}: {status.detail or 'ポート使用中'}"
+                    for service, status in value.items()
+                    if isinstance(status, ServiceStatus) and status.state == "external"
+                ]
+                if conflicts and callable(
+                    getattr(self.manager, "inspect_configured_ports", None)
+                ):
+                    answer = QMessageBox.question(
+                        self,
+                        "起動できないポートがあります",
+                        "設定済みポートが別プロセスにより使用中です。\n\n"
+                        + "\n".join(conflicts)
+                        + "\n\n占有PIDを確認しますか？",
+                        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+                        QMessageBox.StandardButton.Yes,
+                    )
+                    if answer == QMessageBox.StandardButton.Yes:
+                        self._begin_emergency_stop(for_quit=False)
+                        return
             if isinstance(value, Exception):
                 QMessageBox.critical(self, f"{label}エラー", str(value))
         self._refresh_status()
@@ -773,6 +1113,7 @@ class ManagerWindow(QMainWindow):
         if self._diagnostic_in_flight or self._is_quitting:
             return
         self._diagnostic_in_flight = True
+        self._next_diagnostic_at = time.monotonic() + (1.0 if full else 5.0)
         self._diagnose_button.setEnabled(False)
         if full or self._codex_report is None:
             future = self._executor.submit(self.manager.diagnose_codex_integration)
@@ -783,7 +1124,12 @@ class ManagerWindow(QMainWindow):
                 try:
                     backend_status = self.manager.codex_integration_status()
                 except (RuntimeError, ValueError):
-                    backend_status = CodexBackendStatus(reachable=False)
+                    previous_status = previous.backend_status
+                    backend_status = replace(
+                        previous_status,
+                        reachable=False,
+                        detail="Codex診断APIを一時的に確認できません",
+                    )
                 return build_diagnostic_report(
                     cli_available=previous.cli.state == DiagnosticState.OK,
                     cli_version=previous.cli_version,
@@ -828,9 +1174,35 @@ class ManagerWindow(QMainWindow):
         self._diagnostic_in_flight = False
         self._diagnose_button.setEnabled(True)
         if not isinstance(result, CodexDiagnosticReport):
-            self._codex_overall.setText("● エラー")
-            self._codex_reason.setText("Codex連携の診断結果を取得できませんでした。")
+            self._codex_overall.setText("● 一時的に確認できません")
+            self._codex_overall.setStyleSheet(
+                f"font-size: 16px; font-weight: 700; color: "
+                f"{self._state_color(DiagnosticState.WARNING)}"
+            )
+            self._codex_reason.setText(
+                "Codex診断の応答を取得できません。Backend本体の稼働状態とは別です。"
+            )
             return
+
+        # A failed diagnostic request is not a new zero-valued telemetry
+        # snapshot.  Keep the last known counters and mark only the diagnostic
+        # channel unavailable.
+        if not result.backend_status.reachable and self._codex_report is not None:
+            previous_status = self._codex_report.backend_status
+            result = build_diagnostic_report(
+                cli_available=result.cli.state == DiagnosticState.OK,
+                cli_version=result.cli_version,
+                cli_discovery=result.cli_discovery,
+                hooks_inspection=result.hooks_inspection,
+                adapter_available=result.adapter.state == DiagnosticState.OK,
+                backend_status=replace(
+                    previous_status,
+                    reachable=False,
+                    detail=result.backend_status.detail
+                    or "Codex診断APIを一時的に確認できません",
+                ),
+                now=datetime.now(UTC),
+            )
 
         previous_state = self._codex_report.overall.state if self._codex_report else None
         self._codex_report = result
@@ -917,13 +1289,20 @@ class ManagerWindow(QMainWindow):
             if item is None:
                 return "状態未取得"
             uptime = "-" if item.uptime_seconds is None else f"{item.uptime_seconds:.0f}s"
+            live_probe = item.liveness_probe
+            probe_text = (
+                f"probe={live_probe.result} {live_probe.duration_ms:.1f}ms"
+                if live_probe is not None
+                else "probe=未取得"
+            )
             return (
                 f"PID={item.pid or '-'} / process={'OK' if item.process_alive else '停止'} / "
                 f"liveness={'OK' if item.liveness_ok else 'NG'} / "
                 "readiness="
                 f"{'OK' if item.readiness_ok else ('NG' if item.readiness_known else '未確認')} / "
                 f"uptime={uptime} / last={item.last_success_at or '-'} / "
-                f"failures={item.consecutive_failures} / reason={item.state_reason or '-'}"
+                f"failures={item.consecutive_failures} / {probe_text} / "
+                f"reason={item.state_reason or '-'}"
             )
 
         path_status = (
@@ -944,6 +1323,7 @@ class ManagerWindow(QMainWindow):
                 f"接続先: {settings['backend_host']}:{settings['backend_port']}",
                 f"\nBackend process\n{server_details('backend')}",
                 f"\nFrontend process\n{server_details('frontend')}",
+                f"\nHealth probe metrics\n{self._health_probe_metrics_text()}",
                 f"\nRestored Sessions\n{status.restored_sessions}",
                 f"\nLive Events（今回起動以降）\n{status.live_event_count}",
                 f"\nJSONL Monitor\n{self._check_text(report.jsonl_monitor)}",
@@ -971,6 +1351,21 @@ class ManagerWindow(QMainWindow):
         layout.addWidget(close_button)
         dialog.exec()
 
+    def _health_probe_metrics_text(self) -> str:
+        metrics = getattr(self.manager, "health_probe_metrics", lambda: {})()
+        if not isinstance(metrics, dict) or not metrics:
+            return "未取得"
+        lines: list[str] = []
+        for probe, values in sorted(metrics.items()):
+            if not isinstance(values, dict):
+                continue
+            lines.append(
+                f"{probe}: count={values.get('count', 0)} "
+                f"avg={values.get('average_ms', 0)}ms max={values.get('max_ms', 0)}ms "
+                f"timeout={values.get('timeouts', 0)}"
+            )
+        return "\n".join(lines) or "未取得"
+
     def _start(self) -> None:
         self._startup_grace_until = time.monotonic() + 30
         self._start_requested.update(("backend", "frontend"))
@@ -988,13 +1383,14 @@ class ManagerWindow(QMainWindow):
     def _stop(self) -> None:
         self._start_requested.clear()
 
-        def action() -> None:
+        def action() -> object:
             stop_all = getattr(self.manager, "stop_all", None)
             if callable(stop_all):
-                stop_all()
-                return
-            self.manager.stop("frontend")
-            self.manager.stop("backend")
+                return stop_all()
+            return {
+                "frontend": self.manager.stop("frontend"),
+                "backend": self.manager.stop("backend"),
+            }
 
         self._run_manager_action(action, "停止")
 
@@ -1216,13 +1612,13 @@ class ManagerWindow(QMainWindow):
             return [
                 f"{service}: {status.detail or '停止未確認'}"
                 for service, status in results.items()
-                if status.running
+                if status.running or status.state in {"error", "unknown", "stopping"}
             ]
         failures: list[str] = []
         for service in ("frontend", "backend"):
             try:
                 result = self.manager.stop(service)
-                if result.running:
+                if result.running or result.state in {"error", "unknown", "stopping"}:
                     failures.append(f"{service}: {result.detail or '停止未確認'}")
             except (OSError, RuntimeError, ValueError) as exc:
                 failures.append(f"{service}: {exc}")

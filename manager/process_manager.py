@@ -16,8 +16,9 @@ import urllib.error
 import urllib.request
 import uuid
 import webbrowser
-from collections.abc import Callable
-from contextlib import suppress
+from collections import deque
+from collections.abc import Callable, Iterable, Mapping
+from contextlib import nullcontext, suppress
 from ctypes import wintypes
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
@@ -57,6 +58,24 @@ STATE_EXTERNAL = "external"
 STATE_UNKNOWN = "unknown"
 HEALTH_DEGRADED_AFTER = 3
 HEALTH_ERROR_AFTER = 5
+LIVENESS_TIMEOUT_SECONDS = 1.0
+READINESS_TIMEOUT_SECONDS = 1.0
+DIAGNOSTIC_TIMEOUT_SECONDS = 0.75
+PROBE_HISTORY_LIMIT = 600
+
+
+@dataclass(frozen=True, slots=True)
+class ProbeResult:
+    """One timed Manager probe, including a stable failure classification."""
+
+    probe: str
+    started_at: str
+    ended_at: str
+    duration_ms: float
+    ok: bool
+    result: str
+    error_kind: str = ""
+    detail: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -73,6 +92,9 @@ class HealthSnapshot:
     consecutive_readiness_failures: int = 0
     last_success_at: str | None = None
     detail: str = ""
+    liveness_probe: ProbeResult | None = None
+    readiness_probe: ProbeResult | None = None
+    identity: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +109,59 @@ class ProcessSnapshot:
     port: int | None = None
     owned: bool = False
     uptime_seconds: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class PortProcessInfo:
+    """Safe-to-display information about a process listening on a Viewer port."""
+
+    service: str
+    host: str
+    port: int
+    pid: int
+    process_name: str = ""
+    cwd_name: str = ""
+    identity: str = "AI Office Viewerと確認できません"
+    identity_verified: bool = False
+    manager_owned: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class EmergencyStopServiceResult:
+    """Result for one explicitly selected service in an emergency stop."""
+
+    service: str
+    host: str
+    port: int
+    inspected: tuple[PortProcessInfo, ...] = ()
+    selected_pids: tuple[int, ...] = ()
+    terminated_pids: tuple[int, ...] = ()
+    killed_pids: tuple[int, ...] = ()
+    skipped_pids: tuple[int, ...] = ()
+    remaining: tuple[PortProcessInfo, ...] = ()
+    process_alive_pids: tuple[int, ...] = ()
+    released: bool = False
+    succeeded: bool = False
+    detail: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class EmergencyStopReport:
+    """Sanitized summary returned to the GUI and emergency-stop tests."""
+
+    requested_services: tuple[str, ...]
+    results: Mapping[str, EmergencyStopServiceResult]
+
+    @property
+    def succeeded(self) -> bool:
+        return bool(self.results) and all(item.succeeded for item in self.results.values())
+
+    @property
+    def released_services(self) -> tuple[str, ...]:
+        return tuple(
+            service for service, result in self.results.items() if result.released
+        )
 
 
 def _win32_kernel32() -> Any:
@@ -146,11 +221,13 @@ class ServiceStatus:
     last_success_at: str | None = None
     state_reason: str = ""
     uptime_seconds: float | None = None
+    liveness_probe: ProbeResult | None = None
+    readiness_probe: ProbeResult | None = None
 
     @property
     def api_connected(self) -> bool:
         """Compatibility-friendly name for the independent liveness signal."""
-        return self.liveness_ok if self.liveness_ok or self.process_alive else self.healthy
+        return self.liveness_ok
 
 
 @dataclass(frozen=True, slots=True)
@@ -431,9 +508,11 @@ class DedicatedViewLauncher:
         self,
         browser_finder: Callable[[], tuple[str, str] | None],
         process_launcher: BrowserProcessLauncher | None = None,
+        window_probe: Callable[[int], bool | None] | None = None,
     ) -> None:
         self._browser_finder = browser_finder
         self._process_launcher = process_launcher or subprocess.Popen
+        self._window_probe = window_probe
 
     @staticmethod
     def _window_arguments(
@@ -454,6 +533,19 @@ class DedicatedViewLauncher:
             f"--window-position={left + max(0, (width - app_width) // 2)},"
             f"{top + max(0, (height - app_height) // 2)}",
         ]
+
+    def _wait_for_window(self, pid: int) -> bool | None:
+        """Give a newly launched browser a short window-creation grace period."""
+        if self._window_probe is None:
+            return None
+        deadline = monotonic() + 2.0
+        while True:
+            exists = self._window_probe(pid)
+            if exists is True or exists is None:
+                return exists
+            if monotonic() >= deadline:
+                return False
+            sleep(0.05)
 
     def open(
         self,
@@ -508,7 +600,35 @@ class DedicatedViewLauncher:
             return_code = process.poll()
         except (AttributeError, OSError):
             return_code = None
-        if return_code is not None and return_code != 0:
+        if return_code is not None:
+            # Chrome/Edge may hand the command to an existing browser process
+            # and exit its launcher PID.  Treat that as success only when a
+            # visible window can be confirmed; a PID alone is insufficient.
+            window_exists = self._window_probe(process.pid) if self._window_probe else None
+            if window_exists is True:
+                return (
+                    ViewerLaunchResult(
+                        True,
+                        "dedicated",
+                        frontend_url,
+                        "既存の専用画面ウィンドウを確認しました。",
+                        browser_name,
+                        True,
+                    ),
+                    None,
+                )
+            if return_code == 0 and window_exists is None:
+                return (
+                    ViewerLaunchResult(
+                        True,
+                        "dedicated",
+                        frontend_url,
+                        "専用画面の起動プロセスは終了しました（ウィンドウ確認は未対応）。",
+                        browser_name,
+                        True,
+                    ),
+                    None,
+                )
             return (
                 ViewerLaunchResult(
                     False,
@@ -519,7 +639,20 @@ class DedicatedViewLauncher:
                 ),
                 None,
             )
-        return ViewerLaunchResult(True, "dedicated", frontend_url, browser=browser_name), process
+        window_exists = self._wait_for_window(process.pid)
+        if window_exists is False:
+            return (
+                ViewerLaunchResult(
+                    False,
+                    "dedicated",
+                    frontend_url,
+                    "専用画面プロセスは生存していますが、可視ウィンドウを確認できませんでした。",
+                    browser_name,
+                ),
+                None,
+            )
+        detail = "専用画面ウィンドウを確認しました。" if window_exists is True else ""
+        return ViewerLaunchResult(True, "dedicated", frontend_url, detail, browser_name), process
 
 
 class ProcessController:
@@ -555,6 +688,8 @@ class ServerLifecycleManager:
     Backend and Frontend processes.
     """
 
+    _port_pid_provider: Callable[[int], Iterable[int]] | None = None
+
     def __init__(self) -> None:
         self.processes: dict[str, subprocess.Popen[Any]] = {}
         # Keep the parent's file handle alive for the lifetime of each child.
@@ -568,6 +703,8 @@ class ServerLifecycleManager:
             "frontend": "manager_startup",
         }
         self._health_snapshots: dict[str, HealthSnapshot] = {}
+        self._probe_history: dict[str, deque[ProbeResult]] = {}
+        self._backend_probe_lock = threading.Lock()
         self._manager_instance_id = uuid.uuid4().hex
         self._lifecycle_lock = threading.RLock()
         self.process_controller = ProcessController(self._hidden_subprocess_kwargs)
@@ -580,6 +717,7 @@ class ServerLifecycleManager:
         # processes intentionally live in a separate collection and are never
         # included in server stop/restart/cleanup operations.
         self.dedicated_view_process_manager = DedicatedViewProcessManager()
+        self._dedicated_window_probe = self._visible_window_for_pid
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self.validate_existing_processes()
 
@@ -602,6 +740,10 @@ class ServerLifecycleManager:
             self._state_reasons = dict.fromkeys(("backend", "frontend"), "unknown")
         if not hasattr(self, "_health_snapshots"):
             self._health_snapshots = {}
+        if not hasattr(self, "_probe_history"):
+            self._probe_history = {}
+        if not hasattr(self, "_backend_probe_lock"):
+            self._backend_probe_lock = threading.Lock()
         if not hasattr(self, "_lifecycle_lock"):
             self._lifecycle_lock = threading.RLock()
 
@@ -775,7 +917,7 @@ class ServerLifecycleManager:
         )
 
     def _backend_api_request(
-        self, path: str, *, method: str = "GET", timeout: float = 0.75
+        self, path: str, *, method: str = "GET", timeout: float = DIAGNOSTIC_TIMEOUT_SECONDS
     ) -> dict[str, Any]:
         """Call a local backend API with a short timeout.
 
@@ -783,6 +925,7 @@ class ServerLifecycleManager:
         explicitly configured one, forwarding it from the environment keeps
         the manual restore action compatible with the backend middleware.
         """
+        self._ensure_runtime_state()
         settings = self._settings()
         url = f"http://{settings['backend_host']}:{settings['backend_port']}{path}"
         headers = {"Accept": "application/json"}
@@ -793,15 +936,57 @@ class ServerLifecycleManager:
         if data is not None:
             headers["Content-Type"] = "application/json"
         request = urllib.request.Request(url, data=data, headers=headers, method=method)
+        probe_name = {
+            "/api/v1/system/integration-status": "codex_diagnostic",
+            "/api/v1/codex/restore/status": "session_status",
+            "/api/v1/codex/restore": "session_restore",
+        }.get(path, f"backend_api:{path}")
+        started_monotonic = monotonic()
+        started_at = datetime.now(UTC)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
+            with self._backend_probe_lock:
+                with urllib.request.urlopen(request, timeout=timeout) as response:
+                    payload = json.loads(response.read().decode("utf-8"))
         except urllib.error.HTTPError as exc:
+            self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="http_error",
+                error_kind=f"http_status_{exc.code}",
+                detail=f"HTTP {exc.code}",
+            )
             raise RuntimeError(f"Backend APIがHTTP {exc.code}を返しました") from exc
         except (OSError, ValueError) as exc:
+            self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="error",
+                error_kind=self._probe_error_kind(exc),
+                detail=str(exc)[:160] or type(exc).__name__,
+            )
             raise RuntimeError("Backend APIへ接続できませんでした") from exc
         if not isinstance(payload, dict):
+            self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="invalid_response",
+                error_kind="json_parse_error",
+                detail="Backend API response is not an object",
+            )
             raise RuntimeError("Backend APIから不正な応答を受信しました")
+        self._finish_probe(
+            probe_name,
+            started_monotonic,
+            started_at,
+            ok=True,
+            result="ok",
+        )
         return payload
 
     @staticmethod
@@ -877,7 +1062,10 @@ class ServerLifecycleManager:
         try:
             backend = self.codex_integration_status()
         except (RuntimeError, ValueError):
-            backend = CodexBackendStatus(reachable=False)
+            backend = CodexBackendStatus(
+                reachable=False,
+                detail="Codex診断APIを一時的に確認できません",
+            )
         return build_diagnostic_report(
             cli_available=cli_discovery.available,
             cli_version=cli_discovery.version,
@@ -1107,41 +1295,138 @@ class ServerLifecycleManager:
         ]
 
     def _healthy(self, service: str) -> bool:
-        """Compatibility liveness probe; readiness is intentionally separate."""
-        url = self._health_url(service, "live")
+        """Return only the lightweight liveness result for *service*.
+
+        Liveness never falls back to ``/health`` or to a diagnostic endpoint.
+        It is an observation; ``status()`` applies the consecutive-failure
+        policy after checking process ownership.
+        """
+        probe, payload = self._probe_liveness(service)
+        self._last_liveness_probe = probe
+        self._last_liveness_identity = payload
+        return probe.ok
+
+    @staticmethod
+    def _probe_error_kind(exc: BaseException) -> str:
+        if isinstance(exc, urllib.error.HTTPError):
+            return f"http_status_{exc.code}"
+        if isinstance(exc, (TimeoutError, socket.timeout)):
+            return "http_timeout"
+        if isinstance(exc, urllib.error.URLError):
+            reason = str(exc.reason).lower()
+            if "timed out" in reason or "timeout" in reason:
+                return "http_timeout"
+            if "refused" in reason:
+                return "connection_refused"
+            return "connection_error"
+        if isinstance(exc, ConnectionRefusedError):
+            return "connection_refused"
+        if isinstance(exc, (json.JSONDecodeError, UnicodeDecodeError)):
+            return "json_parse_error"
+        if isinstance(exc, ValueError):
+            return "invalid_response"
+        return type(exc).__name__.lower()
+
+    def _finish_probe(
+        self,
+        probe: str,
+        started_monotonic: float,
+        started_at: datetime,
+        *,
+        ok: bool,
+        result: str,
+        error_kind: str = "",
+        detail: str = "",
+    ) -> ProbeResult:
+        ended_at = datetime.now(UTC)
+        observation = ProbeResult(
+            probe=probe,
+            started_at=started_at.isoformat(),
+            ended_at=ended_at.isoformat(),
+            duration_ms=round(max(0.0, monotonic() - started_monotonic) * 1000, 1),
+            ok=ok,
+            result=result,
+            error_kind=error_kind,
+            detail=detail,
+        )
+        self._ensure_runtime_state()
+        history = self._probe_history.setdefault(probe, deque(maxlen=PROBE_HISTORY_LIMIT))
+        history.append(observation)
+        self._log_process_event(
+            "backend",
+            "probe",
+            f"name={probe} request_start={observation.started_at} "
+            f"request_end={observation.ended_at} duration_ms={observation.duration_ms:.1f} "
+            f"result={'OK' if ok else 'ERROR'}"
+            + (f" error={error_kind}" if error_kind else "")
+            + (f" detail={detail}" if detail else ""),
+        )
+        return observation
+
+    def _probe_liveness(self, service: str) -> tuple[ProbeResult, dict[str, Any] | None]:
+        """Probe exactly one liveness endpoint and classify its failure."""
+        self._ensure_runtime_state()
+        probe_name = f"{service}_liveness"
+        started_monotonic = monotonic()
+        started_at = datetime.now(UTC)
+        payload: dict[str, Any] | None = None
         try:
-            with urllib.request.urlopen(url, timeout=1) as response:
-                body = response.read().decode("utf-8", errors="ignore")
-                if getattr(response, "status", 200) != 200:
-                    return False
-                if service != "backend":
-                    return True
-                payload = json.loads(body)
-                return (
-                    isinstance(payload, dict)
-                    and payload.get("status") == "ok"
-                    and payload.get("app") == "ai-office-viewer"
-                    and payload.get("component") == "backend"
-                    and isinstance(payload.get("instance_id"), str)
-                    and bool(payload["instance_id"])
-                )
-        except (OSError, ValueError, urllib.error.HTTPError):
-            # Support a backend from the previous release while it is being
-            # upgraded.  New managers still prefer /health/live.
-            if url.endswith("/health/live"):
-                try:
-                    with urllib.request.urlopen(self._url("backend"), timeout=1) as response:
-                        payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-                    return bool(
-                        isinstance(payload, dict)
-                        and payload.get("status") == "ok"
-                        and payload.get("app") == "ai-office-viewer"
-                        and payload.get("component") == "backend"
-                        and payload.get("instance_id")
-                    )
-                except (OSError, ValueError, urllib.error.HTTPError):
-                    pass
-            return False
+            lock = self._backend_probe_lock if service == "backend" else nullcontext()
+            with lock:
+                with urllib.request.urlopen(
+                    self._health_url(service, "live"), timeout=LIVENESS_TIMEOUT_SECONDS
+                ) as response:
+                    status = getattr(response, "status", 200)
+                    body = response.read().decode("utf-8", errors="strict")
+            if status != 200:
+                return self._finish_probe(
+                    probe_name,
+                    started_monotonic,
+                    started_at,
+                    ok=False,
+                    result="http_error",
+                    error_kind=f"http_status_{status}",
+                    detail=f"HTTP {status}",
+                ), None
+            if service == "backend":
+                parsed = json.loads(body)
+                if not isinstance(parsed, dict):
+                    raise ValueError("liveness response is not an object")
+                payload = parsed
+                if not (
+                    parsed.get("status") == "ok"
+                    and parsed.get("app") == "ai-office-viewer"
+                    and parsed.get("component") == "backend"
+                    and isinstance(parsed.get("instance_id"), str)
+                    and bool(parsed["instance_id"])
+                ):
+                    return self._finish_probe(
+                        probe_name,
+                        started_monotonic,
+                        started_at,
+                        ok=False,
+                        result="identity_mismatch",
+                        error_kind="identity_mismatch",
+                        detail="Backend identity is not AI Office Viewer",
+                    ), payload
+            return self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=True,
+                result="ok",
+            ), payload
+        except (OSError, ValueError, TypeError, urllib.error.HTTPError) as exc:
+            error_kind = self._probe_error_kind(exc)
+            return self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="error",
+                error_kind=error_kind,
+                detail=str(exc)[:160] or type(exc).__name__,
+            ), None
 
     def _health_url(self, service: str, signal_name: str) -> str:
         settings = self._settings()
@@ -1155,25 +1440,74 @@ class ServerLifecycleManager:
         return f"http://{settings['frontend_host']}:{settings['frontend_port']}"
 
     def _readiness(self, service: str) -> tuple[bool, bool, str]:
-        """Return (ok, known, detail); connection failure is not DB failure."""
+        """Return (ok, known, detail); readiness never changes liveness."""
         if service == "frontend":
-            ok = self._healthy("frontend")
-            return ok, True, "HTTP応答" if ok else "Frontend HTTPへ接続できません"
+            self._last_readiness_probe = None
+            return True, True, "Frontend does not expose a separate readiness contract"
+        ok, known, detail, probe = self._probe_readiness(service)
+        self._last_readiness_probe = probe
+        return ok, known, detail
+
+    def _probe_readiness(self, service: str) -> tuple[bool, bool, str, ProbeResult]:
+        probe_name = f"{service}_readiness"
+        started_monotonic = monotonic()
+        started_at = datetime.now(UTC)
         try:
-            with urllib.request.urlopen(self._health_url(service, "ready"), timeout=1) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-                if not isinstance(payload, dict):
-                    return False, True, "readiness応答が不正です"
-                ready = payload.get("ready")
-                if isinstance(ready, bool):
-                    return ready, True, str(payload.get("detail", "DB ready"))
-                # A legacy backend has no readiness contract.  Do not turn
-                # that absence into a false database error.
-                return False, False, "readiness未提供"
+            with self._backend_probe_lock:
+                with urllib.request.urlopen(
+                    self._health_url(service, "ready"), timeout=READINESS_TIMEOUT_SECONDS
+                ) as response:
+                    status = getattr(response, "status", 200)
+                    payload = json.loads(response.read().decode("utf-8", errors="strict"))
+            if status != 200:
+                result = self._finish_probe(
+                    probe_name,
+                    started_monotonic,
+                    started_at,
+                    ok=False,
+                    result="http_error",
+                    error_kind=f"http_status_{status}",
+                    detail=f"HTTP {status}",
+                )
+                return False, False, f"readiness HTTP {status}", result
+            if not isinstance(payload, dict):
+                result = self._finish_probe(
+                    probe_name,
+                    started_monotonic,
+                    started_at,
+                    ok=False,
+                    result="invalid_response",
+                    error_kind="invalid_response",
+                    detail="readiness response is not an object",
+                )
+                return False, False, "readiness応答が不正です", result
+            ready = payload.get("ready")
+            if isinstance(ready, bool):
+                detail = str(payload.get("detail", "DB ready"))
+                result = self._finish_probe(
+                    probe_name,
+                    started_monotonic,
+                    started_at,
+                    ok=ready,
+                    result="ready" if ready else "degraded",
+                    error_kind="" if ready else "readiness_not_ready",
+                    detail=detail,
+                )
+                return ready, True, detail, result
+            result = self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="not_provided",
+                error_kind="readiness_not_provided",
+                detail="readiness未提供",
+            )
+            return False, False, "readiness未提供", result
         except urllib.error.HTTPError as exc:
             if exc.code == 503:
                 try:
-                    payload = json.loads(exc.read().decode("utf-8", errors="ignore"))
+                    payload = json.loads(exc.read().decode("utf-8", errors="strict"))
                     detail = (
                         payload.get("detail", "Databaseが準備未完了です")
                         if isinstance(payload, dict)
@@ -1181,13 +1515,44 @@ class ServerLifecycleManager:
                     )
                 except (OSError, ValueError):
                     detail = "Databaseが準備未完了です"
-                return False, True, str(detail)
-            return False, False, f"readiness HTTP {exc.code}"
-        except (OSError, ValueError):
-            return False, False, "readinessへ接続できません"
+                result = self._finish_probe(
+                    probe_name,
+                    started_monotonic,
+                    started_at,
+                    ok=False,
+                    result="degraded",
+                    error_kind="readiness_not_ready",
+                    detail=str(detail),
+                )
+                return False, True, str(detail), result
+            result = self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="http_error",
+                error_kind=f"http_status_{exc.code}",
+                detail=f"HTTP {exc.code}",
+            )
+            return False, False, f"readiness HTTP {exc.code}", result
+        except (OSError, ValueError, TypeError) as exc:
+            error_kind = self._probe_error_kind(exc)
+            result = self._finish_probe(
+                probe_name,
+                started_monotonic,
+                started_at,
+                ok=False,
+                result="error",
+                error_kind=error_kind,
+                detail=str(exc)[:160] or type(exc).__name__,
+            )
+            return False, False, "readinessへ接続できません", result
 
     def _probe_service(self, service: str, process_alive: bool) -> HealthSnapshot:
         liveness_ok = self._healthy(service)
+        liveness_probe = getattr(self, "_last_liveness_probe", None)
+        identity = getattr(self, "_last_liveness_identity", None)
+        readiness_probe: ProbeResult | None = None
         if service == "frontend":
             readiness_ok, readiness_known, readiness_detail = (
                 liveness_ok,
@@ -1205,6 +1570,7 @@ class ServerLifecycleManager:
             )
         else:
             readiness_ok, readiness_known, readiness_detail = self._readiness(service)
+            readiness_probe = getattr(self, "_last_readiness_probe", None)
         previous = getattr(self, "_health_snapshots", {}).get(service)
         liveness_failures = (
             0
@@ -1233,33 +1599,26 @@ class ServerLifecycleManager:
             detail=(
                 "liveness OK"
                 if liveness_ok and (readiness_ok or not readiness_known)
-                else readiness_detail
+                else (
+                    (
+                        f"{liveness_probe.error_kind}: {liveness_probe.detail}"
+                        if liveness_probe is not None
+                        else "liveness failed"
+                    )
+                    if not liveness_ok
+                    else readiness_detail
+                )
             ),
+            liveness_probe=liveness_probe,
+            readiness_probe=readiness_probe,
+            identity=identity,
         )
         self._health_snapshots[service] = snapshot
         return snapshot
 
     def _backend_identity(self) -> dict[str, Any] | None:
-        """Return the verified Viewer identity, never a generic port probe."""
-        try:
-            with urllib.request.urlopen(
-                self._health_url("backend", "identity"), timeout=1
-            ) as response:
-                payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-        except (OSError, ValueError, urllib.error.HTTPError):
-            try:
-                with urllib.request.urlopen(self._url("backend"), timeout=1) as response:
-                    payload = json.loads(response.read().decode("utf-8", errors="ignore"))
-            except (OSError, ValueError, urllib.error.HTTPError):
-                return None
-        if not isinstance(payload, dict):
-            return None
-        if (
-            payload.get("status") != "ok"
-            or payload.get("app") != "ai-office-viewer"
-            or payload.get("component") != "backend"
-        ):
-            return None
+        """Return identity from the same liveness response, without a second probe."""
+        _probe, payload = self._probe_liveness("backend")
         return payload
 
     def viewer_ready(self) -> bool:
@@ -1278,9 +1637,395 @@ class ServerLifecycleManager:
         except (OSError, ValueError):
             return False
 
+    def _service_endpoint(self, service: str) -> tuple[str, int]:
+        if service not in {"backend", "frontend"}:
+            raise ValueError("サービス名が不正です")
+        settings = self._settings()
+        host_key = "backend_host" if service == "backend" else "frontend_host"
+        port_key = "backend_port" if service == "backend" else "frontend_port"
+        host = str(settings[host_key])
+        port = int(settings[port_key])
+        if not 1 <= port <= 65535:
+            raise ValueError("ポート番号が不正です")
+        return host, port
+
+    def _detect_listening_pids(self, port: int) -> list[int]:
+        """Read listening PIDs without using a shell or exposing command lines."""
+        if not 1 <= int(port) <= 65535:
+            return []
+        if sys.platform == "win32":
+            # The port is validated as an integer before it is interpolated into
+            # this fixed PowerShell expression.  No user-supplied command text
+            # is ever passed to the shell.
+            command = [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                (
+                    "$ErrorActionPreference='Stop'; "
+                    f"Get-NetTCPConnection -State Listen -LocalPort {int(port)} "
+                    "| Select-Object -ExpandProperty OwningProcess"
+                ),
+            ]
+            try:
+                completed = subprocess.run(
+                    command,
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=5,
+                    **self._hidden_subprocess_kwargs(),
+                )
+            except (OSError, subprocess.SubprocessError):
+                return []
+            if completed.returncode != 0:
+                return []
+            values = completed.stdout.splitlines()
+        else:
+            # This fallback keeps the diagnostic path usable on development
+            # machines where PowerShell is not present.  Windows force actions
+            # still use the structured Get-NetTCPConnection path above.
+            try:
+                completed = subprocess.run(
+                    ["lsof", "-nP", "-t", f"-iTCP:{int(port)}", "-sTCP:LISTEN"],
+                    capture_output=True,
+                    check=False,
+                    text=True,
+                    timeout=3,
+                )
+            except (OSError, subprocess.SubprocessError):
+                return []
+            values = completed.stdout.splitlines()
+        pids: list[int] = []
+        for value in values:
+            with suppress(TypeError, ValueError):
+                pid = int(value.strip())
+                if pid > 0 and pid not in pids:
+                    pids.append(pid)
+        return pids
+
+    def _listening_pids(self, port: int) -> list[int]:
+        provider = getattr(self, "_port_pid_provider", None)
+        if callable(provider):
+            return [pid for pid in provider(port) if isinstance(pid, int) and pid > 0]
+        return self._detect_listening_pids(port)
+
+    @staticmethod
+    def _viewer_cwd_matches(service: str, cwd: str) -> bool:
+        if not cwd:
+            return False
+        try:
+            expected = (ROOT / service).resolve()
+            actual = Path(cwd).resolve()
+        except OSError:
+            return False
+        return actual == expected or expected in actual.parents
+
+    def _manager_record_matches_pid(self, service: str, pid: int) -> bool:
+        record = getattr(self, "_records", {}).get(service)
+        if record is None or record.pid != pid or not self._viewer_cwd_matches(service, record.cwd):
+            return False
+        process = getattr(self, "processes", {}).get(service)
+        if process is not None and getattr(process, "pid", None) == pid:
+            with suppress(OSError, AttributeError):
+                if process.poll() is None:
+                    return True
+        with suppress(OSError, ValueError, AttributeError):
+            return self._record_verification(record) == "match"
+        return False
+
+    def _port_process_info(self, service: str, pid: int) -> PortProcessInfo:
+        host, port = self._service_endpoint(service)
+        probe = self._windows_process_probe(pid)
+        record = getattr(self, "_records", {}).get(service)
+        process_name = Path(probe.executable).name if probe.executable else ""
+        cwd_name = ""
+        if record is not None and record.pid == pid:
+            with suppress(OSError, ValueError):
+                cwd_name = Path(record.cwd).name
+            if not process_name:
+                process_name = Path(record.executable).name
+        verified = self._manager_record_matches_pid(service, pid)
+        identity = "AI Office Viewer" if verified else "AI Office Viewerと確認できません"
+        detail = "Managerのプロセス記録とPID・実行時情報が一致" if verified else "所有確認なし"
+        return PortProcessInfo(
+            service=service,
+            host=host,
+            port=port,
+            pid=pid,
+            process_name=process_name,
+            cwd_name=cwd_name,
+            identity=identity,
+            identity_verified=verified,
+            manager_owned=verified,
+            detail=detail,
+        )
+
+    def inspect_configured_ports(self) -> dict[str, tuple[PortProcessInfo, ...]]:
+        """Inspect the current shared-config ports without changing processes."""
+        self._ensure_runtime_state()
+        inspected: dict[str, tuple[PortProcessInfo, ...]] = {}
+        for service in ("backend", "frontend"):
+            _host, port = self._service_endpoint(service)
+            infos = tuple(
+                self._port_process_info(service, pid)
+                for pid in self._listening_pids(port)
+            )
+            inspected[service] = infos
+        return inspected
+
+    # A descriptive alias keeps the intent clear in GUI code and tests.
+    recheck_configured_ports = inspect_configured_ports
+
+    def _taskkill_pid(
+        self, pid: int, *, force: bool, tree: bool
+    ) -> subprocess.CompletedProcess[str]:
+        command = ["taskkill.exe", "/PID", str(pid)]
+        if tree:
+            command.append("/T")
+        if force:
+            command.append("/F")
+        return subprocess.run(
+            command,
+            capture_output=True,
+            check=False,
+            text=True,
+            timeout=8,
+            **self._hidden_subprocess_kwargs(),
+        )
+
+    def _wait_for_root_exit(
+        self,
+        process: subprocess.Popen[Any] | None,
+        pid: int,
+        timeout: float,
+    ) -> bool:
+        if process is not None:
+            wait = getattr(process, "wait", None)
+            if callable(wait):
+                with suppress(subprocess.TimeoutExpired, OSError, ValueError):
+                    wait(timeout=min(timeout, 5))
+        deadline = monotonic() + timeout
+        while monotonic() < deadline:
+            if not self._process_alive(process, pid):
+                return True
+            sleep(0.1)
+        return not self._process_alive(process, pid)
+
+    def _emergency_terminate_pid(self, info: PortProcessInfo) -> tuple[bool, bool]:
+        """Terminate one current listener, using a tree only for verified Viewer PIDs."""
+        process = getattr(self, "processes", {}).get(info.service)
+        if process is not None and getattr(process, "pid", None) != info.pid:
+            process = None
+        tree = info.identity_verified
+        if tree and sys.platform == "win32":
+            with suppress(OSError, subprocess.SubprocessError):
+                self._taskkill_pid(info.pid, force=False, tree=True)
+        elif process is not None:
+            with suppress(OSError, ValueError, AttributeError):
+                process.terminate()
+        elif sys.platform == "win32":
+            with suppress(OSError, subprocess.SubprocessError):
+                self._taskkill_pid(info.pid, force=False, tree=False)
+        else:
+            with suppress(OSError, ProcessLookupError):
+                os.kill(info.pid, signal.SIGTERM)
+
+        terminated = self._wait_for_root_exit(process, info.pid, 2.5)
+        killed = False
+        if not terminated:
+            killed = True
+            if sys.platform == "win32":
+                with suppress(OSError, subprocess.SubprocessError):
+                    self._taskkill_pid(info.pid, force=True, tree=tree)
+            elif process is not None:
+                with suppress(OSError, ValueError, AttributeError):
+                    process.kill()
+            else:
+                with suppress(OSError, ProcessLookupError):
+                    os.kill(info.pid, signal.SIGKILL)
+            terminated = self._wait_for_root_exit(process, info.pid, 2.0)
+        return terminated, killed
+
+    def _reset_after_emergency(self, service: str, result: EmergencyStopServiceResult) -> None:
+        if not result.succeeded:
+            return
+        record = getattr(self, "_records", {}).get(service)
+        process = getattr(self, "processes", {}).get(service)
+        process_pid = getattr(process, "pid", None)
+        if process_pid in result.selected_pids or (
+            record is not None and record.pid in result.selected_pids
+        ):
+            registry = getattr(self, "_registry", None)
+            if registry is not None and registry.processes is self.processes:
+                registry.unregister(service)
+            else:
+                getattr(self, "processes", {}).pop(service, None)
+                getattr(self, "_records", {}).pop(service, None)
+            self._close_service_log(service)
+        elif record is not None and self._pid_state(record.pid) == "dead":
+            getattr(self, "_records", {}).pop(service, None)
+        self._health_snapshots.pop(service, None)
+        self._transition(service, STATE_STOPPED, "emergency_stop")
+
+    def emergency_stop(
+        self,
+        services: Iterable[str] = ("backend", "frontend"),
+        *,
+        expected_pids: Mapping[str, Iterable[int]] | None = None,
+    ) -> EmergencyStopReport:
+        """Explicitly stop current configured-port listeners after GUI confirmation.
+
+        ``expected_pids`` is the inspection snapshot shown to the user.  A PID
+        that appears after that snapshot is never silently targeted; this
+        protects against a port occupant changing between inspect and action.
+        """
+        requested = (
+            (services,)
+            if isinstance(services, str)
+            else tuple(dict.fromkeys(services))
+        )
+        if any(service not in {"backend", "frontend"} for service in requested):
+            raise ValueError("サービス名が不正です")
+        self._ensure_runtime_state()
+        with getattr(self, "_lifecycle_lock", threading.RLock()):
+            # The first scan corresponds to the inspection screen.  Every
+            # service is scanned once more immediately before an action so a
+            # newly arrived occupant is never mistaken for the confirmed PID.
+            self.inspect_configured_ports()
+            results: dict[str, EmergencyStopServiceResult] = {}
+            for service in requested:
+                host, port = self._service_endpoint(service)
+                inspected = self.inspect_configured_ports().get(service, ())
+                if expected_pids is None:
+                    expected = None
+                else:
+                    expected_values: list[int] = []
+                    for value in expected_pids.get(service, ()):
+                        with suppress(TypeError, ValueError):
+                            pid = int(value)
+                            if pid > 0 and pid not in expected_values:
+                                expected_values.append(pid)
+                    expected = tuple(expected_values)
+                selected = tuple(
+                    info for info in inspected if expected is None or info.pid in expected
+                )
+                skipped = tuple(
+                    info.pid
+                    for info in inspected
+                    if expected is not None and info.pid not in expected
+                )
+                selected_pids = tuple(info.pid for info in selected)
+                terminated_pids: list[int] = []
+                killed_pids: list[int] = []
+                if selected:
+                    self._transition(service, STATE_STOPPING, "emergency_stop")
+                for info in selected:
+                    self._log_process_event(
+                        service,
+                        "emergency_stop_requested",
+                        (
+                            f"port={info.port} pid={info.pid} identity={info.identity} "
+                            f"process={info.process_name or '-'} cwd={info.cwd_name or '-'}"
+                        ),
+                    )
+                    terminated, killed = self._emergency_terminate_pid(info)
+                    if terminated:
+                        terminated_pids.append(info.pid)
+                        self._log_process_event(
+                            service,
+                            "emergency_stop_kill" if killed else "emergency_stop_terminate",
+                            f"port={info.port} pid={info.pid}",
+                        )
+                    else:
+                        self._log_process_event(
+                            service,
+                            "emergency_stop_failed",
+                            f"port={info.port} pid={info.pid}",
+                        )
+                    if killed:
+                        killed_pids.append(info.pid)
+
+                remaining = self.inspect_configured_ports().get(service, ())
+                alive_pids = tuple(
+                    pid for pid in selected_pids if self._pid_state(pid) != "dead"
+                )
+                released = not remaining
+                succeeded = released and not alive_pids
+                detail_parts: list[str] = []
+                if skipped:
+                    detail_parts.append(
+                        "確認後に占有PIDが変わったため、未確認のPIDは対象外にしました"
+                    )
+                if released:
+                    detail_parts.append("ポート解放を確認")
+                else:
+                    detail_parts.append(
+                        "ポート使用中: " + ", ".join(str(info.pid) for info in remaining)
+                    )
+                if alive_pids:
+                    detail_parts.append(
+                        "停止未確認PID: " + ", ".join(str(pid) for pid in alive_pids)
+                    )
+                result = EmergencyStopServiceResult(
+                    service=service,
+                    host=host,
+                    port=port,
+                    inspected=inspected,
+                    selected_pids=selected_pids,
+                    terminated_pids=tuple(terminated_pids),
+                    killed_pids=tuple(killed_pids),
+                    skipped_pids=skipped,
+                    remaining=remaining,
+                    process_alive_pids=alive_pids,
+                    released=released,
+                    succeeded=succeeded,
+                    detail="。".join(detail_parts),
+                )
+                results[service] = result
+                if succeeded:
+                    self._reset_after_emergency(service, result)
+                elif remaining:
+                    self._transition(service, STATE_EXTERNAL, "emergency_stop_port_remaining")
+                else:
+                    self._transition(service, STATE_ERROR, "emergency_stop_timeout")
+                self._log_process_event(service, "emergency_stop_result", result.detail)
+            self._save_pid_file()
+            return EmergencyStopReport(requested, results)
+
     @staticmethod
     def _normalise_path(value: str) -> str:
         return os.path.normcase(os.path.abspath(value))
+
+    @staticmethod
+    def _visible_window_for_pid(pid: int) -> bool | None:
+        """Return visible-window presence, or ``None`` when Win32 is unavailable."""
+        if sys.platform != "win32" or pid <= 0:
+            return None
+        try:
+            user32 = ctypes.WinDLL("user32", use_last_error=True)
+            callback_type = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+            found = False
+
+            def visit(hwnd: wintypes.HWND, _lparam: int) -> int:
+                nonlocal found
+                if not user32.IsWindowVisible(hwnd):
+                    return 1
+                owner_pid = wintypes.DWORD()
+                user32.GetWindowThreadProcessId(hwnd, ctypes.byref(owner_pid))
+                if owner_pid.value == pid:
+                    found = True
+                    return 0
+                return 1
+
+            callback = callback_type(visit)
+            user32.EnumWindows(callback, 0)
+            return found
+        except (AttributeError, OSError, TypeError):
+            return None
 
     @staticmethod
     def _windows_process_probe(pid: int) -> ProcessProbe:
@@ -1556,7 +2301,7 @@ class ServerLifecycleManager:
             process_alive = True
             health = self._probe_service(service, process_alive)
             if service == "backend" and health.liveness_ok:
-                identity = self._backend_identity()
+                identity = health.identity
                 persisted = self._records.get(service)
                 if identity is not None and persisted is not None:
                     updated = replace(
@@ -1623,6 +2368,8 @@ class ServerLifecycleManager:
                 last_success_at=health.last_success_at,
                 state_reason=self._state_reasons.get(service, "health_observed"),
                 uptime_seconds=self._uptime_seconds(service, process, record),
+                liveness_probe=health.liveness_probe,
+                readiness_probe=health.readiness_probe,
             )
         liveness_ok = self._healthy(service)
         port_listening = self._port_in_use(service)
@@ -1661,6 +2408,23 @@ class ServerLifecycleManager:
         """Return one serialized lifecycle view for all server widgets."""
         with getattr(self, "_lifecycle_lock", threading.RLock()):
             return {service: self.status(service) for service in ("backend", "frontend")}
+
+    def health_probe_metrics(self) -> dict[str, dict[str, float | int]]:
+        """Return bounded timing counters for the Manager diagnostics dialog."""
+        self._ensure_runtime_state()
+        metrics: dict[str, dict[str, float | int]] = {}
+        for probe, samples in self._probe_history.items():
+            values = list(samples)
+            durations = [sample.duration_ms for sample in values]
+            metrics[probe] = {
+                "count": len(values),
+                "ok": sum(1 for sample in values if sample.ok),
+                "failures": sum(1 for sample in values if not sample.ok),
+                "timeouts": sum(1 for sample in values if sample.error_kind == "http_timeout"),
+                "average_ms": round(sum(durations) / len(durations), 1) if durations else 0.0,
+                "max_ms": round(max(durations), 1) if durations else 0.0,
+            }
+        return metrics
 
     def process_snapshot(self, service: str) -> ProcessSnapshot:
         if service not in {"backend", "frontend"}:
@@ -2248,7 +3012,12 @@ class ServerLifecycleManager:
         process = dedicated_manager.active_process()
         if process is not None:
             try:
-                if process.poll() is None:
+                window_exists = (
+                    self._dedicated_window_probe(process.pid)
+                    if hasattr(self, "_dedicated_window_probe")
+                    else None
+                )
+                if process.poll() is None and window_exists is not False:
                     detail = "既存の専用画面を使用しています。"
                     self._log_process_event("viewer", "dedicated_reused", detail)
                     return ViewerLaunchResult(
@@ -2259,16 +3028,29 @@ class ServerLifecycleManager:
                         dedicated_manager.browser,
                         True,
                     )
+                if window_exists is False:
+                    self._log_process_event(
+                        "viewer",
+                        "dedicated_reuse_rejected",
+                        "tracked browser PID is alive but no visible dedicated window was found",
+                    )
             except (AttributeError, OSError):
                 pass
             dedicated_manager.processes.pop(getattr(process, "pid", -1), None)
 
-        launcher = DedicatedViewLauncher(self._find_dedicated_browser, browser_launcher)
+        launcher = DedicatedViewLauncher(
+            self._find_dedicated_browser,
+            browser_launcher,
+            getattr(self, "_dedicated_window_probe", None),
+        )
         result, process = launcher.open(url, screen_geometry)
         browser_name = result.browser
-        if not result.succeeded or process is None:
+        if not result.succeeded:
             detail = result.detail
             self._log_process_event("viewer", "dedicated_open_failed", detail)
+            return result
+        if process is None:
+            self._log_process_event("viewer", "dedicated_window_confirmed", result.detail)
             return result
         self._log_process_event(
             "viewer", "dedicated_browser_selected", f"browser={browser_name or '-'}"
@@ -2358,7 +3140,7 @@ class ServerLifecycleManager:
             f"CLI={report.cli.state.value.upper()} "
             f"Hooks={report.hooks.state.value.upper()} "
             f"Adapter={report.adapter.state.value.upper()} "
-            f"Backend={report.backend.state.value.upper()} "
+            f"CodexDiagnostic={report.backend.state.value.upper()} "
             f"Restore={status.restored_sessions} "
             f"LiveEvents={status.live_event_count} "
             f"TailEvents={status.tail_event_count} "

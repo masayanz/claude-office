@@ -135,11 +135,69 @@ def test_tray_exit_keeps_manager_open_when_stop_is_not_confirmed(
     assert warnings
 
 
+def test_failed_manager_exit_can_open_confirmed_emergency_stop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    class Manager:
+        def emergency_stop(self, *_args: object, **_kwargs: object) -> None:
+            return None
+
+    window = _window(Manager())
+    started: list[bool] = []
+    monkeypatch.setattr(main.ManagerWindow, "_refresh_status", lambda _self: None)
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "question",
+        lambda *_args, **_kwargs: main.QMessageBox.StandardButton.Yes,
+    )
+    monkeypatch.setattr(
+        main.ManagerWindow,
+        "_begin_emergency_stop",
+        lambda _self, *, for_quit: started.append(for_quit),
+    )
+
+    main.ManagerWindow._apply_manager_action(
+        window,
+        ("終了", ["backend: 停止未確認"]),
+    )
+
+    assert started == [True]
+    assert window._is_quitting is False
+
+
 def test_close_style_status_distinguishes_external_process() -> None:
     window = _window(object())
     assert main.ManagerWindow._status_text(
         window, "backend", True, True, state="external", detail="外部"
     ) == "外部で稼働中（停止対象外）"
+
+
+def test_status_text_shows_transient_liveness_delay_before_no_response() -> None:
+    window = _window(object())
+    assert (
+        main.ManagerWindow._status_text(
+            window,
+            "backend",
+            True,
+            False,
+            state="running",
+            process_alive=True,
+            consecutive_failures=1,
+        )
+        == "稼働中（応答遅延）"
+    )
+    assert (
+        main.ManagerWindow._status_text(
+            window,
+            "backend",
+            True,
+            False,
+            state="degraded",
+            process_alive=True,
+            consecutive_failures=3,
+        )
+        == "稼働中（応答なし）"
+    )
 
 
 def test_restart_backend_uses_atomic_service_restart(monkeypatch: pytest.MonkeyPatch) -> None:

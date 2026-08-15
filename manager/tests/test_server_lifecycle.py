@@ -72,6 +72,48 @@ def test_readiness_failure_is_degraded_and_recovers(monkeypatch) -> None:
     assert recovered.readiness_ok is True
 
 
+def test_liveness_uses_one_lightweight_endpoint_and_records_timing(monkeypatch) -> None:
+    manager = _manager()
+    calls: list[str] = []
+
+    class Response:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return None
+
+        @staticmethod
+        def read() -> bytes:
+            return json.dumps(
+                {
+                    "status": "ok",
+                    "app": "ai-office-viewer",
+                    "component": "backend",
+                    "instance_id": "test-backend",
+                }
+            ).encode("utf-8")
+
+    monkeypatch.setattr(
+        manager,
+        "_health_url",
+        lambda _service, signal_name: calls.append(signal_name) or "/health/live",
+    )
+    monkeypatch.setattr(
+        "manager.process_manager.urllib.request.urlopen",
+        lambda *_args, **_kwargs: Response(),
+    )
+
+    assert manager._healthy("backend") is True
+    assert calls == ["live"]
+    metrics = manager.health_probe_metrics()["backend_liveness"]
+    assert metrics["count"] == 1
+    assert metrics["ok"] == 1
+    assert metrics["timeouts"] == 0
+
+
 def test_lifecycle_commands_manage_real_server_processes(
     monkeypatch, tmp_path: Path, request
 ) -> None:

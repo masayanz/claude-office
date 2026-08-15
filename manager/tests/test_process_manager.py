@@ -17,6 +17,7 @@ import pytest
 import manager.process_manager as process_manager
 from manager.process_manager import (
     CodexRestoreStatus,
+    PortProcessInfo,
     GlobalHooksRepairResult,
     ProcessProbe,
     ProcessRecord,
@@ -1157,3 +1158,186 @@ def test_stop_terminates_the_entire_windows_process_tree(
         ["taskkill.exe", "/PID", "43210", "/T"],
         ["taskkill.exe", "/PID", "43210", "/T", "/F"],
     ]
+
+
+def test_normal_stop_never_targets_an_external_port_occupant(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: False)
+    monkeypatch.setattr(manager, "_port_in_use", lambda _service: True)
+    monkeypatch.setattr(
+        manager,
+        "_taskkill",
+        lambda *_args, **_kwargs: pytest.fail("通常停止で外部PIDを終了してはいけない"),
+    )
+
+    result = manager.stop("backend")
+
+    assert result.state == "external"
+    assert result.owned is False
+
+
+def test_configured_port_pid_detection_uses_get_nettcpconnection_without_shell(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    monkeypatch.setattr(process_manager.sys, "platform", "win32")
+    commands: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs: object) -> subprocess.CompletedProcess[str]:
+        commands.append(command)
+        return subprocess.CompletedProcess(command, 0, stdout="7101\n7101\n7102\n", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", run)
+
+    assert manager._detect_listening_pids(8123) == [7101, 7102]
+    assert commands[0][0].lower() == "powershell.exe"
+    assert "Get-NetTCPConnection" in commands[0][-1]
+    assert "-LocalPort 8123" in commands[0][-1]
+
+
+def test_port_identity_rejects_pid_reuse_and_accepts_matching_manager_record(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    record = ProcessRecord(
+        "backend",
+        7050,
+        r"C:\Python\python.exe",
+        (r"C:\Python\python.exe", "-m", "uvicorn"),
+        str(process_manager.ROOT / "backend"),
+        "2026-08-13T00:00:00+00:00",
+        123.5,
+        "manager-test",
+        port=8123,
+    )
+    manager._records["backend"] = record
+    monkeypatch.setattr(manager, "_record_verification", lambda _record: "match")
+    monkeypatch.setattr(
+        process_manager.ServerLifecycleManager,
+        "_windows_process_probe",
+        staticmethod(lambda _pid: ProcessProbe("alive", r"C:\Python\python.exe", 123.5)),
+    )
+
+    matching = manager._port_process_info("backend", 7050)
+    assert matching.identity_verified is True
+    assert matching.manager_owned is True
+
+    monkeypatch.setattr(manager, "_record_verification", lambda _record: "mismatch")
+    reused = manager._port_process_info("backend", 7050)
+    assert reused.identity_verified is False
+    assert reused.identity == "AI Office Viewerと確認できません"
+
+
+def test_emergency_stop_releases_backend_and_frontend_using_shared_ports(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    ports = {8123: [7101], 3123: [7102]}
+    infos = {
+        ("backend", 7101): PortProcessInfo(
+            "backend", "127.0.0.1", 8123, 7101, "python.exe", "backend"
+        ),
+        ("frontend", 7102): PortProcessInfo(
+            "frontend", "127.0.0.1", 3123, 7102, "node.exe", "frontend"
+        ),
+    }
+    monkeypatch.setattr(manager, "_port_pid_provider", lambda port: list(ports[port]))
+    monkeypatch.setattr(
+        manager,
+        "_port_process_info",
+        lambda service, pid: infos[(service, pid)],
+    )
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+    monkeypatch.setattr(manager, "_log_process_event", lambda *_args: None)
+    monkeypatch.setattr(
+        manager,
+        "_pid_state",
+        lambda pid: "alive" if any(pid in values for values in ports.values()) else "dead",
+    )
+    calls: list[tuple[str, int]] = []
+
+    def terminate(info: PortProcessInfo) -> tuple[bool, bool]:
+        calls.append((info.service, info.pid))
+        ports[info.port] = []
+        return True, False
+
+    monkeypatch.setattr(manager, "_emergency_terminate_pid", terminate)
+
+    report = manager.emergency_stop(
+        ("backend", "frontend"),
+        expected_pids={"backend": (7101,), "frontend": (7102,)},
+    )
+
+    assert report.succeeded is True
+    assert calls == [("backend", 7101), ("frontend", 7102)]
+    assert report.results["backend"].released is True
+    assert report.results["frontend"].released is True
+
+
+def test_emergency_stop_does_not_kill_a_pid_that_changed_after_inspection(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    calls = 0
+
+    def provider(port: int) -> list[int]:
+        nonlocal calls
+        if port != 8123:
+            return []
+        calls += 1
+        return [7201] if calls == 1 else [7202]
+
+    infos = {
+        ("backend", 7201): PortProcessInfo("backend", "127.0.0.1", 8123, 7201),
+        ("backend", 7202): PortProcessInfo("backend", "127.0.0.1", 8123, 7202),
+    }
+    monkeypatch.setattr(manager, "_port_pid_provider", provider)
+    monkeypatch.setattr(
+        manager,
+        "_port_process_info",
+        lambda service, pid: infos[(service, pid)],
+    )
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+    monkeypatch.setattr(manager, "_log_process_event", lambda *_args: None)
+    monkeypatch.setattr(manager, "_pid_state", lambda _pid: "alive")
+    monkeypatch.setattr(
+        manager,
+        "_emergency_terminate_pid",
+        lambda _info: pytest.fail("確認後に現れたPIDを終了してはいけない"),
+    )
+
+    report = manager.emergency_stop("backend", expected_pids={"backend": (7201,)})
+
+    result = report.results["backend"]
+    assert report.succeeded is False
+    assert result.skipped_pids == (7202,)
+    assert result.remaining[0].pid == 7202
+
+
+def test_emergency_stop_removes_dead_stale_record_after_port_recheck(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    manager._records["backend"] = ProcessRecord(
+        "backend",
+        7301,
+        r"C:\Python\python.exe",
+        (r"C:\Python\python.exe", "-m", "uvicorn"),
+        str(process_manager.ROOT / "backend"),
+        "2026-08-13T00:00:00+00:00",
+        123.5,
+        "manager-test",
+        port=8123,
+    )
+    monkeypatch.setattr(manager, "_port_pid_provider", lambda _port: [])
+    monkeypatch.setattr(manager, "_save_pid_file", lambda: None)
+    monkeypatch.setattr(manager, "_log_process_event", lambda *_args: None)
+    monkeypatch.setattr(manager, "_pid_state", lambda _pid: "dead")
+
+    report = manager.emergency_stop("backend")
+
+    assert report.succeeded is True
+    assert "backend" not in manager._records
+    assert manager._states["backend"] == "stopped"

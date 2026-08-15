@@ -643,17 +643,17 @@ def build_diagnostic_report(
         "" if adapter_available else "Codex Adapter本体を確認してください",
     )
     backend = DiagnosticCheck(
-        DiagnosticState.OK if backend_status.reachable else DiagnosticState.ERROR,
-        "接続可能" if backend_status.reachable else "接続できません",
+        DiagnosticState.OK if backend_status.reachable else DiagnosticState.WARNING,
+        "接続可能" if backend_status.reachable else "一時的に確認できません",
         ""
         if backend_status.reachable
-        else "AI Office Viewer Backendが停止している可能性があります",
+        else (backend_status.detail or "Codex診断APIの応答を取得できません"),
     )
 
     monitor_active = backend_status.jsonl_monitor in {"monitoring", "healthy"}
     if not backend_status.reachable:
         jsonl_monitor = DiagnosticCheck(
-            DiagnosticState.ERROR, "確認できません", "Backendへ接続できません"
+            DiagnosticState.WARNING, "状態不明", "JSONL Monitorの状態を取得できません"
         )
     elif monitor_active and backend_status.jsonl_monitor_health == "healthy":
         jsonl_monitor = DiagnosticCheck(
@@ -711,7 +711,11 @@ def build_diagnostic_report(
         or (last_age is not None and last_age >= stale_seconds)
     )
     if not backend_status.reachable:
-        live = DiagnosticCheck(DiagnosticState.ERROR, "確認できません", "Backendへ接続できません")
+        live = DiagnosticCheck(
+            DiagnosticState.WARNING,
+            "状態不明",
+            "Codex診断APIの応答を取得できません。Backend livenessとは別状態です",
+        )
     elif backend_status.current_input_mode == "HYBRID":
         live = DiagnosticCheck(
             DiagnosticState.OK,
@@ -759,7 +763,7 @@ def build_diagnostic_report(
     # CLI is optional for hook-driven integrations, and an idle live-event
     # stream is normal. Neither alone makes the entire integration an error.
     hard_error = next(
-        (check for check in (hooks, adapter, backend) if check.state == DiagnosticState.ERROR),
+        (check for check in (hooks, adapter) if check.state == DiagnosticState.ERROR),
         None,
     )
     if hard_error is not None:
@@ -772,6 +776,13 @@ def build_diagnostic_report(
             recommendation = "Codex Adapterを修復またはAI Office Viewerを再インストールしてください"
         else:
             recommendation = "Backendを起動または再起動してから再診断してください"
+    elif not backend_status.reachable:
+        overall = DiagnosticCheck(
+            DiagnosticState.WARNING,
+            "一時的に確認できません",
+            "Codex診断・JSONL状態は不明ですが、Backend本体の稼働状態とは分離されています",
+        )
+        recommendation = "数秒後にCodex連携を再診断してください"
     elif restore_failed:
         overall = DiagnosticCheck(DiagnosticState.WARNING, "要確認", restore.detail)
         recommendation = "Codexセッションの再読込をもう一度実行してください。Codex自体の動作には影響ありません。"

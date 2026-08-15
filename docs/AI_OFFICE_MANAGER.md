@@ -63,6 +63,17 @@ ManagerはPySide6のタスクトレイ常駐アプリです。×またはAlt+F4�
 
 既定では完全終了時にManagerが起動したBackend/Frontendも安全に停止します。外部で起動されたプロセスは停止対象にせず、管理対象プロセスの停止を確認できなかった場合はManagerを終了せずに理由を表示します。
 
+通常停止でBackendまたはFrontendの残存を確認した場合は、Managerを終了せずに「非常停止して終了」を選べます。通常画面の「非常停止」またはトレイメニューの「非常停止（確認あり）」では、共有設定のポートを再検査し、サービスごとのチェックボックス、PID・プロセス名・作業フォルダ名、AI Office Viewerの所有確認を表示します。AI Office Viewerと確認できないプロセスは強く警告し、通常停止では終了しません。非常停止を実行する場合も最終確認が必要です。
+
+非常停止は実行直前にPIDを再検査します。確認後に占有PIDが変わった場合は古いPIDを終了せず、ポート解放とPID変更の結果を表示します。AI Office Viewerと確認できたWindowsプロセスだけが子プロセスツリーの対象になり、外部アプリケーションでは親プロセスや子プロセスへ拡張しません。終了後はポートを再検査し、解放を確認したサービスのManager内部記録・状態をリセットします。
+
+GUIを使わない緊急確認には、共有設定を読む`tools/emergency-stop.ps1`を使用できます。`-Check`は検出と表示だけで、プロセスを終了しません。`-Force`は明示的な強制停止を実行します。引数なしでは対象表示後に`YES`入力を求めます。
+
+```powershell
+.\tools\emergency-stop.ps1 -Check
+.\tools\emergency-stop.ps1 -Force
+```
+
 `uv sync --extra manager`でPySide6とPyInstallerを導入します。
 
 ## Web設定

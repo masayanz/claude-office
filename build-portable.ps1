@@ -144,6 +144,7 @@ AI Office Viewer Portable
 詳しい操作方法
 --------------
 Managerの「ヘルプ」→「利用者マニュアル」、または help\index.html を開いてください。
+本ソフトはPaul Robello氏のClaude Office Visualizerをベースとする派生版です。詳細、謝辞、GitHub、ライセンス案内は help\about.html をご覧ください。
 
 サーバーが残った場合
 ----------------------
@@ -237,6 +238,9 @@ function Assert-PortableSmokeTest([string]$Directory) {
         "runtime\codex-adapter\AI-Office-Viewer-Codex-Adapter.exe",
         "tools\emergency-stop.ps1",
         "help\index.html",
+        "help\about.html",
+        "help\assets\screenshots\manager-main.png",
+        "help\assets\screenshots\viewer-main.jpg",
         "README.txt",
         "VERSION.txt",
         "portable.flag"
@@ -253,25 +257,34 @@ function Assert-PortableSmokeTest([string]$Directory) {
 
 function Assert-HelpKit([string]$Directory) {
     $index = Join-Path $Directory "index.html"
+    $allowedExternalLinks = @(
+        "https://github.com/paulrobello/claude-office",
+        "https://github.com/masayanz/claude-office"
+    )
     if (-not (Test-Path -LiteralPath $index -PathType Leaf)) {
         throw "help検査失敗: help/index.html がありません。"
     }
     foreach ($html in @(Get-ChildItem -LiteralPath $Directory -Filter "*.html" -File -Recurse)) {
         $content = Get-Content -LiteralPath $html.FullName -Raw
-        if ($content -match '(?i)https?://') {
-            throw "help検査失敗: 外部依存URLがあります: $($html.FullName)"
-        }
         $ids = [regex]::Matches($content, '(?i)\bid\s*=\s*["'']([^"'']+)["'']') |
             ForEach-Object { $_.Groups[1].Value }
         $duplicateIds = @($ids | Group-Object | Where-Object Count -gt 1)
         if ($duplicateIds.Count -gt 0) {
             throw "help検査失敗: 重複idがあります ($($duplicateIds[0].Name)): $($html.FullName)"
         }
-        foreach ($match in [regex]::Matches($content, '(?i)(?:href|src)\s*=\s*["'']([^"'']+)["'']')) {
-            $reference = $match.Groups[1].Value
-            if ($reference -match '^(?:#|mailto:|tel:|data:|javascript:)' -or $reference -match '^[a-z]+:') {
+        foreach ($match in [regex]::Matches($content, '(?i)(href|src)\s*=\s*["'']([^"'']+)["'']')) {
+            $attribute = $match.Groups[1].Value.ToLowerInvariant()
+            $reference = $match.Groups[2].Value
+            if ($reference -match '^https://') {
+                if ($attribute -ne 'href' -or $allowedExternalLinks -notcontains $reference) {
+                    throw "help検査失敗: 許可されていない外部URLがあります ($reference): $($html.FullName)"
+                }
                 continue
             }
+            if ($reference -match '^(?:http:|//|javascript:|data:)' -or ($reference -match '^[a-z]+:' -and $reference -notmatch '^(?:mailto:|tel:)')) {
+                throw "help検査失敗: 許可されていないURLスキームがあります ($reference): $($html.FullName)"
+            }
+            if ($reference -match '^(?:#|mailto:|tel:)') { continue }
             $relative = ($reference -split '[?#]', 2)[0]
             if (-not $relative) { continue }
             $target = [IO.Path]::GetFullPath((Join-Path $html.DirectoryName $relative))
@@ -281,6 +294,9 @@ function Assert-HelpKit([string]$Directory) {
             }
             if (-not (Test-Path -LiteralPath $target)) {
                 throw "help検査失敗: 参照先がありません ($reference): $($html.FullName)"
+            }
+            if ($attribute -eq 'src' -and $target -match '(?i)\.(?:png|jpe?g|webp)$' -and (Get-Item -LiteralPath $target).Length -eq 0) {
+                throw "help検査失敗: 画像ファイルが空です ($reference): $($html.FullName)"
             }
         }
     }

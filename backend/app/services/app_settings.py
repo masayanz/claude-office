@@ -11,7 +11,12 @@ from pathlib import Path
 from typing import Any, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-ROOT_DIR = Path(__file__).resolve().parents[3]
+_configured_root = os.environ.get("AI_OFFICE_ROOT") or os.environ.get("CLAUDE_OFFICE_ROOT")
+ROOT_DIR = (
+    Path(_configured_root).expanduser().resolve()
+    if _configured_root
+    else Path(__file__).resolve().parents[3]
+)
 SETTINGS_PATH = ROOT_DIR / "config" / "app-settings.json"
 OWNER_IMAGE_DIR = ROOT_DIR / "config" / "owner-image"
 _IANA_TIMEZONE_RE = re.compile(r"[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)+$")

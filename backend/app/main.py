@@ -46,7 +46,12 @@ from app.db.replay_backfill import backfill_replay_history
 from app.services.app_settings import load_settings
 from app.services.git_service import git_service
 
-STATIC_DIR = Path(__file__).parent.parent / "static"
+_configured_static_dir = os.environ.get("AI_OFFICE_STATIC_DIR")
+STATIC_DIR = (
+    Path(_configured_static_dir).expanduser().resolve()
+    if _configured_static_dir
+    else Path(__file__).parent.parent / "static"
+)
 
 _SERVE_STATIC = os.environ.get("SERVE_STATIC", "").lower() in ("1", "true", "yes")
 

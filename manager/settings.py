@@ -19,8 +19,10 @@ def _find_root() -> Path:
     for candidate in (start, *start.parents):
         if (
             (candidate / "config" / "app-settings.json").is_file()
-            and (candidate / "backend").is_dir()
-            and (candidate / "frontend").is_dir()
+            and (
+                ((candidate / "backend").is_dir() and (candidate / "frontend").is_dir())
+                or ((candidate / "runtime" / "backend").is_dir() and (candidate / "runtime" / "frontend").is_dir())
+            )
         ):
             return candidate
     return start
@@ -28,6 +30,12 @@ def _find_root() -> Path:
 
 ROOT = _find_root()
 SETTINGS_PATH = ROOT / "config" / "app-settings.json"
+PORTABLE_MARKER = ROOT / "portable.flag"
+
+
+def is_portable_mode() -> bool:
+    """Return whether this Manager is running from a generated Portable kit."""
+    return PORTABLE_MARKER.is_file() or os.environ.get("AI_OFFICE_PORTABLE") == "1"
 _IANA_TIMEZONE_RE = re.compile(r"[A-Za-z0-9_.+-]+(?:/[A-Za-z0-9_.+-]+)+$")
 DEFAULTS: dict[str, Any] = {
     "language": "ja",

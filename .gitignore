@@ -108,6 +108,7 @@ dist/manager/
 build/manager/
 
 # --- Build Artifacts ---
+release/
 backend/static/
 # Orphan local build-artifact dirs (desktop-app / TUI experiments) — untracked,
 # regenerable; gitignored so they aren't accidentally committed. Delete locally

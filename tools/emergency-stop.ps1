@@ -1,4 +1,4 @@
-[CmdletBinding()]
+﻿[CmdletBinding()]
 param(
     [switch]$Check,
     [switch]$Force
@@ -13,7 +13,11 @@ if ($Check -and $Force) {
 $root = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 $configPath = Join-Path $root "config\app-settings.json"
 $runtimePath = Join-Path $root "runtime\processes.json"
-$logPath = Join-Path $root "runtime\logs\manager.log"
+$logPath = if (Test-Path -LiteralPath (Join-Path $root "portable.flag")) {
+    Join-Path $root "logs\manager.log"
+} else {
+    Join-Path $root "runtime\logs\manager.log"
+}
 
 try {
     $settings = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
@@ -70,7 +74,11 @@ function Get-ProcessSummary([int]$ProcessId, [string]$Service) {
     $verified = $false
     if ($records.ContainsKey($Service)) {
         $record = $records[$Service]
-        $expectedCwd = Join-Path $root $Service
+        $expectedCwd = if ((Test-Path -LiteralPath (Join-Path $root "portable.flag")) -and $Service -eq "backend") {
+            Join-Path $root "runtime\backend"
+        } else {
+            Join-Path $root $Service
+        }
         if ([int]$record.pid -eq $ProcessId -and $record.cwd) {
             try {
                 $actual = [IO.Path]::GetFullPath($record.cwd).TrimEnd('\')

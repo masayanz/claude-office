@@ -8,6 +8,7 @@ table under the key ``building_config``, and can also be loaded from
 
 import json
 import logging
+import os
 import tomllib
 from pathlib import Path
 from typing import Any, cast
@@ -21,7 +22,12 @@ from app.db.models import UserPreference
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_TOML_PATH = Path(__file__).parent.parent.parent / "floors.toml"
+_configured_root = os.environ.get("AI_OFFICE_ROOT") or os.environ.get("CLAUDE_OFFICE_ROOT")
+DEFAULT_TOML_PATH = (
+    Path(_configured_root).expanduser().resolve() / "runtime" / "backend" / "floors.toml"
+    if _configured_root
+    else Path(__file__).parent.parent.parent / "floors.toml"
+)
 
 BUILDING_CONFIG_KEY = "building_config"
 

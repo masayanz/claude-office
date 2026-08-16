@@ -38,11 +38,15 @@ from .codex_diagnostics import (
     inspect_global_hooks,
     normalize_backend_status,
 )
-from .settings import ROOT, load_settings
+from .settings import ROOT, is_portable_mode, load_settings, save_settings
 
 RUNTIME_DIR = ROOT / "runtime"
-LOG_DIR = RUNTIME_DIR / "logs"
+LOG_DIR = ROOT / "logs" if is_portable_mode() else RUNTIME_DIR / "logs"
 PID_PATH = RUNTIME_DIR / "processes.json"
+PORTABLE_BACKEND_EXE = RUNTIME_DIR / "backend" / "AI-Office-Viewer-Backend.exe"
+PORTABLE_FRONTEND_DIR = RUNTIME_DIR / "frontend"
+PORTABLE_ADAPTER_DIR = RUNTIME_DIR / "codex-adapter"
+PORTABLE_ADAPTER_EXE = PORTABLE_ADAPTER_DIR / "AI-Office-Viewer-Codex-Adapter.exe"
 _WIN32_KERNEL32: Any | None = None
 
 # Lifecycle state is deliberately kept separate from the individual health
@@ -691,6 +695,7 @@ class ServerLifecycleManager:
     _port_pid_provider: Callable[[int], Iterable[int]] | None = None
 
     def __init__(self) -> None:
+        self._prepare_portable_ports()
         self.processes: dict[str, subprocess.Popen[Any]] = {}
         # Keep the parent's file handle alive for the lifetime of each child.
         # The child receives its own inheritable handle on Windows, but retaining
@@ -720,6 +725,53 @@ class ServerLifecycleManager:
         self._dedicated_window_probe = self._visible_window_for_pid
         LOG_DIR.mkdir(parents=True, exist_ok=True)
         self.validate_existing_processes()
+
+    @staticmethod
+    def _is_portable() -> bool:
+        return is_portable_mode()
+
+    def _prepare_portable_ports(self) -> None:
+        """Move a generated Portable kit to free loopback ports when needed."""
+        if not self._is_portable():
+            return
+        settings, warning = load_settings()
+        if warning:
+            return
+
+        def is_free(host: str, port: int) -> bool:
+            try:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+                    probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+                    probe.bind((host, port))
+                return True
+            except OSError:
+                return False
+
+        def next_free(host: str, start: int, excluded: set[int]) -> int:
+            for offset in range(1, 1000):
+                candidate = 1024 + ((start - 1024 + offset) % (65535 - 1024))
+                if candidate not in excluded and is_free(host, candidate):
+                    return candidate
+            return start
+
+        backend_host = str(settings["backend_host"])
+        frontend_host = str(settings["frontend_host"])
+        backend_port = int(settings["backend_port"])
+        frontend_port = int(settings["frontend_port"])
+        changed = False
+        if not is_free(backend_host, backend_port):
+            backend_port = next_free(backend_host, backend_port, {frontend_port})
+            changed = True
+        if backend_port == frontend_port or not is_free(frontend_host, frontend_port):
+            frontend_port = next_free(frontend_host, frontend_port, {backend_port})
+            changed = True
+        if changed:
+            try:
+                save_settings({"backend_port": backend_port, "frontend_port": frontend_port})
+            except (OSError, ValueError):
+                # A read-only extracted folder can still run with the original
+                # settings; the backend will report a clear bind error if needed.
+                pass
 
     def _dedicated_view_manager(self) -> DedicatedViewProcessManager:
         manager = getattr(self, "dedicated_view_process_manager", None)
@@ -860,7 +912,11 @@ class ServerLifecycleManager:
     @staticmethod
     def _codex_home() -> Path:
         configured = os.environ.get("CODEX_HOME")
-        return Path(configured) if configured else Path.home() / ".codex"
+        return (
+            Path(os.path.expandvars(os.path.expanduser(configured))).resolve()
+            if configured
+            else Path.home() / ".codex"
+        )
 
     def inspect_global_hooks(self) -> GlobalHooksInspection:
         """Validate the configured user-level hook chain without changing it."""
@@ -868,24 +924,27 @@ class ServerLifecycleManager:
 
     def adapter_available(self) -> bool:
         """Return whether the shared Codex adapter launcher exists."""
-        return (ROOT / "codex-adapter" / "hook.py").is_file()
+        return PORTABLE_ADAPTER_EXE.is_file() or (ROOT / "codex-adapter" / "hook.py").is_file()
 
     def adapter_self_check(self) -> bool:
         """Run the adapter's event-free check and validate its shared endpoint."""
-        hook = ROOT / "codex-adapter" / "hook.py"
+        hook = PORTABLE_ADAPTER_EXE if PORTABLE_ADAPTER_EXE.is_file() else ROOT / "codex-adapter" / "hook.py"
         if not hook.is_file():
             return False
-        launcher = which("py") if os.name == "nt" else None
-        if launcher:
-            command = [launcher, "-3.13", str(hook), "--check"]
-        elif os.name == "nt":
-            # A frozen Manager must not try to execute its own EXE as Python.
-            launcher = which("python.exe") or which("python3.exe")
-            if launcher is None:
-                return False
-            command = [launcher, str(hook), "--check"]
+        if hook.suffix.lower() == ".exe":
+            command = [str(hook), "--check"]
         else:
-            command = [sys.executable, str(hook), "--check"]
+            launcher = which("py") if os.name == "nt" else None
+            if launcher:
+                command = [launcher, "-3.13", str(hook), "--check"]
+            elif os.name == "nt":
+                # A frozen Manager must not try to execute its own EXE as Python.
+                launcher = which("python.exe") or which("python3.exe")
+                if launcher is None:
+                    return False
+                command = [launcher, str(hook), "--check"]
+            else:
+                command = [sys.executable, str(hook), "--check"]
         try:
             completed = subprocess.run(
                 command,
@@ -1084,15 +1143,26 @@ class ServerLifecycleManager:
         """
         hooks_path = self._codex_home() / "hooks.json"
         launcher_path = self._codex_home() / "claude-office-hook.ps1"
-        adapter_path = ROOT / "codex-adapter" / "hook.py"
+        adapter_path = (
+            PORTABLE_ADAPTER_EXE
+            if PORTABLE_ADAPTER_EXE.is_file()
+            else ROOT / "codex-adapter" / "hook.py"
+        )
         current = self.inspect_global_hooks()
         if current.state.value == "ok":
             result = GlobalHooksRepairResult(True, "Global Hooksは正常です。修復は必要ありません。")
             self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
             return result
 
-        installer = ROOT / "codex-adapter" / "install-global-hooks.ps1"
-        if not installer.is_file():
+        installer_candidates = (
+            PORTABLE_ADAPTER_DIR / "install-global-hooks.ps1",
+            ROOT / "codex-adapter" / "install-global-hooks.ps1",
+        )
+        installer = next(
+            (candidate for candidate in installer_candidates if candidate.is_file()),
+            None,
+        )
+        if installer is None:
             result = GlobalHooksRepairResult(
                 False,
                 "Global Hooks修復スクリプトが見つかりません",
@@ -1222,14 +1292,14 @@ class ServerLifecycleManager:
             pass
 
     def _url(self, service: str) -> str:
-        settings = self._settings()
-        if service == "backend":
-            return f"http://{settings['backend_host']}:{settings['backend_port']}/health"
-        return f"http://{settings['frontend_host']}:{settings['frontend_port']}"
+        host, port = self._service_endpoint(service)
+        if service == "backend" or self._is_portable():
+            return f"http://{host}:{port}/health"
+        return f"http://{host}:{port}"
 
     def _viewer_url(self) -> str:
-        settings = self._settings()
-        return f"http://{settings['frontend_host']}:{settings['frontend_port']}"
+        host, port = self._service_endpoint("frontend")
+        return f"http://{host}:{port}"
 
     @staticmethod
     def _browser_candidates() -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -1626,13 +1696,9 @@ class ServerLifecycleManager:
         return self._healthy("frontend")
 
     def _port_in_use(self, service: str) -> bool:
-        settings = self._settings()
-        host_key = "backend_host" if service == "backend" else "frontend_host"
-        port_key = "backend_port" if service == "backend" else "frontend_port"
         try:
-            with socket.create_connection(
-                (str(settings[host_key]), int(settings[port_key])), timeout=0.25
-            ):
+            host, port = self._service_endpoint(service)
+            with socket.create_connection((host, port), timeout=0.25):
                 return True
         except (OSError, ValueError):
             return False
@@ -1641,6 +1707,8 @@ class ServerLifecycleManager:
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
         settings = self._settings()
+        if self._is_portable() and service == "frontend":
+            service = "backend"
         host_key = "backend_host" if service == "backend" else "frontend_host"
         port_key = "backend_port" if service == "backend" else "frontend_port"
         host = str(settings[host_key])
@@ -2277,6 +2345,13 @@ class ServerLifecycleManager:
     def status(self, service: str) -> ServiceStatus:
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
+        if self._is_portable() and service == "frontend":
+            backend = self.status("backend")
+            return replace(
+                backend,
+                service="frontend",
+                detail=f"Backend内蔵の静的Frontend ({backend.detail})",
+            )
         self._ensure_runtime_state()
         process, record = self._active_process(service)
         persisted = self._records.get(service)
@@ -2429,6 +2504,8 @@ class ServerLifecycleManager:
     def process_snapshot(self, service: str) -> ProcessSnapshot:
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
+        if self._is_portable() and service == "frontend":
+            return replace(self.process_snapshot("backend"), service="frontend")
         self._ensure_runtime_state()
         record = self._records.get(service)
         process = self.processes.get(service)
@@ -2471,6 +2548,13 @@ class ServerLifecycleManager:
         """
         if service not in {"backend", "frontend"}:
             raise ValueError("サービス名が不正です")
+        if self._is_portable() and service == "frontend":
+            backend = self.observe_status("backend")
+            return replace(
+                backend,
+                service="frontend",
+                detail=f"Backend内蔵の静的Frontend ({backend.detail})",
+            )
         healthy = self._healthy(service)
         state = getattr(self, "_states", {}).get(service, "stopped")
         process = getattr(self, "processes", {}).get(service)
@@ -2524,6 +2608,21 @@ class ServerLifecycleManager:
     def _command(self, service: str) -> tuple[list[str], Path]:
         settings = self._settings()
         if service == "backend":
+            if self._is_portable():
+                if not PORTABLE_BACKEND_EXE.is_file():
+                    raise FileNotFoundError(
+                        f"Portable Backend EXEが見つかりません: {PORTABLE_BACKEND_EXE}"
+                    )
+                return (
+                    [
+                        str(PORTABLE_BACKEND_EXE),
+                        "--host",
+                        str(settings["backend_host"]),
+                        "--port",
+                        str(settings["backend_port"]),
+                    ],
+                    PORTABLE_BACKEND_EXE.parent,
+                )
             cwd = ROOT / "backend"
             python_candidates = (
                 cwd / ".venv" / ("Scripts" if os.name == "nt" else "bin") / "python.exe",
@@ -2690,6 +2789,11 @@ class ServerLifecycleManager:
             raise ValueError("サービス名が不正です")
         self._ensure_runtime_state()
         with getattr(self, "_lifecycle_lock", threading.RLock()):
+            if self._is_portable() and service == "frontend":
+                backend = self.status("backend")
+                if not backend.running:
+                    self.start("backend")
+                return self.status("frontend")
             current = self.status(service)
             if current.running:
                 return current
@@ -2697,6 +2801,14 @@ class ServerLifecycleManager:
             log = (LOG_DIR / f"{service}.log").open("a", encoding="utf-8")
             environment = os.environ.copy()
             environment["CLAUDE_OFFICE_ROOT"] = str(ROOT)
+            if self._is_portable() and service == "backend":
+                data_dir = ROOT / "data"
+                data_dir.mkdir(parents=True, exist_ok=True)
+                environment["AI_OFFICE_PORTABLE"] = "1"
+                environment["AI_OFFICE_ROOT"] = str(ROOT)
+                environment["AI_OFFICE_STATIC_DIR"] = str(PORTABLE_FRONTEND_DIR)
+                environment["AI_OFFICE_DATABASE_PATH"] = str(data_dir / "visualizer.db")
+                environment["SERVE_STATIC"] = "1"
             settings = self._settings()
             if service == "frontend":
                 environment["NEXT_PUBLIC_API_URL"] = (
@@ -2821,6 +2933,22 @@ class ServerLifecycleManager:
             raise ValueError("サービス名が不正です")
         self._ensure_runtime_state()
         with getattr(self, "_lifecycle_lock", threading.RLock()):
+            if self._is_portable() and service == "frontend":
+                backend = self.status("backend")
+                return replace(
+                    backend,
+                    service="frontend",
+                    running=False,
+                    healthy=False,
+                    owned=False,
+                    state=STATE_STOPPED,
+                    pid=None,
+                    detail="FrontendはBackendに内蔵されています（停止はBackendで行います）",
+                    process_alive=False,
+                    port_listening=False,
+                    liveness_ok=False,
+                    readiness_ok=False,
+                )
             process, record = self._active_process(service)
             current = self.status(service)
             if process is None and record is None:

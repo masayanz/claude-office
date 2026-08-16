@@ -1,4 +1,5 @@
 import importlib.metadata
+import os
 import secrets
 from functools import lru_cache
 from pathlib import Path
@@ -6,8 +7,23 @@ from pathlib import Path
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 _BACKEND_DIR = Path(__file__).parent.parent.resolve()
-_DEFAULT_DB_PATH = _BACKEND_DIR / "visualizer.db"
-_SHARED_SETTINGS_PATH = _BACKEND_DIR.parent / "config" / "app-settings.json"
+
+
+def _viewer_root() -> Path:
+    """Resolve the source or Portable installation root without hard-coded paths."""
+    configured = os.environ.get("AI_OFFICE_ROOT") or os.environ.get("CLAUDE_OFFICE_ROOT")
+    if configured:
+        return Path(configured).expanduser().resolve()
+    return _BACKEND_DIR.parent
+
+
+_VIEWER_ROOT = _viewer_root()
+_DEFAULT_DB_PATH = (
+    Path(os.environ["AI_OFFICE_DATABASE_PATH"]).expanduser().resolve()
+    if os.environ.get("AI_OFFICE_DATABASE_PATH")
+    else (_VIEWER_ROOT / "data" / "visualizer.db" if os.environ.get("AI_OFFICE_PORTABLE") else _BACKEND_DIR / "visualizer.db")
+)
+_SHARED_SETTINGS_PATH = _VIEWER_ROOT / "config" / "app-settings.json"
 
 
 def _shared_settings() -> dict[str, object]:

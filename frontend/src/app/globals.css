@@ -8,8 +8,8 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: Arial, "Noto Sans", sans-serif;
+  --font-mono: Consolas, "Cascadia Mono", monospace;
   --animate-tour-ring: tour-ring-pulse 1.5s ease-in-out infinite;
   --animate-slide-up: slide-up 300ms ease-out forwards;
 }

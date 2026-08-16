@@ -1,6 +1,7 @@
-<#[CmdletBinding()]#>
+﻿<#[CmdletBinding()]#>
 param(
-    [string]$Python = ""
+    [string]$Python = "",
+    [string]$OutputDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
@@ -8,7 +9,14 @@ $root = (Resolve-Path $PSScriptRoot).Path
 $icon = Join-Path $root "manager\assets\claude-office-manager.ico"
 $entry = Join-Path $root "manager_launcher.py"
 $versionFile = Join-Path $root "manager\version_info.txt"
-$dist = Join-Path $root "dist"
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    $dist = Join-Path $root "dist"
+} elseif (Test-Path -LiteralPath $OutputDirectory) {
+    $dist = (Resolve-Path $OutputDirectory).Path
+} else {
+    New-Item -ItemType Directory -Path $OutputDirectory -Force | Out-Null
+    $dist = (Resolve-Path $OutputDirectory).Path
+}
 $work = Join-Path $root "build\manager"
 $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 
@@ -16,7 +24,7 @@ if ([string]::IsNullOrWhiteSpace($Python)) {
     if (-not (Test-Path -LiteralPath $venvPython)) {
         throw "Python virtual environment was not found. Run 'uv sync --extra manager' first."
     }
-    $Python = "`"$venvPython`""
+    $Python = $venvPython
 }
 
 if (-not (Test-Path -LiteralPath $icon)) {
@@ -31,8 +39,13 @@ if (-not (Test-Path -LiteralPath $versionFile)) {
 
 Write-Host "PyInstallerでAI-Office-Viewer-Manager.exeをビルドします。"
 $assetData = "$icon;manager\assets"
-$command = "& $Python -m PyInstaller --noconfirm --clean --onefile --windowed --name AI-Office-Viewer-Manager --icon `"$icon`" --version-file `"$versionFile`" --add-data `"$assetData`" --distpath `"$dist`" --workpath `"$work`" --specpath `"$work`" `"$entry`""
-Invoke-Expression $command
+$arguments = @(
+    "-m", "PyInstaller", "--noconfirm", "--clean", "--onefile", "--windowed",
+    "--name", "AI-Office-Viewer-Manager", "--icon", $icon,
+    "--version-file", $versionFile, "--add-data", $assetData,
+    "--distpath", $dist, "--workpath", $work, "--specpath", $work, $entry
+)
+& $Python @arguments
 if ($LASTEXITCODE -ne 0) {
     throw "PyInstaller failed with exit code $LASTEXITCODE"
 }

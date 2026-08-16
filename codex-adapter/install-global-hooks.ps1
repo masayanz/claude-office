@@ -1,4 +1,4 @@
-<#
+﻿<#
 Install AI Office Viewer's Codex hooks in the current user's global Codex layer.
 
 The script only edits ~/.codex/hooks.json. Existing hook groups and handlers are
@@ -63,12 +63,30 @@ function New-ClaudeOfficeGroup([object]$handler, [string]$matcher) {
     return $group
 }
 
-$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\")).Path
+function Find-ViewerRoot {
+    $candidate = (Resolve-Path $PSScriptRoot).Path
+    while ($candidate) {
+        if ((Test-Path -LiteralPath (Join-Path $candidate "config\app-settings.json")) -and
+            ((Test-Path -LiteralPath (Join-Path $candidate "portable.flag")) -or
+             (Test-Path -LiteralPath (Join-Path $candidate "codex-adapter\hook.py")))) {
+            return $candidate
+        }
+        $parent = Split-Path -Parent $candidate
+        if (-not $parent -or $parent -eq $candidate) { break }
+        $candidate = $parent
+    }
+    throw "AI Office Viewerの配布ルートを特定できません。"
+}
+
+$repoRoot = Find-ViewerRoot
 $codexHome = Get-CodexHome
 $hooksPath = Join-Path $codexHome "hooks.json"
 $configPath = Join-Path $codexHome "claude-office-config.json"
 $launcherPath = Join-Path $codexHome "claude-office-hook.ps1"
 $pythonLauncherPath = Join-Path $codexHome "claude-office-hook.py"
+$portableAdapterPath = Join-Path $repoRoot "runtime\codex-adapter\AI-Office-Viewer-Codex-Adapter.exe"
+$sourceAdapterPath = Join-Path $repoRoot "codex-adapter\hook.py"
+$adapterPath = if (Test-Path -LiteralPath $portableAdapterPath) { $portableAdapterPath } else { $sourceAdapterPath }
 $backupDir = Join-Path $codexHome "backups"
 $shellCommand = (Get-Command powershell.exe -ErrorAction SilentlyContinue).Source
 if (-not $shellCommand) {
@@ -146,18 +164,22 @@ try {
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $root = [string]$config.root
     if (-not $root) { exit 0 }
-    $hookPath = Join-Path $root "codex-adapter\hook.py"
-    if (-not (Test-Path -LiteralPath $hookPath)) { exit 0 }
+    $adapterPath = [string]$config.adapter
+    if (-not $adapterPath -or -not (Test-Path -LiteralPath $adapterPath)) { exit 0 }
     $env:CLAUDE_OFFICE_ROOT = $root
-    $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
-    if ($pyLauncher) {
-        & $pyLauncher.Source -3.13 $hookPath
+    if ($adapterPath.ToLowerInvariant().EndsWith(".exe")) {
+        & $adapterPath
     } else {
-        $pythonLauncher = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
-        if (-not $pythonLauncher) {
-            $pythonLauncher = (Get-Command python3.exe -ErrorAction SilentlyContinue).Source
+        $pyLauncher = Get-Command py.exe -ErrorAction SilentlyContinue
+        if ($pyLauncher) {
+            & $pyLauncher.Source -3.13 $adapterPath
+        } else {
+            $pythonLauncher = (Get-Command python.exe -ErrorAction SilentlyContinue).Source
+            if (-not $pythonLauncher) {
+                $pythonLauncher = (Get-Command python3.exe -ErrorAction SilentlyContinue).Source
+            }
+            if ($pythonLauncher) { & $pythonLauncher $adapterPath }
         }
-        if ($pythonLauncher) { & $pythonLauncher $hookPath }
     }
 } catch {
     # AI Office Viewer is an optional observer. Never interrupt Codex.
@@ -184,7 +206,7 @@ $pythonLauncher | Set-Content -LiteralPath $pythonLauncherPath -Encoding UTF8
 
 $configData = [pscustomobject]@{
     root = $repoRoot
-    adapter = (Join-Path $repoRoot "codex-adapter\hook.py")
+    adapter = $adapterPath
     installedAt = (Get-Date).ToUniversalTime().ToString("o")
 }
 $configData | ConvertTo-Json | Set-Content -LiteralPath $configPath -Encoding UTF8

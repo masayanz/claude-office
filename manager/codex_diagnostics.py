@@ -555,7 +555,14 @@ def inspect_global_hooks(
         root_matches = configured_root.resolve() == viewer_root.resolve()
     except OSError:
         root_matches = configured_root == viewer_root
-    expected_adapter = viewer_root / "codex-adapter" / "hook.py"
+    portable_adapter = (
+        viewer_root
+        / "runtime"
+        / "codex-adapter"
+        / "AI-Office-Viewer-Codex-Adapter.exe"
+    )
+    source_adapter = viewer_root / "codex-adapter" / "hook.py"
+    expected_adapter = portable_adapter if portable_adapter.is_file() else source_adapter
     config_adapter = config.get("adapter")
     configured_adapter = (
         Path(config_adapter).expanduser() if isinstance(config_adapter, str) else None

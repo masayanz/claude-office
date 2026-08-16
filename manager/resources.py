@@ -20,3 +20,15 @@ def resource_path(relative_path: Path) -> Path:
 
 def manager_icon_path() -> Path:
     return resource_path(Path("manager") / "assets" / ICON_FILENAME)
+
+
+def application_root() -> Path:
+    """Return the external application root, including for PyInstaller onefile."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parents[1]
+
+
+def user_manual_path() -> Path:
+    """Resolve the separately distributed local user manual."""
+    return application_root() / "help" / "index.html"

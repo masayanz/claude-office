@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -12,6 +13,55 @@ from PySide6.QtWidgets import QApplication
 
 from manager import main
 from manager.process_manager import ServiceStatus, ViewerLaunchResult
+
+
+def test_user_manual_path_uses_frozen_executable_directory(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from manager import resources
+
+    executable = tmp_path / "AI Office Viewer" / "AI-Office-Viewer-Manager.exe"
+    monkeypatch.setattr(resources.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(resources.sys, "executable", str(executable))
+
+    manual = resources.user_manual_path()
+
+    assert manual == executable.parent / "help" / "index.html"
+    assert manual.resolve().as_uri().startswith("file:///")
+
+
+def test_open_user_manual_opens_existing_local_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manual = tmp_path / "help" / "index.html"
+    manual.parent.mkdir()
+    manual.write_text("<!doctype html>", encoding="utf-8")
+    opened: list[str] = []
+    window = main.ManagerWindow.__new__(main.ManagerWindow)
+    monkeypatch.setattr(main, "user_manual_path", lambda: manual)
+    monkeypatch.setattr(main.webbrowser, "open", lambda url: opened.append(url) or True)
+
+    main.ManagerWindow._open_user_manual(window)
+
+    assert manual.is_file()
+    assert opened == [manual.resolve().as_uri()]
+
+
+def test_open_user_manual_warns_when_file_is_missing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    messages: list[str] = []
+    window = main.ManagerWindow.__new__(main.ManagerWindow)
+    monkeypatch.setattr(main, "user_manual_path", lambda: tmp_path / "help" / "index.html")
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "warning",
+        lambda _parent, _title, message: messages.append(message),
+    )
+
+    main.ManagerWindow._open_user_manual(window)
+
+    assert messages == ["利用者マニュアルが見つかりません。\n配布キットを再展開してください。"]
 
 
 class _Timer:

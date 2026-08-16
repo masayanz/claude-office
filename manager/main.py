@@ -5,6 +5,7 @@ from __future__ import annotations
 import ctypes
 import sys
 import time
+import webbrowser
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextlib import suppress
@@ -60,7 +61,7 @@ from .process_manager import (
     ServerLifecycleManager,
     ServiceStatus,
 )
-from .resources import manager_icon_path
+from .resources import manager_icon_path, user_manual_path
 from .settings import load_settings, save_settings
 
 DEDICATED_VIEW_STARTING = "DEDICATED_VIEW_STARTING"
@@ -307,6 +308,11 @@ class ManagerWindow(QMainWindow):
         self._refresh_status()
 
     def _build_window(self) -> None:
+        help_menu = self.menuBar().addMenu("ヘルプ")
+        manual_action = QAction("利用者マニュアル", self)
+        manual_action.triggered.connect(self._open_user_manual)
+        help_menu.addAction(manual_action)
+
         scroll = QScrollArea(self)
         scroll.setWidgetResizable(True)
         central = QWidget(scroll)
@@ -1555,6 +1561,31 @@ class ManagerWindow(QMainWindow):
 
     def _open_board_settings(self) -> None:
         self.manager.open_web_settings("board")
+
+    def _open_user_manual(self) -> None:
+        manual = user_manual_path()
+        if not manual.is_file():
+            QMessageBox.warning(
+                self,
+                "利用者マニュアル",
+                "利用者マニュアルが見つかりません。\n配布キットを再展開してください。",
+            )
+            return
+        try:
+            opened = webbrowser.open(manual.resolve().as_uri())
+        except (OSError, ValueError, webbrowser.Error) as exc:
+            QMessageBox.warning(
+                self,
+                "利用者マニュアル",
+                f"利用者マニュアルを開けませんでした。\n{exc}",
+            )
+            return
+        if not opened:
+            QMessageBox.warning(
+                self,
+                "利用者マニュアル",
+                "既定のブラウザで利用者マニュアルを開けませんでした。",
+            )
 
     def _settings_dialog(self) -> None:
         SettingsDialog(self._icon, self).exec()

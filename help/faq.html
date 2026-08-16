@@ -1,0 +1,17 @@
+<!doctype html><html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>FAQ - AI Office Viewer</title><link rel="stylesheet" href="css/help.css"></head><body><a class="skip" href="#main">本文へ移動</a><header class="site-header"><div class="site-header-inner"><a class="brand" href="index.html">AI Office Viewer</a><span class="manual-label">利用者マニュアル</span></div></header><div class="layout"><nav class="sidebar" aria-label="マニュアル目次"><h2>目次</h2><ul class="nav"><li><a href="index.html">ホーム</a></li><li><a href="getting-started.html">はじめに</a></li><li><a href="manager.html">Manager</a></li><li><a href="viewer.html">Viewer</a></li><li><a href="codex.html">Codex連携</a></li><li><a href="replay.html">Replay</a></li><li><a href="settings.html">設定</a></li><li><a href="troubleshooting.html">トラブル対応</a></li><li><a href="limitations.html">制限事項</a></li><li><a aria-current="page" href="faq.html">FAQ</a></li></ul></nav><main id="main"><h1>よくある質問</h1><dl>
+<dt id="no-agents">Q. AI Office Viewerを開いても誰も表示されません。</dt><dd>Codexで進行中のセッションがなければ正常です。VS CodeでCodexを開始し、操作を1回行ってください。別セッションが選択されていないかも確認します。</dd>
+<dt id="codex-no-update">Q. Codexを使っているのに反映されません。</dt><dd>「Codex連携を診断」でGlobal Hooks、Backend API、Live Events、JSONL Monitorを確認します。必要なら「Global Hooksを修復」と「Codexセッションを再読込」を使います。</dd>
+<dt id="backend-api">Q. Backend APIが未接続になります。</dt><dd>起動直後は数秒待ちます。改善しなければ「Backendを再起動」→「再起動」の順に試してください。詳しくは<a href="troubleshooting.html#backend-not-connected">Backend APIが未接続</a>へ。</dd>
+<dt id="jsonl">Q. JSONL Monitorが確認できません。</dt><dd>Codexセッション記録がまだない、Codex環境を検出できない、監視準備中の可能性があります。Codexで新しい操作を行い、再診断してください。</dd>
+<dt id="app-view">Q. 専用画面が開きません。通常ブラウザでは開けます。</dt><dd>専用画面にはEdgeまたはChromeが必要です。企業PCポリシーで禁止されている場合は、通常ブラウザをそのまま利用してください。</dd>
+<dt id="server-remains">Q. Managerを閉じてもServerが残っています。</dt><dd>×ボタンはタスクトレイ収納です。完全終了はトレイの「終了」を使います。また「AI Office Viewerは動作を続ける」設定ならServerは残ります。</dd>
+<dt id="port-used">Q. ポート使用中と表示されます。</dt><dd>古い版を同時起動していないか確認します。Portable版は空きポートへ切り替える場合があります。通常停止できない残存プロセスには、確認後だけ非常停止を使います。</dd>
+<dt id="pc-restart">Q. PC再起動が必要ですか？</dt><dd>通常は不要です。数秒待つ、Backend再起動、全体再起動、確認付き非常停止の順に試し、PC再起動は最後の手段にしてください。</dd>
+<dt id="past-work">Q. 過去の作業を見たい。</dt><dd>Managerの「作業履歴を再生」を使います。履歴保存が有効で保持期間内のセッションだけ表示されます。</dd>
+<dt id="no-replay">Q. Replay履歴がありません。</dt><dd>履歴保存が無効、保持期限切れ、まだ表示用イベントがない、フィルターで除外中の可能性があります。Web設定とReplayの絞り込みを確認します。</dd>
+<dt id="english">Q. キャラクターや画面が英語表示になります。</dt><dd>Web設定の言語を日本語にして保存します。一部のエージェント名や製品名、技術状態名は元の英語表記を使う場合があります。</dd>
+<dt id="customize">Q. 会社名や画像を変更したい。</dt><dd>会社名とオーナー名はManagerの「設定」または「Web設定を開く」、画像はWeb設定で変更します。画像はPNG/JPEG/WebP、5MB以下です。</dd>
+<dt id="conversation-storage">Q. Codexの会話本文は保存されますか？</dt><dd>Codex Adapterはプロンプト、回答、コマンド/出力本文を転送せず、Replayも本文を除外した専用履歴を使います。ただしLive Viewerの「会話」やイベント詳細は、別の連携元が本文を提供した場合にローカル表示できます。</dd>
+<dt id="internet">Q. インターネットへ作業内容が送信されますか？</dt><dd>AI Office ViewerのBackend/Viewerは原則このPC内の<code>127.0.0.1</code>で通信し、外部公開する用途ではありません。CodexやVS Code自身の通信は、それぞれのサービス設定に従います。</dd>
+<dt id="startup">Q. Windows起動時に自動起動できますか？</dt><dd>現在のManager設定画面にはWindows自動起動のON/OFF機能はありません。通常は必要な時にEXEを起動してください。</dd>
+</dl><nav class="page-nav" aria-label="前後のページ"><a href="limitations.html">← 前へ：制限事項</a><a href="index.html">目次</a><span></span></nav></main></div><footer class="site-footer">AI Office Viewer</footer></body></html>

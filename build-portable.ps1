@@ -141,6 +141,10 @@ AI Office Viewer Portable
 5. ViewerはManagerの「ブラウザで開く」または「専用画面で開く」から開きます。
 6. 終了時はManagerの「停止」を押してからManagerを終了します。
 
+詳しい操作方法
+--------------
+Managerの「ヘルプ」→「利用者マニュアル」、または help\index.html を開いてください。
+
 サーバーが残った場合
 ----------------------
 tools\emergency-stop.ps1 -Check で対象を確認できます。
@@ -232,6 +236,7 @@ function Assert-PortableSmokeTest([string]$Directory) {
         "runtime\frontend\index.html",
         "runtime\codex-adapter\AI-Office-Viewer-Codex-Adapter.exe",
         "tools\emergency-stop.ps1",
+        "help\index.html",
         "README.txt",
         "VERSION.txt",
         "portable.flag"
@@ -243,6 +248,47 @@ function Assert-PortableSmokeTest([string]$Directory) {
     }
     if (Test-Path -LiteralPath (Join-Path $Directory "data\visualizer.db")) {
         throw "staging smoke test失敗: 初期SQLite DBが含まれています。"
+    }
+}
+
+function Assert-HelpKit([string]$Directory) {
+    $index = Join-Path $Directory "index.html"
+    if (-not (Test-Path -LiteralPath $index -PathType Leaf)) {
+        throw "help検査失敗: help/index.html がありません。"
+    }
+    foreach ($html in @(Get-ChildItem -LiteralPath $Directory -Filter "*.html" -File -Recurse)) {
+        $content = Get-Content -LiteralPath $html.FullName -Raw
+        if ($content -match '(?i)https?://') {
+            throw "help検査失敗: 外部依存URLがあります: $($html.FullName)"
+        }
+        $ids = [regex]::Matches($content, '(?i)\bid\s*=\s*["'']([^"'']+)["'']') |
+            ForEach-Object { $_.Groups[1].Value }
+        $duplicateIds = @($ids | Group-Object | Where-Object Count -gt 1)
+        if ($duplicateIds.Count -gt 0) {
+            throw "help検査失敗: 重複idがあります ($($duplicateIds[0].Name)): $($html.FullName)"
+        }
+        foreach ($match in [regex]::Matches($content, '(?i)(?:href|src)\s*=\s*["'']([^"'']+)["'']')) {
+            $reference = $match.Groups[1].Value
+            if ($reference -match '^(?:#|mailto:|tel:|data:|javascript:)' -or $reference -match '^[a-z]+:') {
+                continue
+            }
+            $relative = ($reference -split '[?#]', 2)[0]
+            if (-not $relative) { continue }
+            $target = [IO.Path]::GetFullPath((Join-Path $html.DirectoryName $relative))
+            $helpRoot = [IO.Path]::GetFullPath($Directory).TrimEnd('\') + '\'
+            if (-not $target.StartsWith($helpRoot, [StringComparison]::OrdinalIgnoreCase)) {
+                throw "help検査失敗: help外への参照があります ($reference): $($html.FullName)"
+            }
+            if (-not (Test-Path -LiteralPath $target)) {
+                throw "help検査失敗: 参照先がありません ($reference): $($html.FullName)"
+            }
+        }
+    }
+    foreach ($css in @(Get-ChildItem -LiteralPath $Directory -Filter "*.css" -File -Recurse)) {
+        $content = Get-Content -LiteralPath $css.FullName -Raw
+        if ($content -match '(?i)https?://|@import\s+url|@import\s+["'']') {
+            throw "help検査失敗: CSSに外部依存があります: $($css.FullName)"
+        }
     }
 }
 
@@ -268,11 +314,17 @@ function Test-RelocatedKit([string]$Directory) {
         New-Item -ItemType Directory -Path $relocated -Force | Out-Null
         Copy-DirectoryContents $Directory $relocated
         Assert-PortableSmokeTest $relocated
+        Assert-HelpKit (Join-Path $relocated "help")
+        $manualPath = (Resolve-Path -LiteralPath (Join-Path $relocated "help\index.html")).Path
+        $manualUri = [Uri]::new($manualPath)
+        if (-not $manualUri.IsFile -or -not $manualUri.AbsoluteUri.StartsWith("file:")) {
+            throw "移設path test失敗: help/index.htmlをfile URLへ変換できません。"
+        }
         $settings = Get-Content -LiteralPath (Join-Path $relocated "config\app-settings.json") -Raw | ConvertFrom-Json
         if ($settings.backend_host -ne "127.0.0.1") {
             throw "移設path test失敗: localhost設定が変更されています。"
         }
-        Write-Host "  日本語・空白を含む移設先で相対構成を確認しました。" -ForegroundColor DarkGray
+        Write-Host "  日本語・空白を含む移設先で相対構成とhelp URLを確認しました。" -ForegroundColor DarkGray
     } finally {
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -393,6 +445,10 @@ try {
     Copy-Item -LiteralPath (Join-Path $root "codex-adapter\uninstall-global-hooks.ps1") -Destination (Join-Path $packageDir "runtime\codex-adapter\uninstall-global-hooks.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $root "tools\emergency-stop.ps1") -Destination (Join-Path $packageDir "tools\emergency-stop.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $packageDir "LICENSE") -Force
+    $helpSource = Join-Path $root "help"
+    Assert-HelpKit $helpSource
+    New-Item -ItemType Directory -Path (Join-Path $packageDir "help") -Force | Out-Null
+    Copy-DirectoryContents $helpSource (Join-Path $packageDir "help")
 
     $buildStage = "初期設定を生成"
     Write-Step 7 $buildStage
@@ -426,6 +482,7 @@ try {
     $buildStage = "配布内容検査"
     Write-Step 8 $buildStage
     Assert-PortableSmokeTest $packageDir
+    Assert-HelpKit (Join-Path $packageDir "help")
     Test-RelocatedKit $packageDir
     Invoke-DistributionScan $packageDir
 

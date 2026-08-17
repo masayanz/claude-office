@@ -57,6 +57,10 @@ Windows向けの配布ZIPは、[GitHub Releases](https://github.com/masayanz/ai-
 
 ## What's New
 
+### v0.24.2 (August 2026)
+
+- **Windows Portable Manager startup fix.** Corrected a `ServiceStatus` field mismatch that prevented the Portable Manager from completing its initial Backend, Frontend, and Codex integration status checks.
+
 ### v0.24.1 (July 2026)
 
 - **Bug fix — API URL env vars now respected everywhere.** The floor-config hook (`useFloorConfig.ts`) and the simulation scripts (`scripts/scenarios/_base.py`) hardcoded `http://localhost:8000`, so they silently broke when the backend ran on another port (e.g. 8000 was already in use). They now read `NEXT_PUBLIC_API_URL` and `CLAUDE_OFFICE_API_URL` like the rest of the stack; standard-port defaults are unchanged. Thanks [@rasulboliev](https://github.com/rasulboliev) ([PR #55](https://github.com/paulrobello/claude-office/pull/55)).

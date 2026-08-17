@@ -1,7 +1,5 @@
-# AI Office Viewer Release Notes
+# AI Office Viewer 0.24.2 Release Notes
 
-- Windows向けPortable版
-- Managerからオンライン利用者マニュアルを参照
-- CodexのMain Agent／Subagent、Replay、診断・復旧機能に対応
-
-公開前に、このファイルを今回の変更内容へ更新してください。
+- Windows Portable版のManagerが起動時に `ServiceStatus` の初期化エラーで停止する問題を修正
+- Backend内蔵Frontendの状態識別子を正規フィールド `name` に統一
+- Manager起動、Backend／Frontend状態表示、Codex連携状態表示の回帰確認を追加

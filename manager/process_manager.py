@@ -2349,7 +2349,7 @@ class ServerLifecycleManager:
             backend = self.status("backend")
             return replace(
                 backend,
-                service="frontend",
+                name="frontend",
                 detail=f"Backend内蔵の静的Frontend ({backend.detail})",
             )
         self._ensure_runtime_state()
@@ -2552,7 +2552,7 @@ class ServerLifecycleManager:
             backend = self.observe_status("backend")
             return replace(
                 backend,
-                service="frontend",
+                name="frontend",
                 detail=f"Backend内蔵の静的Frontend ({backend.detail})",
             )
         healthy = self._healthy(service)
@@ -2937,7 +2937,7 @@ class ServerLifecycleManager:
                 backend = self.status("backend")
                 return replace(
                     backend,
-                    service="frontend",
+                    name="frontend",
                     running=False,
                     healthy=False,
                     owned=False,

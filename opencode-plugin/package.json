@@ -1,6 +1,6 @@
 {
   "name": "opencode-claude-office",
-  "version": "0.24.1",
+  "version": "0.24.2",
   "description": "OpenCode plugin that sends lifecycle events to AI Office Viewer",
   "type": "module",
   "main": "dist/index.js",

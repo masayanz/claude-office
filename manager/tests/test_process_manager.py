@@ -850,6 +850,37 @@ def test_status_marks_healthy_external_port_as_not_manager_owned(
     assert "停止しません" in result.detail
 
 
+def test_portable_frontend_status_paths_preserve_service_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    backend = ServiceStatus("backend", True, True, 1234, "稼働中", True, "running")
+    monkeypatch.setattr(manager, "_is_portable", lambda: True)
+
+    def status_for_service(service: str) -> ServiceStatus:
+        if service == "backend":
+            return backend
+        return ServiceManager.status(manager, service)
+
+    monkeypatch.setattr(manager, "status", status_for_service)
+    status = ServiceManager.snapshot(manager)["frontend"]
+
+    monkeypatch.setattr(manager, "observe_status", lambda _service: backend)
+    observed = ServiceManager.observe_status(manager, "frontend")
+
+    monkeypatch.setattr(manager, "_ensure_runtime_state", lambda: None)
+    stopped = ServiceManager.stop(manager, "frontend")
+
+    assert status.name == "frontend"
+    assert status.running is True
+    assert "Backend内蔵の静的Frontend" in status.detail
+    assert observed.name == "frontend"
+    assert observed.running is True
+    assert stopped.name == "frontend"
+    assert stopped.running is False
+    assert stopped.state == "stopped"
+
+
 def test_observe_status_does_not_promote_starting_state(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

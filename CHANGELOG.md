@@ -4,6 +4,12 @@ All notable changes to AI Office Viewer are documented here.
 
 ## [Unreleased]
 
+## [0.24.2] - 2026-08-17
+
+### Fixed
+
+- **Windows Portable Manager startup.** Fixed a `ServiceStatus.__init__()` keyword mismatch that left Backend, Frontend, and Codex integration status initialization stuck when the Portable Manager started.
+
 ## [0.24.1] - 2026-07-21
 
 ### Fixed

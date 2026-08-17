@@ -143,8 +143,10 @@ AI Office Viewer Portable
 
 詳しい操作方法
 --------------
-Managerの「ヘルプ」→「利用者マニュアル」、または help\index.html を開いてください。
-本ソフトはPaul Robello氏のClaude Office Visualizerをベースとする派生版です。詳細、謝辞、GitHub、ライセンス案内は help\about.html をご覧ください。
+Managerの「ヘルプ」→「利用者マニュアル」を選ぶと、OSの既定ブラウザでWeb版を開きます。
+https://tools.masayanz.net/claude-office/help/index.html
+利用者マニュアルはWebで提供され、常に最新版を確認できます。表示にはインターネット接続が必要です。
+この注意はヘルプ表示についてのもので、AI Office Viewerのローカル画面やManager操作まで常時インターネット接続を必須とする意味ではありません。
 
 サーバーが残った場合
 ----------------------
@@ -237,10 +239,6 @@ function Assert-PortableSmokeTest([string]$Directory) {
         "runtime\frontend\index.html",
         "runtime\codex-adapter\AI-Office-Viewer-Codex-Adapter.exe",
         "tools\emergency-stop.ps1",
-        "help\index.html",
-        "help\about.html",
-        "help\assets\screenshots\manager-main.png",
-        "help\assets\screenshots\viewer-main.jpg",
         "README.txt",
         "VERSION.txt",
         "portable.flag"
@@ -253,58 +251,8 @@ function Assert-PortableSmokeTest([string]$Directory) {
     if (Test-Path -LiteralPath (Join-Path $Directory "data\visualizer.db")) {
         throw "staging smoke test失敗: 初期SQLite DBが含まれています。"
     }
-}
-
-function Assert-HelpKit([string]$Directory) {
-    $index = Join-Path $Directory "index.html"
-    $allowedExternalLinks = @(
-        "https://github.com/paulrobello/claude-office",
-        "https://github.com/masayanz/claude-office"
-    )
-    if (-not (Test-Path -LiteralPath $index -PathType Leaf)) {
-        throw "help検査失敗: help/index.html がありません。"
-    }
-    foreach ($html in @(Get-ChildItem -LiteralPath $Directory -Filter "*.html" -File -Recurse)) {
-        $content = Get-Content -LiteralPath $html.FullName -Raw
-        $ids = [regex]::Matches($content, '(?i)\bid\s*=\s*["'']([^"'']+)["'']') |
-            ForEach-Object { $_.Groups[1].Value }
-        $duplicateIds = @($ids | Group-Object | Where-Object Count -gt 1)
-        if ($duplicateIds.Count -gt 0) {
-            throw "help検査失敗: 重複idがあります ($($duplicateIds[0].Name)): $($html.FullName)"
-        }
-        foreach ($match in [regex]::Matches($content, '(?i)(href|src)\s*=\s*["'']([^"'']+)["'']')) {
-            $attribute = $match.Groups[1].Value.ToLowerInvariant()
-            $reference = $match.Groups[2].Value
-            if ($reference -match '^https://') {
-                if ($attribute -ne 'href' -or $allowedExternalLinks -notcontains $reference) {
-                    throw "help検査失敗: 許可されていない外部URLがあります ($reference): $($html.FullName)"
-                }
-                continue
-            }
-            if ($reference -match '^(?:http:|//|javascript:|data:)' -or ($reference -match '^[a-z]+:' -and $reference -notmatch '^(?:mailto:|tel:)')) {
-                throw "help検査失敗: 許可されていないURLスキームがあります ($reference): $($html.FullName)"
-            }
-            if ($reference -match '^(?:#|mailto:|tel:)') { continue }
-            $relative = ($reference -split '[?#]', 2)[0]
-            if (-not $relative) { continue }
-            $target = [IO.Path]::GetFullPath((Join-Path $html.DirectoryName $relative))
-            $helpRoot = [IO.Path]::GetFullPath($Directory).TrimEnd('\') + '\'
-            if (-not $target.StartsWith($helpRoot, [StringComparison]::OrdinalIgnoreCase)) {
-                throw "help検査失敗: help外への参照があります ($reference): $($html.FullName)"
-            }
-            if (-not (Test-Path -LiteralPath $target)) {
-                throw "help検査失敗: 参照先がありません ($reference): $($html.FullName)"
-            }
-            if ($attribute -eq 'src' -and $target -match '(?i)\.(?:png|jpe?g|webp)$' -and (Get-Item -LiteralPath $target).Length -eq 0) {
-                throw "help検査失敗: 画像ファイルが空です ($reference): $($html.FullName)"
-            }
-        }
-    }
-    foreach ($css in @(Get-ChildItem -LiteralPath $Directory -Filter "*.css" -File -Recurse)) {
-        $content = Get-Content -LiteralPath $css.FullName -Raw
-        if ($content -match '(?i)https?://|@import\s+url|@import\s+["'']') {
-            throw "help検査失敗: CSSに外部依存があります: $($css.FullName)"
-        }
+    if (Test-Path -LiteralPath (Join-Path $Directory "help")) {
+        throw "staging smoke test失敗: Web提供のhelpフォルダが配布物に含まれています。"
     }
 }
 
@@ -330,17 +278,11 @@ function Test-RelocatedKit([string]$Directory) {
         New-Item -ItemType Directory -Path $relocated -Force | Out-Null
         Copy-DirectoryContents $Directory $relocated
         Assert-PortableSmokeTest $relocated
-        Assert-HelpKit (Join-Path $relocated "help")
-        $manualPath = (Resolve-Path -LiteralPath (Join-Path $relocated "help\index.html")).Path
-        $manualUri = [Uri]::new($manualPath)
-        if (-not $manualUri.IsFile -or -not $manualUri.AbsoluteUri.StartsWith("file:")) {
-            throw "移設path test失敗: help/index.htmlをfile URLへ変換できません。"
-        }
         $settings = Get-Content -LiteralPath (Join-Path $relocated "config\app-settings.json") -Raw | ConvertFrom-Json
         if ($settings.backend_host -ne "127.0.0.1") {
             throw "移設path test失敗: localhost設定が変更されています。"
         }
-        Write-Host "  日本語・空白を含む移設先で相対構成とhelp URLを確認しました。" -ForegroundColor DarkGray
+        Write-Host "  日本語・空白を含む移設先でPortable構成を確認しました。" -ForegroundColor DarkGray
     } finally {
         if (Test-Path -LiteralPath $tempRoot) {
             Remove-Item -LiteralPath $tempRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -461,10 +403,6 @@ try {
     Copy-Item -LiteralPath (Join-Path $root "codex-adapter\uninstall-global-hooks.ps1") -Destination (Join-Path $packageDir "runtime\codex-adapter\uninstall-global-hooks.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $root "tools\emergency-stop.ps1") -Destination (Join-Path $packageDir "tools\emergency-stop.ps1") -Force
     Copy-Item -LiteralPath (Join-Path $root "LICENSE") -Destination (Join-Path $packageDir "LICENSE") -Force
-    $helpSource = Join-Path $root "help"
-    Assert-HelpKit $helpSource
-    New-Item -ItemType Directory -Path (Join-Path $packageDir "help") -Force | Out-Null
-    Copy-DirectoryContents $helpSource (Join-Path $packageDir "help")
 
     $buildStage = "初期設定を生成"
     Write-Step 7 $buildStage
@@ -498,7 +436,6 @@ try {
     $buildStage = "配布内容検査"
     Write-Step 8 $buildStage
     Assert-PortableSmokeTest $packageDir
-    Assert-HelpKit (Join-Path $packageDir "help")
     Test-RelocatedKit $packageDir
     Invoke-DistributionScan $packageDir
 

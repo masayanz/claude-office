@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import os
-from pathlib import Path
 
 import pytest
 
@@ -12,47 +11,39 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtWidgets import QApplication
 
 from manager import main
+from manager.branding import HELP_BASE_URL, HELP_INDEX_URL
 from manager.process_manager import ServiceStatus, ViewerLaunchResult
 
 
-def test_user_manual_path_uses_frozen_executable_directory(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_help_urls_use_official_https_site() -> None:
+    assert HELP_BASE_URL == "https://tools.masayanz.net/claude-office/help/"
+    assert HELP_INDEX_URL == "https://tools.masayanz.net/claude-office/help/index.html"
+
+
+def test_open_user_manual_opens_online_help_without_server_lifecycle(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    from manager import resources
-
-    executable = tmp_path / "AI Office Viewer" / "AI-Office-Viewer-Manager.exe"
-    monkeypatch.setattr(resources.sys, "frozen", True, raising=False)
-    monkeypatch.setattr(resources.sys, "executable", str(executable))
-
-    manual = resources.user_manual_path()
-
-    assert manual == executable.parent / "help" / "index.html"
-    assert manual.resolve().as_uri().startswith("file:///")
-
-
-def test_open_user_manual_opens_existing_local_file(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-) -> None:
-    manual = tmp_path / "help" / "index.html"
-    manual.parent.mkdir()
-    manual.write_text("<!doctype html>", encoding="utf-8")
     opened: list[str] = []
     window = main.ManagerWindow.__new__(main.ManagerWindow)
-    monkeypatch.setattr(main, "user_manual_path", lambda: manual)
+
+    class LifecycleGuard:
+        def __getattr__(self, name: str) -> object:
+            pytest.fail(f"ヘルプ表示がserver lifecycleへアクセスしました: {name}")
+
+    window.manager = LifecycleGuard()
     monkeypatch.setattr(main.webbrowser, "open", lambda url: opened.append(url) or True)
 
     main.ManagerWindow._open_user_manual(window)
 
-    assert manual.is_file()
-    assert opened == [manual.resolve().as_uri()]
+    assert opened == [HELP_INDEX_URL]
 
 
-def test_open_user_manual_warns_when_file_is_missing(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+def test_open_user_manual_warns_when_browser_cannot_open(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     messages: list[str] = []
     window = main.ManagerWindow.__new__(main.ManagerWindow)
-    monkeypatch.setattr(main, "user_manual_path", lambda: tmp_path / "help" / "index.html")
+    monkeypatch.setattr(main.webbrowser, "open", lambda _url: False)
     monkeypatch.setattr(
         main.QMessageBox,
         "warning",
@@ -61,7 +52,30 @@ def test_open_user_manual_warns_when_file_is_missing(
 
     main.ManagerWindow._open_user_manual(window)
 
-    assert messages == ["利用者マニュアルが見つかりません。\n配布キットを再展開してください。"]
+    assert messages == ["既定のブラウザで利用者マニュアルを開けませんでした。"]
+
+
+def test_open_user_manual_warns_when_browser_raises(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    messages: list[str] = []
+    window = main.ManagerWindow.__new__(main.ManagerWindow)
+
+    def fail_to_open(_url: str) -> bool:
+        raise OSError("browser unavailable")
+
+    monkeypatch.setattr(main.webbrowser, "open", fail_to_open)
+    monkeypatch.setattr(
+        main.QMessageBox,
+        "warning",
+        lambda _parent, _title, message: messages.append(message),
+    )
+
+    main.ManagerWindow._open_user_manual(window)
+
+    assert messages == [
+        "利用者マニュアルを開けませんでした。\nbrowser unavailable"
+    ]
 
 
 class _Timer:

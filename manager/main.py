@@ -41,6 +41,7 @@ from PySide6.QtWidgets import (
 
 from .branding import (
     APP_USER_MODEL_ID,
+    HELP_INDEX_URL,
     MANAGER_NAME,
     PRODUCT_NAME,
     PRODUCT_SUBTITLE_JA,
@@ -61,7 +62,7 @@ from .process_manager import (
     ServerLifecycleManager,
     ServiceStatus,
 )
-from .resources import manager_icon_path, user_manual_path
+from .resources import manager_icon_path
 from .settings import load_settings, save_settings
 
 DEDICATED_VIEW_STARTING = "DEDICATED_VIEW_STARTING"
@@ -1563,16 +1564,8 @@ class ManagerWindow(QMainWindow):
         self.manager.open_web_settings("board")
 
     def _open_user_manual(self) -> None:
-        manual = user_manual_path()
-        if not manual.is_file():
-            QMessageBox.warning(
-                self,
-                "利用者マニュアル",
-                "利用者マニュアルが見つかりません。\n配布キットを再展開してください。",
-            )
-            return
         try:
-            opened = webbrowser.open(manual.resolve().as_uri())
+            opened = webbrowser.open(HELP_INDEX_URL)
         except (OSError, ValueError, webbrowser.Error) as exc:
             QMessageBox.warning(
                 self,

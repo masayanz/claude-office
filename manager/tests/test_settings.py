@@ -14,6 +14,22 @@ def _test_path(name: str) -> Path:
     return Path(__file__).resolve().parents[2] / "config" / f".manager-{name}.json"
 
 
+def test_find_root_does_not_require_local_settings_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = tmp_path / "viewer"
+    (root / "manager").mkdir(parents=True)
+    (root / "config").mkdir()
+    (root / "backend").mkdir()
+    (root / "frontend").mkdir()
+    module_path = root / "manager" / "settings.py"
+    module_path.touch()
+    monkeypatch.setattr(settings, "__file__", str(module_path))
+    monkeypatch.delattr(settings.sys, "frozen", raising=False)
+
+    assert settings._find_root() == root
+
+
 def test_restore_settings_have_safe_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     path = _test_path("defaults")
     path.write_text("{}", encoding="utf-8")

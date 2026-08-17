@@ -18,7 +18,7 @@ def _find_root() -> Path:
     start = start.parent if start.is_file() else start
     for candidate in (start, *start.parents):
         if (
-            (candidate / "config" / "app-settings.json").is_file()
+            (candidate / "config").is_dir()
             and (
                 ((candidate / "backend").is_dir() and (candidate / "frontend").is_dir())
                 or ((candidate / "runtime" / "backend").is_dir() and (candidate / "runtime" / "frontend").is_dir())

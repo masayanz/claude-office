@@ -103,7 +103,15 @@ config/owner-image/*
 runtime/logs/
 runtime/processes.json
 runtime/dedicated-view-profile/
+runtime/manager-tests/
 .pytest-temp/
+.test-temp/
+/.tmp-manager-*/
+/manager_test_tmp/
+/pytest-cache-files-*/
+/_codex-test-temp-*/
+backend/.pytest-temp-*/
+backend/.tmp-pytest-*/
 dist/manager/
 build/manager/
 

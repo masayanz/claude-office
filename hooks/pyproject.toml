@@ -1,6 +1,6 @@
 [project]
 name = "claude-office-hooks"
-version = "0.24.2"
+version = "0.24.3"
 description = "Claude Code hooks for AI Office Viewer"
 readme = "README.md"
 requires-python = ">=3.13"

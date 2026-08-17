@@ -1457,7 +1457,9 @@ class ManagerWindow(QMainWindow):
     def _open_app(self) -> None:
         observe_status = getattr(self.manager, "observe_status", self.manager.status)
         backend = observe_status("backend")
-        frontend = observe_status("frontend")
+        viewer_target = getattr(self.manager, "viewer_launch_target", None)
+        target = viewer_target() if callable(viewer_target) else None
+        frontend = target.status if target is not None else observe_status("frontend")
         self._last_backend_healthy = backend.healthy
         self._last_frontend_healthy = frontend.healthy
         self._last_backend_state = backend.state
@@ -1501,7 +1503,7 @@ class ManagerWindow(QMainWindow):
         # Backend process is still present.  In particular, a temporary
         # Backend/API failure must not turn a display action into a lifecycle
         # action.
-        if frontend.healthy:
+        if (target.available if target is not None else frontend.healthy):
             self._launch_dedicated_view()
             return
 

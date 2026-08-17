@@ -23,6 +23,7 @@ from manager.process_manager import (
     ProcessRecord,
     ServiceManager,
     ServiceStatus,
+    ViewerLaunchTarget,
 )
 
 
@@ -261,6 +262,29 @@ def test_repair_hooks_reports_parser_failure_and_logs_safe_details(
     assert "secret-prompt" not in log
 
 
+def test_repair_hooks_portable_mode_does_not_fall_back_to_source_installer(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    source = tmp_path / "codex-adapter"
+    source.mkdir()
+    (source / "install-global-hooks.ps1").write_text("# source", encoding="utf-8")
+    (source / "hook.py").write_text("# source", encoding="utf-8")
+    (tmp_path / "portable.flag").write_text("portable\n", encoding="utf-8")
+    monkeypatch.setattr("manager.process_manager.ROOT", tmp_path)
+    monkeypatch.setattr(
+        manager,
+        "inspect_global_hooks",
+        lambda: SimpleNamespace(state=SimpleNamespace(value="error")),
+    )
+
+    result = manager.repair_global_hooks()
+
+    assert result.succeeded is False
+    assert result.failure_stage == "locate_installer"
+    assert "Portable" in result.detail
+
+
 @pytest.mark.skipif(os.name != "nt", reason="Windows console startup flags")
 def test_start_hides_console_and_keeps_service_log_open(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
@@ -398,6 +422,15 @@ def test_open_web_settings_rejects_unknown_section(monkeypatch: pytest.MonkeyPat
 def test_open_normal_browser_uses_the_default_browser(monkeypatch: pytest.MonkeyPatch) -> None:
     manager = _manager(monkeypatch)
     opened: list[str] = []
+    monkeypatch.setattr(
+        manager,
+        "viewer_launch_target",
+        lambda: ViewerLaunchTarget(
+            "http://127.0.0.1:3123",
+            ServiceStatus("frontend", True, True, 4321, state="running", liveness_ok=True),
+            True,
+        ),
+    )
     monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
 
     result = manager.open_normal_browser()
@@ -405,6 +438,67 @@ def test_open_normal_browser_uses_the_default_browser(monkeypatch: pytest.Monkey
     assert result.succeeded is True
     assert result.mode == "normal"
     assert opened == ["http://127.0.0.1:3123"]
+
+
+def test_portable_viewer_target_uses_backend_url_and_transient_policy(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    transient = ServiceStatus(
+        "frontend",
+        True,
+        False,
+        4321,
+        "稼働中（応答なし、連続失敗 1回）",
+        True,
+        "running",
+        process_alive=True,
+        port_listening=True,
+        consecutive_failures=1,
+    )
+    monkeypatch.setattr(manager, "_is_portable", lambda: True)
+    monkeypatch.setattr(manager, "status", lambda _service: transient)
+
+    target = manager.viewer_launch_target()
+
+    assert target.url == "http://127.0.0.1:8123"
+    assert target.available is True
+    assert target.status.liveness_ok is False
+
+    failed = ServiceStatus(
+        "frontend",
+        True,
+        False,
+        4321,
+        "応答なし",
+        True,
+        "degraded",
+        process_alive=True,
+        port_listening=True,
+        consecutive_failures=3,
+    )
+    monkeypatch.setattr(manager, "status", lambda _service: failed)
+    assert manager.viewer_launch_target().available is False
+
+
+def test_normal_browser_uses_lifecycle_resolved_variable_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    manager = _manager(monkeypatch)
+    opened: list[str] = []
+    target = ViewerLaunchTarget(
+        "http://127.0.0.1:9321",
+        ServiceStatus("frontend", True, True, 4321, state="running", liveness_ok=True),
+        True,
+    )
+    monkeypatch.setattr(manager, "viewer_launch_target", lambda: target)
+    monkeypatch.setattr(webbrowser, "open", lambda url: opened.append(url) or True)
+
+    result = manager.open_normal_browser()
+
+    assert result.succeeded is True
+    assert result.url == "http://127.0.0.1:9321"
+    assert opened == [target.url]
 
 
 def test_find_dedicated_browser_prefers_edge_installation(
@@ -480,6 +574,49 @@ def test_dedicated_view_uses_app_mode_and_reuses_its_process(
         popen_kwargs[0].get("creationflags", 0)
         & getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)
     )
+
+
+def test_dedicated_view_rejects_live_window_for_stale_frontend_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    manager = _manager(monkeypatch)
+    settings = {
+        "backend_host": "127.0.0.1",
+        "backend_port": 8123,
+        "frontend_host": "127.0.0.1",
+        "frontend_port": 3123,
+    }
+    monkeypatch.setattr(manager, "_settings", lambda: settings)
+    monkeypatch.setattr(manager, "_healthy", lambda _service: True)
+    monkeypatch.setattr(
+        manager,
+        "_find_dedicated_browser",
+        lambda: ("Edge", r"C:\\Program Files\\Microsoft\\Edge\\msedge.exe"),
+    )
+    monkeypatch.setattr(process_manager, "RUNTIME_DIR", tmp_path / "runtime")
+    commands: list[list[str]] = []
+
+    class Browser:
+        def __init__(self, pid: int) -> None:
+            self.pid = pid
+
+        def poll(self) -> None:
+            return None
+
+    def launch(command: list[str], **_kwargs: Any) -> Browser:
+        commands.append(command)
+        return Browser(9000 + len(commands))
+
+    first = manager.open_dedicated_view(browser_launcher=launch)
+    settings["frontend_port"] = 9321
+    second = manager.open_dedicated_view(browser_launcher=launch)
+
+    assert first.succeeded is True
+    assert second.succeeded is True
+    assert second.reused is False
+    assert len(commands) == 2
+    assert "--app=http://127.0.0.1:3123" in commands[0]
+    assert "--app=http://127.0.0.1:9321" in commands[1]
 
 
 def test_dedicated_view_keeps_server_pids_and_lifecycle_untouched(
@@ -775,6 +912,11 @@ def test_dedicated_view_launch_does_not_use_pipe_or_server_process_group(
     assert captured["stdin"] is subprocess.DEVNULL
     assert captured["stdout"] is subprocess.DEVNULL
     assert captured["stderr"] is subprocess.DEVNULL
+    assert "startupinfo" not in captured
+    assert not (
+        captured.get("creationflags", 0)
+        & getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    )
     assert not (
         captured.get("creationflags", 0)
         & getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)

@@ -1,6 +1,6 @@
 [project]
 name = "claude-office"
-version = "0.24.2"
+version = "0.24.3"
 description = "AI Office Viewer visualizes AI agent activity in real time"
 readme = "README.md"
 authors = [

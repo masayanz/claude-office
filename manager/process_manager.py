@@ -254,6 +254,19 @@ class ViewerLaunchResult:
 
 
 @dataclass(frozen=True, slots=True)
+class ViewerLaunchTarget:
+    """Lifecycle-owned URL and availability decision for Viewer launchers.
+
+    Browser launchers intentionally receive only this resolved target; they do
+    not probe, start, or stop any service themselves.
+    """
+
+    url: str
+    status: ServiceStatus
+    available: bool
+
+
+@dataclass(frozen=True, slots=True)
 class ProcessRecord:
     """Persisted identity for a process started by this Manager instance."""
 
@@ -449,15 +462,24 @@ class DedicatedViewProcessManager:
 
     def __init__(self) -> None:
         self.processes: dict[int, subprocess.Popen[Any]] = {}
+        self.urls: dict[int, str] = {}
         self.browser: str | None = None
 
-    def active_process(self) -> subprocess.Popen[Any] | None:
-        """Return one live dedicated browser after pruning exited handles."""
+    def active_process(self, frontend_url: str) -> subprocess.Popen[Any] | None:
+        """Return a live dedicated browser only when it serves *frontend_url*."""
         self.cleanup()
-        return next(iter(self.processes.values()), None)
+        return next(
+            (
+                process
+                for pid, process in self.processes.items()
+                if self.urls.get(pid) == frontend_url
+            ),
+            None,
+        )
 
-    def register(self, process: subprocess.Popen[Any], browser: str) -> None:
+    def register(self, process: subprocess.Popen[Any], browser: str, frontend_url: str) -> None:
         self.processes[process.pid] = process
+        self.urls[process.pid] = frontend_url
         self.browser = browser
 
     def cleanup(self) -> list[tuple[int, int | None]]:
@@ -470,6 +492,7 @@ class DedicatedViewProcessManager:
                 return_code = 0
             if return_code is not None:
                 self.processes.pop(pid, None)
+                self.urls.pop(pid, None)
                 closed.append((pid, return_code))
         if not self.processes:
             self.browser = None
@@ -587,7 +610,6 @@ class DedicatedViewLauncher:
                 stdin=subprocess.DEVNULL,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,
-                **ServerLifecycleManager._hidden_subprocess_kwargs(),
             )
         except (OSError, ValueError, subprocess.SubprocessError) as exc:
             return (
@@ -924,11 +946,26 @@ class ServerLifecycleManager:
 
     def adapter_available(self) -> bool:
         """Return whether the shared Codex adapter launcher exists."""
-        return PORTABLE_ADAPTER_EXE.is_file() or (ROOT / "codex-adapter" / "hook.py").is_file()
+        return self._adapter_path().is_file()
+
+    @staticmethod
+    def _portable_root() -> bool:
+        """Portable integration is selected by this root's explicit marker only."""
+        return (ROOT / "portable.flag").is_file()
+
+    def _adapter_path(self) -> Path:
+        if self._portable_root():
+            return ROOT / "runtime" / "codex-adapter" / "AI-Office-Viewer-Codex-Adapter.exe"
+        return ROOT / "codex-adapter" / "hook.py"
+
+    def _hooks_installer_path(self) -> Path:
+        if self._portable_root():
+            return ROOT / "runtime" / "codex-adapter" / "install-global-hooks.ps1"
+        return ROOT / "codex-adapter" / "install-global-hooks.ps1"
 
     def adapter_self_check(self) -> bool:
         """Run the adapter's event-free check and validate its shared endpoint."""
-        hook = PORTABLE_ADAPTER_EXE if PORTABLE_ADAPTER_EXE.is_file() else ROOT / "codex-adapter" / "hook.py"
+        hook = self._adapter_path()
         if not hook.is_file():
             return False
         if hook.suffix.lower() == ".exe":
@@ -1143,29 +1180,22 @@ class ServerLifecycleManager:
         """
         hooks_path = self._codex_home() / "hooks.json"
         launcher_path = self._codex_home() / "claude-office-hook.ps1"
-        adapter_path = (
-            PORTABLE_ADAPTER_EXE
-            if PORTABLE_ADAPTER_EXE.is_file()
-            else ROOT / "codex-adapter" / "hook.py"
-        )
+        adapter_path = self._adapter_path()
         current = self.inspect_global_hooks()
         if current.state.value == "ok":
             result = GlobalHooksRepairResult(True, "Global Hooksは正常です。修復は必要ありません。")
             self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
             return result
 
-        installer_candidates = (
-            PORTABLE_ADAPTER_DIR / "install-global-hooks.ps1",
-            ROOT / "codex-adapter" / "install-global-hooks.ps1",
-        )
-        installer = next(
-            (candidate for candidate in installer_candidates if candidate.is_file()),
-            None,
-        )
-        if installer is None:
+        installer = self._hooks_installer_path()
+        if not installer.is_file():
             result = GlobalHooksRepairResult(
                 False,
-                "Global Hooks修復スクリプトが見つかりません",
+                (
+                    "Portable Global Hooks修復スクリプトが見つかりません"
+                    if self._portable_root()
+                    else "開発版Global Hooks修復スクリプトが見つかりません"
+                ),
                 failure_stage="locate_installer",
             )
             self.log_global_hooks_repair(result, hooks_path, launcher_path, adapter_path)
@@ -1691,9 +1721,25 @@ class ServerLifecycleManager:
         _probe, payload = self._probe_liveness("backend")
         return payload
 
+    def viewer_launch_target(self) -> ViewerLaunchTarget:
+        """Return the current Viewer URL and the lifecycle's launch decision.
+
+        A live owned process with a listening port survives a single transient
+        HTTP failure. The status' consecutive-failure policy remains the only
+        failure clock, while ``liveness_ok`` still exposes actual reachability.
+        """
+        status = self.status("frontend")
+        available = status.liveness_ok or (
+            status.process_alive
+            and status.port_listening
+            and status.consecutive_failures < HEALTH_DEGRADED_AFTER
+            and status.state not in {STATE_STOPPING, STATE_STOPPED, STATE_ERROR}
+        )
+        return ViewerLaunchTarget(self._viewer_url(), status, available)
+
     def viewer_ready(self) -> bool:
-        """Return whether the configured Frontend responds before opening UI."""
-        return self._healthy("frontend")
+        """Compatibility wrapper for the lifecycle-owned Viewer decision."""
+        return self.viewer_launch_target().available
 
     def _port_in_use(self, service: str) -> bool:
         try:
@@ -3106,12 +3152,16 @@ class ServerLifecycleManager:
 
     def open_normal_browser(self) -> ViewerLaunchResult:
         """Open the Viewer in the user's configured default web browser."""
-        url = self._viewer_url()
-        result = BrowserLauncher.open_normal(url)
+        target = self.viewer_launch_target()
+        if not target.available:
+            detail = "Viewerが起動していません。Frontendを起動してから再試行してください。"
+            self._log_process_event("viewer", "normal_open_failed", detail)
+            return ViewerLaunchResult(False, "normal", target.url, detail)
+        result = BrowserLauncher.open_normal(target.url)
         if not result.succeeded:
             self._log_process_event("viewer", "normal_open_failed", result.detail)
             return result
-        self._log_process_event("viewer", "normal_opened", url)
+        self._log_process_event("viewer", "normal_opened", target.url)
         return result
 
     def open_dedicated_view(
@@ -3125,8 +3175,9 @@ class ServerLifecycleManager:
         the user's normal browser profile.  Only the process handle created by
         this method is tracked; no global Edge/Chrome process is ever stopped.
         """
-        url = self._viewer_url()
-        if not self._healthy("frontend"):
+        target = self.viewer_launch_target()
+        url = target.url
+        if not target.available:
             detail = "Viewerが起動していません。Frontendを起動してから再試行してください。"
             self._log_process_event(
                 "viewer",
@@ -3137,7 +3188,7 @@ class ServerLifecycleManager:
 
         self.cleanup_dedicated_view()
         dedicated_manager = self._dedicated_view_manager()
-        process = dedicated_manager.active_process()
+        process = dedicated_manager.active_process(url)
         if process is not None:
             try:
                 window_exists = (
@@ -3164,7 +3215,9 @@ class ServerLifecycleManager:
                     )
             except (AttributeError, OSError):
                 pass
-            dedicated_manager.processes.pop(getattr(process, "pid", -1), None)
+            pid = getattr(process, "pid", -1)
+            dedicated_manager.processes.pop(pid, None)
+            dedicated_manager.urls.pop(pid, None)
 
         launcher = DedicatedViewLauncher(
             self._find_dedicated_browser,
@@ -3189,7 +3242,7 @@ class ServerLifecycleManager:
             f"browser={browser_name or '-'} pid={getattr(process, 'pid', '-')}",
         )
 
-        dedicated_manager.register(process, browser_name or "unknown")
+        dedicated_manager.register(process, browser_name or "unknown", url)
         self._log_process_event(
             "viewer",
             "dedicated_view_started",
@@ -3232,8 +3285,7 @@ class ServerLifecycleManager:
 
     def open_replay(self) -> None:
         """Open the Viewer directly in its Replay history mode."""
-        settings = self._settings()
-        url = f"http://{settings['frontend_host']}:{settings['frontend_port']}?mode=replay"
+        url = f"{self._viewer_url()}?mode=replay"
         webbrowser.open(url)
 
     def open_web_settings(self, section: str = "office") -> None:
@@ -3245,8 +3297,7 @@ class ServerLifecycleManager:
         """
         if section not in {"office", "board"}:
             raise ValueError("設定画面の種類が不正です")
-        settings = self._settings()
-        url = f"http://{settings['frontend_host']}:{settings['frontend_port']}?settings={section}"
+        url = f"{self._viewer_url()}?settings={section}"
         webbrowser.open(url)
 
     def read_logs(self, service: str, lines: int = 200) -> str:

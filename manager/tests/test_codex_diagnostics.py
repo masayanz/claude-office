@@ -90,6 +90,23 @@ def test_eight_hooks_and_matching_launcher_config_are_healthy(tmp_path: Path) ->
     assert result.adapter_path_matches is True
 
 
+def test_bom_prefixed_hooks_and_config_are_healthy(tmp_path: Path) -> None:
+    root = tmp_path / "viewer"
+    (root / "codex-adapter").mkdir(parents=True)
+    (root / "codex-adapter" / "hook.py").write_text("", encoding="utf-8")
+
+    result = inspect_global_hooks(
+        codex_home=tmp_path / "codex-home",
+        viewer_root=root,
+        hooks_text="\ufeff" + _hooks_document(),
+        config_text="\ufeff" + _config(root),
+        launcher_exists=True,
+    )
+
+    assert result.state == DiagnosticState.OK
+    assert result.configured_events == 8
+
+
 def test_missing_one_hook_is_an_error_even_when_other_handlers_exist(tmp_path: Path) -> None:
     events = tuple(event for event in REQUIRED_CODEX_HOOK_EVENTS if event != "Stop")
     result = inspect_global_hooks(
@@ -120,6 +137,42 @@ def test_moved_viewer_root_is_detected(tmp_path: Path) -> None:
     assert result.state == DiagnosticState.ERROR
     assert result.root_matches is False
     assert "修復" in result.detail
+
+
+def test_portable_root_requires_portable_adapter_without_source_fallback(tmp_path: Path) -> None:
+    root = tmp_path / "portable-viewer"
+    (root / "codex-adapter").mkdir(parents=True)
+    (root / "codex-adapter" / "hook.py").write_text("", encoding="utf-8")
+    (root / "portable.flag").write_text("portable\n", encoding="utf-8")
+    result = inspect_global_hooks(
+        codex_home=tmp_path / "home",
+        viewer_root=root,
+        hooks_text=_hooks_document(),
+        config_text=_config(root),
+        launcher_exists=True,
+    )
+
+    assert result.state == DiagnosticState.ERROR
+    assert "Portable Codex adapter" in result.detail
+
+
+def test_portable_root_accepts_current_portable_adapter_after_relocation(tmp_path: Path) -> None:
+    root = tmp_path / "portable-viewer-relocated"
+    adapter = root / "runtime" / "codex-adapter" / "AI-Office-Viewer-Codex-Adapter.exe"
+    adapter.parent.mkdir(parents=True)
+    adapter.write_bytes(b"")
+    (root / "portable.flag").write_text("portable\n", encoding="utf-8")
+    config = json.dumps({"root": str(root), "adapter": str(adapter)})
+    result = inspect_global_hooks(
+        codex_home=tmp_path / "home",
+        viewer_root=root,
+        hooks_text=_hooks_document(),
+        config_text=config,
+        launcher_exists=True,
+    )
+
+    assert result.state == DiagnosticState.OK
+    assert result.adapter_path_matches is True
 
 
 def test_backend_payload_tracks_live_separately_from_restore() -> None:

@@ -479,7 +479,7 @@ def inspect_global_hooks(
             detail="Codex global hooksが設定されていません",
         )
     try:
-        document = json.loads(raw_hooks)
+        document = json.loads(raw_hooks.removeprefix("\ufeff"))
     except json.JSONDecodeError:
         return GlobalHooksInspection(
             state=DiagnosticState.ERROR,
@@ -526,7 +526,7 @@ def inspect_global_hooks(
             if config_text is not None
             else (codex_home / "claude-office-config.json").read_text(encoding="utf-8")
         )
-        config = json.loads(raw_config)
+        config = json.loads(raw_config.removeprefix("\ufeff"))
     except OSError:
         return GlobalHooksInspection(
             state=DiagnosticState.ERROR,
@@ -555,14 +555,15 @@ def inspect_global_hooks(
         root_matches = configured_root.resolve() == viewer_root.resolve()
     except OSError:
         root_matches = configured_root == viewer_root
-    portable_adapter = (
+    portable_mode = (viewer_root / "portable.flag").is_file()
+    expected_adapter = (
         viewer_root
         / "runtime"
         / "codex-adapter"
         / "AI-Office-Viewer-Codex-Adapter.exe"
+        if portable_mode
+        else viewer_root / "codex-adapter" / "hook.py"
     )
-    source_adapter = viewer_root / "codex-adapter" / "hook.py"
-    expected_adapter = portable_adapter if portable_adapter.is_file() else source_adapter
     config_adapter = config.get("adapter")
     configured_adapter = (
         Path(config_adapter).expanduser() if isinstance(config_adapter, str) else None
@@ -575,7 +576,19 @@ def inspect_global_hooks(
     except OSError:
         adapter_matches = configured_adapter == expected_adapter
     current_adapter_exists = expected_adapter.is_file()
-    if not root_matches or not adapter_matches or not current_adapter_exists:
+    if not current_adapter_exists:
+        expected_mode = "Portable Codex adapter" if portable_mode else "開発版Codex adapter"
+        return GlobalHooksInspection(
+            state=DiagnosticState.ERROR,
+            configured_events=8,
+            detail=f"{expected_mode}が見つかりません。再インストールまたは修復してください",
+            launcher_exists=True,
+            config_exists=True,
+            root_matches=root_matches,
+            adapter_path_matches=False,
+            configured_root=str(configured_root),
+        )
+    if not root_matches or not adapter_matches:
         return GlobalHooksInspection(
             state=DiagnosticState.ERROR,
             configured_events=8,

@@ -4,6 +4,12 @@ All notable changes to AI Office Viewer are documented here.
 
 ## [Unreleased]
 
+## [0.24.3] - 2026-08-18
+
+### Fixed
+
+- **Portable Viewer launch and Global Hooks migration.** Dedicated Viewer launch now uses the lifecycle's current frontend target, including Portable Backend-served static Frontends on a configured port. Global Hooks now select the adapter for the current development or Portable root explicitly, preserving unrelated hooks while repairing relocated installations.
+
 ## [0.24.2] - 2026-08-17
 
 ### Fixed

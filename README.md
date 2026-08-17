@@ -16,12 +16,14 @@
 
 * [Screenshots](#screenshots)
 * [About](#about)
+* [Windows Portable版](#windows-portable版)
 * [What's New](#whats-new)
 * [Features](#features)
 * [Quick Start](#quick-start)
 * [Prerequisites](#prerequisites)
 * [Installation](#installation)
 * [Development](#development)
+* [リリース手順（開発者向け）](#リリース手順開発者向け)
 * [Project Structure](#project-structure)
 * [Troubleshooting](#troubleshooting)
 * [Contributing](#contributing)
@@ -46,6 +48,12 @@ AI Office Viewer visualizes Codex、Claude Code、OpenCodeなどのAIエージ�
 The application was built with [Next.js](https://nextjs.org/), [PixiJS](https://pixijs.com/), [FastAPI](https://fastapi.tiangolo.com/), and [Zustand](https://github.com/pmndrs/zustand).
 
 [!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://buymeacoffee.com/probello3)
+
+## Windows Portable版
+
+Windows向けの配布ZIPは、[GitHub Releases](https://github.com/masayanz/ai-office-viewer/releases)から取得できます。GitHubが自動生成するソースコードZIPではなく、Assetsにある `AI-Office-Viewer-Portable-vX.Y.Z.zip` をダウンロードしてください。展開後は `AI-Office-Viewer-Manager.exe` から起動できます。
+
+ダウンロードしたZIPの整合性は、同じAssetsにある `.sha256` ファイルで確認できます。利用方法は[オンライン利用者マニュアル](https://tools.masayanz.net/claude-office/help/index.html)を参照してください。
 
 ## What's New
 
@@ -316,6 +324,28 @@ See [Docker Guide](docs/guides/deployment.md) for detailed configuration.
 ### Accessing the Visualizer
 
 Once running, open [http://localhost:3000](http://localhost:3000) in your browser.
+
+## リリース手順（開発者向け）
+
+Windows Portable版はGitHub CLI（`gh`）を使って安全に公開します。事前に[GitHub CLI](https://cli.github.com/)を導入し、`gh auth login`を完了してください。公開先は `release-config.json` の公開repositoryで、スクリプト実行時にもgit remoteとの一致とPublic設定を検査します。
+
+1. `pyproject.toml`を基準にバージョンを更新します。
+2. `RELEASE_NOTES.md`を今回の変更内容へ更新します。
+3. `build-portable.ps1`でPortable ZIPとSHA256ファイルを生成します。
+4. `publish-release.ps1`で内容を確認し、GitHub Releaseへアップロードします。
+
+```powershell
+# 既存の正式ZIPを使い、確認後にDraft Releaseを作成（既定・推奨）
+.\publish-release.ps1
+
+# Portable ZIPのビルドも続けて実行し、Draft Releaseを作成
+.\publish-release.ps1 -Build
+
+# 内容を確認後、すぐ公開
+.\publish-release.ps1 -Build -Publish
+```
+
+`-PreRelease`はプレリリース、`-NotesFile <path>`は別のリリースノート、`-Yes`は対話確認の省略に使います。既存Releaseは通常実行では変更されません。Assetだけを更新するときは `-UpdateAssets`、同名Assetを置換するときに限り `-ReplaceAssets`を明示してください。
 
 ## Project Structure
 

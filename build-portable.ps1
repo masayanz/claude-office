@@ -169,7 +169,7 @@ runtime\ は配布ランタイム、config\ は初期設定、data\ はSQLite DB
 --------
 1. AI Office Viewerを終了します。
 2. 旧フォルダをバックアップします。
-3. 新しいZIPを展開します。
+3. GitHub Releases (https://github.com/masayanz/ai-office-viewer/releases) から新しいPortable ZIPを取得して展開します。
 4. 必要なら旧フォルダのconfig\data\logsを新フォルダへ引き継ぎます。
 
 削除方法

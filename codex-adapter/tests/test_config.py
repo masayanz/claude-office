@@ -32,3 +32,19 @@ def test_adapter_fails_open_on_corrupt_shared_config(monkeypatch) -> None:
         )
     finally:
         path.unlink(missing_ok=True)
+
+
+def test_frozen_adapter_finds_settings_from_executable(tmp_path, monkeypatch) -> None:
+    root = tmp_path / "AI Office Viewer_日本語"
+    adapter = root / "runtime" / "codex-adapter" / "AI-Office-Viewer-Codex-Adapter.exe"
+    adapter.parent.mkdir(parents=True)
+    adapter.write_bytes(b"")
+    settings = root / "config" / "app-settings.json"
+    settings.parent.mkdir()
+    settings.write_text("{}", encoding="utf-8")
+
+    monkeypatch.delenv("CLAUDE_OFFICE_ROOT", raising=False)
+    monkeypatch.setattr(config.sys, "frozen", True, raising=False)
+    monkeypatch.setattr(config.sys, "executable", str(adapter))
+
+    assert config._settings_path() == settings

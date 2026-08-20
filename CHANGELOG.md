@@ -8,7 +8,7 @@ All notable changes to AI Office Viewer are documented here.
 
 ### Fixed
 
-- **Portable Viewer launch and Global Hooks migration.** Dedicated Viewer launch now uses the lifecycle's current frontend target, including Portable Backend-served static Frontends on a configured port. Global Hooks now select the adapter for the current development or Portable root explicitly, preserving unrelated hooks while repairing relocated installations.
+- **Portable Viewer launch and Global Hooks migration.** Dedicated Viewer launch now uses the lifecycle's current frontend target, including Portable Backend-served static Frontends on a configured port. Global Hooks now select the adapter for the current development or Portable root explicitly, preserve unrelated hooks while repairing relocated installations, and write Codex JSON atomically as UTF-8 without a BOM so Codex CLI can parse it on Windows PowerShell 5.1 and PowerShell 7.
 
 ## [0.24.2] - 2026-08-17
 

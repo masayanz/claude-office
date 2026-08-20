@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 
 EVENTS_HOST = "127.0.0.1"
@@ -17,6 +18,11 @@ def _settings_path() -> Path:
     configured_root = os.environ.get("CLAUDE_OFFICE_ROOT")
     if configured_root:
         return Path(configured_root) / "config" / "app-settings.json"
+    if getattr(sys, "frozen", False):
+        for parent in Path(sys.executable).resolve().parents:
+            candidate = parent / "config" / "app-settings.json"
+            if candidate.is_file():
+                return candidate
     for parent in Path(__file__).resolve().parents:
         candidate = parent / "config" / "app-settings.json"
         if candidate.is_file():

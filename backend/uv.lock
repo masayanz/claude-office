@@ -61,7 +61,7 @@ wheels = [
 
 [[package]]
 name = "claude-office-visualizer"
-version = "0.24.2"
+version = "0.24.3"
 source = { editable = "." }
 dependencies = [
     { name = "aiosqlite" },
